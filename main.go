@@ -471,7 +471,7 @@ func Must(err error) {
 
 func init() {
 	zerolog.ErrorStackMarshaler = pkgerrors.MarshalStack
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
+	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stdout})
 }
 
 type Opts struct {
