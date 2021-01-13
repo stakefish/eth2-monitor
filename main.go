@@ -159,46 +159,6 @@ func IndexPubkeys(ctx context.Context, s *prysmgrpc.Service, pubkeys []string) (
 	return result, reversed, nil
 }
 
-func SubscribeToDuties(ctx context.Context, s *prysmgrpc.Service, wg *sync.WaitGroup, req *ethpb.DutiesRequest) {
-	defer wg.Done()
-
-	conn := ethpb.NewBeaconNodeValidatorClient(s.Connection())
-
-	stream, err := conn.StreamDuties(ctx, req)
-	if err != nil {
-		panic(err)
-	}
-	defer stream.CloseSend()
-
-	waitc := make(chan struct{})
-	go func() {
-		for {
-			resp, err := stream.Recv()
-			if err == io.EOF {
-				waitc <- struct{}{}
-				return
-			}
-			if err != nil {
-				panic(err)
-				return
-			}
-
-			for _, duty := range resp.NextEpochDuties {
-				fmt.Printf("Public Key: %v\n", hex.EncodeToString(duty.PublicKey))
-				fmt.Printf("Validator Status: %v\n", duty.Status)
-				fmt.Printf("Validator Index: %v\n", duty.ValidatorIndex)
-				fmt.Printf("Committee Index: %v\n", duty.CommitteeIndex)
-				fmt.Printf("Attester Slot: %v\n", duty.AttesterSlot)
-				fmt.Printf("Proposer Slots: %v\n", duty.ProposerSlots)
-				fmt.Printf("\n")
-
-				s.DutiesChan <- duty
-			}
-		}
-	}()
-	<-waitc
-}
-
 func SubscribeToChainHead(ctx context.Context, s *prysmgrpc.Service, wg *sync.WaitGroup) {
 	defer wg.Done()
 
@@ -259,75 +219,12 @@ func GetChainHead(ctx context.Context, s *prysmgrpc.Service) (*ethpb.ChainHead, 
 	return resp, nil
 }
 
-func ListValidatorAssignments(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch) error {
-	req := &ethpb.ListValidatorAssignmentsRequest{}
-	if epoch == 0 {
-		req.QueryFilter = &ethpb.ListValidatorAssignmentsRequest_Genesis{Genesis: true}
-	} else {
-		req.QueryFilter = &ethpb.ListValidatorAssignmentsRequest_Epoch{Epoch: uint64(epoch)}
-	}
-
-	fmt.Printf("\n\n## Assignments for epoch %v ##\n\n", epoch)
-	conn := ethpb.NewBeaconChainClient(s.Connection())
-	for {
-		opCtx, cancel := context.WithTimeout(ctx, s.Timeout())
-		resp, err := conn.ListValidatorAssignments(opCtx, req)
-		if err != nil {
-			// TODO: Handle properly.
-			panic(err)
-		}
-		cancel()
-
-		fmt.Printf("Assignments for epoch=%v:\n", resp.Epoch)
-		for _, assignment := range resp.Assignments {
-			fmt.Printf("validator_index=\t%+v\n", assignment.ValidatorIndex)
-			fmt.Printf("committee_index=\t%+v\n", assignment.CommitteeIndex)
-			fmt.Printf("attester_slot=\t%+v\n", assignment.AttesterSlot)
-			fmt.Printf("proposer_slots=\t%+v\n", assignment.ProposerSlots)
-		}
-
-		req.PageToken = resp.NextPageToken
-		if req.PageToken == "" {
-			break
-		}
-	}
-	return nil
-}
-
-func GetIndividualVotes(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch, indexes []spec.ValidatorIndex) error {
-	req := &ethpb.IndividualVotesRequest{}
-	req.Epoch = uint64(epoch)
-	req.Indices = []uint64(indexes)
-
-	conn := ethpb.NewBeaconChainClient(s.Connection())
-	opCtx, cancel := context.WithTimeout(ctx, s.Timeout())
-	resp, err := conn.GetIndividualVotes(opCtx, req)
-	if err != nil {
-		// TODO: Handle properly.
-		panic(err)
-	}
-	cancel()
-
-	fmt.Printf("\n\n## Individual votes for epoch %v ##\n\n", epoch)
-	for _, vote := range resp.IndividualVotes {
-		fmt.Printf("validator_index=\t%+v\n", vote.ValidatorIndex)
-		fmt.Printf("epoch=\t%+v\n", vote.Epoch)
-		fmt.Printf("inclusion_slot=\t%+v\n", vote.InclusionSlot)
-		fmt.Printf("inclusion_distance=\t%+v\n", vote.InclusionDistance)
-	}
-
-	return nil
-}
-
 type BeaconCommittees map[spec.CommitteeIndex][]spec.ValidatorIndex
 
 func ListBeaconCommittees(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch) (map[spec.Slot]BeaconCommittees, error) {
-	req := &ethpb.ListCommitteesRequest{}
-	// if epoch == 0 {
-	// 	req.QueryFilter = &ethpb.ListCommitteesRequest_Genesis{Genesis: true}
-	// } else {
-	req.QueryFilter = &ethpb.ListCommitteesRequest_Epoch{Epoch: uint64(epoch)}
-	// }
+	req := &ethpb.ListCommitteesRequest{
+		QueryFilter: &ethpb.ListCommitteesRequest_Epoch{Epoch: uint64(epoch)},
+	}
 
 	conn := ethpb.NewBeaconChainClient(s.Connection())
 
@@ -420,37 +317,6 @@ func ListBlocks(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch) (ma
 	return result, nil
 }
 
-func ListIndexedAttestations(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch) error {
-	req := &ethpb.ListIndexedAttestationsRequest{
-		QueryFilter: &ethpb.ListIndexedAttestationsRequest_Epoch{Epoch: epoch},
-	}
-
-	conn := ethpb.NewBeaconChainClient(s.Connection())
-	fmt.Printf("\n\n## Indexed Attestations for epoch %v ##\n\n", epoch)
-	for {
-		opCtx, cancel := context.WithTimeout(ctx, s.Timeout())
-		resp, err := conn.ListIndexedAttestations(opCtx, req)
-		if err != nil {
-			// TODO: Handle properly.
-			panic(err)
-		}
-		cancel()
-
-		for _, att := range resp.IndexedAttestations {
-			fmt.Printf("Attesting indexes: %+v\n", att.AttestingIndices)
-			fmt.Printf("Slot: %v\n", att.Data.Slot)
-			fmt.Printf("Committee Index: %v\n", att.Data.CommitteeIndex)
-		}
-
-		req.PageToken = resp.NextPageToken
-		if req.PageToken == "" {
-			break
-		}
-	}
-
-	return nil
-}
-
 type BlockAttestationStatus struct {
 	IsAttested bool
 	IsPrinted  bool
@@ -477,8 +343,6 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service) 
 	for index := range reversedIndexes {
 		validatorIndexes = append(validatorIndexes, index)
 	}
-
-	// duties := make(map[spec.ValidatorIndex][]*ethpb.DutiesResponse_Duty)
 
 	committees := make(map[spec.Slot]BeaconCommittees)
 	blocks := make(map[spec.Slot]*Block)
@@ -535,19 +399,16 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service) 
 
 			for blockSlot, block := range blocks {
 				_ = blockSlot
-				// fmt.Printf("Checking block at slot %v\n", blockSlot)
 				for _, attestation := range block.Attestations {
 					bits := bitfield.Bitlist(attestation.AggregationBits)
 
 					var epoch spec.Epoch = attestation.Slot / spec.SLOTS_PER_EPOCH
 					committee := committees[attestation.Slot][attestation.CommitteeIndex]
-					// fmt.Printf("Checking committee %v: %+v\n", attestation.CommitteeIndex, committee)
 					for i, index := range committee {
 						if _, ok := includedAttestations[epoch]; !ok {
 							includedAttestations[epoch] = make(map[spec.ValidatorIndex]*BlockAttestation)
 						}
 						if bits.BitAt(uint64(i)) {
-							// fmt.Printf("Validator %v attested (blockSlot=%v, slot=%v, committee=%v)\n", index, blockSlot, attestation.Slot, attestation.CommitteeIndex)
 							if att := includedAttestations[epoch][index]; att == nil || att.InclusionSlot > attestation.InclusionSlot {
 								includedAttestations[epoch][index] = attestation
 								attestedEpoches[epoch][index].IsAttested = true
@@ -595,78 +456,6 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service) 
 					delete(committees, slot)
 				}
 			}
-
-			///
-			/*
-				epoch := chainHead.HeadEpoch - 1
-
-				req := &ethpb.ListIndexedAttestationsRequest{}
-				if epoch == 0 {
-					req.QueryFilter = &ethpb.ListIndexedAttestationsRequest_GenesisEpoch{GenesisEpoch: true}
-				} else {
-					req.QueryFilter = &ethpb.ListIndexedAttestationsRequest_Epoch{Epoch: epoch}
-				}
-				conn := ethpb.NewBeaconChainClient(s.Connection())
-				for {
-					opCtx, cancel := context.WithTimeout(ctx, s.Timeout())
-					resp, err := conn.ListIndexedAttestations(opCtx, req)
-					if err != nil {
-						// TODO: Handle properly.
-						panic(err)
-					}
-					cancel()
-
-					// fmt.Printf("Current duties: %+v\n\n", duties)
-
-					for i := range resp.IndexedAttestations {
-						att := resp.IndexedAttestations[i]
-						go func() { s.IndexedAttestationsChan <- att }()
-					}
-
-					req.PageToken = resp.NextPageToken
-					if req.PageToken == "" {
-						break
-					}
-				}
-			*/
-			/*
-				case att := <-s.IndexedAttestationsChan:
-					// fmt.Printf("Received attestation: slot=%v commitee=%v indices=%v\n\n", att.Data.Slot, att.Data.CommitteeIndex, att.AttestingIndices)
-
-					indicies := make(map[spec.ValidatorIndex]int)
-					for i, index := range att.AttestingIndices {
-						indicies[spec.ValidatorIndex(index)] = i
-					}
-
-				Done:
-					for index, validatorDuties := range duties {
-						if _, ok := indicies[index]; ok {
-							for i, duty := range validatorDuties {
-								if duty.CommitteeIndex == att.Data.CommitteeIndex &&
-									duty.AttesterSlot <= att.Data.Slot {
-									fmt.Printf("Attestation is included: distance=%v\n", att.Data.Slot-duty.AttesterSlot)
-									fmt.Printf("Attestation: %+v\n", att)
-									fmt.Printf("Duty: %+v\n", duty)
-									fmt.Printf("\n")
-									copy(duties[index][i:], duties[index][i+1:])
-									duties[index] = duties[index][:len(duties[index])-1]
-									break Done
-								}
-							}
-						}
-					}
-
-				case block := <-s.SignedBlocksChan:
-					fmt.Printf("Received block: %+v\n\n", block)
-					// for _, attestation := range block.Block.Body.Attestations {
-
-					// }
-				case duty := <-s.DutiesChan:
-					// var pk [48]byte
-					// copy(pk[:], duty.PublicKey[:])
-					index := spec.ValidatorIndex(duty.ValidatorIndex)
-					duties[index] = append(duties[index], duty)
-			*/
 		}
 	}
 }
@@ -684,21 +473,6 @@ func init() {
 }
 
 func main() {
-	var plainKeys []string
-	file, err := os.Open("pubkeys.txt")
-	Must(err)
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		plainKeys = append(plainKeys, scanner.Text())
-	}
-
-	err = scanner.Err()
-	Must(err)
-
-	////
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	s, err := prysmgrpc.New(ctx,
@@ -706,176 +480,10 @@ func main() {
 		prysmgrpc.WithLogLevel(zerolog.WarnLevel))
 	Must(err)
 
-	/*
-		lastChainHead, err := GetChainHead(ctx, s)
-		if err != nil {
-			panic(err)
-		}
-	*/
-
-	// conn := ethpb.NewBeaconNodeValidatorClient(s.Connection())
-
-	// pubkey, err := hex.DecodeString("afac0d79ea9b3d9063920e3f2eca02444488e558b41e51c22f49c172bd4f19d91a8af0ff6f5f2a942a080d5af6ea2da4")
-	// if err != nil {
-	// 	panic(err)
-	// }
-
-	// pubKeys := [][]byte{
-	// 	pubkey,
-	// }
-
-	// req := &ethpb.DutiesRequest{
-	// 	// Epoch:      uint64(epoch),
-	// 	PublicKeys: pubKeys,
-	// }
-
-	// {
-	// 	opCtx, cancel := context.WithTimeout(ctx, s.Timeout())
-	// 	resp, err := conn.GetDuties(opCtx, req)
-	// 	defer cancel()
-	// 	if err != nil {
-	// 		panic(err)
-	// 	}
-	// 	fmt.Printf("resp=%+v\n", resp)
-	// }
-	// // if err != nil {
-	// // 	return nil, errors.Wrap(err, "call to GetDuties() failed")
-	// // }
-
-	/*
-		_, reversedIndexes, err := IndexPubkeys(ctx, s, plainKeys)
-		Must(err)
-
-		var validatorIndexes []spec.ValidatorIndex
-		for index := range reversedIndexes {
-			validatorIndexes = append(validatorIndexes, index)
-		}
-
-		committees := make(map[spec.Slot]BeaconCommittees)
-		blocks := make(map[spec.Slot]*Block)
-		for epoch := lastChainHead.JustifiedEpoch; epoch >= lastChainHead.JustifiedEpoch-4; epoch-- {
-			var err error
-			var epochCommittees map[spec.Slot]BeaconCommittees
-			var epochBlocks map[spec.Slot]*Block
-
-			if epoch != lastChainHead.JustifiedEpoch {
-				Measure(func() {
-					epochCommittees, err = ListBeaconCommittees(ctx, s, spec.Epoch(epoch))
-					Must(err)
-				}, "ListBeaconCommittees(epoch=%v)", epoch)
-
-				for k, v := range epochCommittees {
-					committees[k] = v
-				}
-			}
-
-			Measure(func() {
-				epochBlocks, err = ListBlocks(ctx, s, spec.Epoch(epoch))
-				Must(err)
-			}, "ListBlocks(epoch=%v)", epoch)
-
-			for k, v := range epochBlocks {
-				blocks[k] = v
-			}
-		}
-
-		includedAttestations := make(map[spec.ValidatorIndex]map[spec.Epoch]*BlockAttestation)
-		attestedEpoches := make(map[spec.Epoch]map[spec.ValidatorIndex]bool)
-
-		for slot, epochCommittees := range committees {
-			var epoch spec.Epoch = slot / spec.SLOTS_PER_EPOCH
-			if _, ok := attestedEpoches[epoch]; !ok {
-				attestedEpoches[epoch] = make(map[spec.ValidatorIndex]bool)
-			}
-
-			for _, committee := range epochCommittees {
-				for _, index := range committee {
-					attestedEpoches[epoch][index] = false
-				}
-			}
-		}
-
-		for blockSlot, block := range blocks {
-			_ = blockSlot
-			// fmt.Printf("Checking block at slot %v\n", blockSlot)
-			for _, attestation := range block.Attestations {
-				bits := bitfield.Bitlist(attestation.AggregationBits)
-
-				var epoch spec.Epoch = attestation.Slot / spec.SLOTS_PER_EPOCH
-				committee := committees[attestation.Slot][attestation.CommitteeIndex]
-				// fmt.Printf("Checking committee %v: %+v\n", attestation.CommitteeIndex, committee)
-				for i, index := range committee {
-					if _, ok := includedAttestations[index]; !ok {
-						includedAttestations[index] = make(map[spec.Epoch]*BlockAttestation)
-					}
-					if bits.BitAt(uint64(i)) {
-						// fmt.Printf("Validator %v attested (blockSlot=%v, slot=%v, committee=%v)\n", index, blockSlot, attestation.Slot, attestation.CommitteeIndex)
-						if att := includedAttestations[index][epoch]; att == nil || att.InclusionSlot > attestation.InclusionSlot {
-							includedAttestations[index][epoch] = attestation
-							attestedEpoches[epoch][index] = true
-						}
-					}
-				}
-			}
-		}
-
-		for epoch, validators := range attestedEpoches {
-			for index, attStatus := range validators {
-				if _, ok := reversedIndexes[index]; !ok {
-					continue
-				}
-
-				if !attStatus.IsAttested && !attStatus.IsPrinted {
-					log.Info().Msgf("❌ Validator %v did not attest epoch %v", index, epoch)
-					attStatus.IsPrinted = true
-				} else if att := includedAttestations[index][epoch]; att != nil && !attStatus.IsPrinted {
-					log.Info().Msgf("✅ Validator %v attested epoch %v slot %v at slot %v, distance is %v", index, epoch, att.Slot, att.InclusionSlot, att.InclusionSlot-att.Slot-1)
-					attStatus.IsPrinted = true
-				}
-			}
-		}
-	*/
-
-	// for i := 0; i <= 5; i++ {
-	// 	Measure("ListBeaconCommittees", func() {
-	// 		ListBeaconCommittees(ctx, s, spec.Epoch(i))
-	// 	})
-	// }
-	// for i := 0; i <= 5; i++ {
-	// 	Measure("ListBlocks", func() {
-	// 		ListBlocks(ctx, s, spec.Epoch(i))
-	// 	})
-	// }
-	// for i := 0; i <= 5; i++ {
-	// 	Measure("ListIndexedAttestations", func() {
-	// 		ListIndexedAttestations(ctx, s, spec.Epoch(i))
-	// 	})
-	// }
-	// for i := 0; i <= 20; i++ {
-	// 	Measure("GetIndividualVotes", func() {
-	// 		GetIndividualVotes(ctx, s, spec.Epoch(i), validatorIndexes)
-	// 	})
-	// }
-	// for i := 138; i <= 143; i++ {
-	// 	Measure("GetIndividualVotes", func() {
-	// 		GetIndividualVotes(ctx, s, spec.Epoch(i), validatorIndexes)
-	// 	})
-	// }
-
-	// Measure("ListBeaconCommittees", func() {
-	// 	ListBeaconCommittees(ctx, s, spec.Epoch(lastChainHead.HeadEpoch-10))
-	// })
-	// Measure("GetIndividualVotes", func() {
-	// 	GetIndividualVotes(ctx, s, spec.Epoch(lastChainHead.HeadEpoch-10), []spec.ValidatorIndex{109733})
-	// })
-
 	var wg sync.WaitGroup
-
 	wg.Add(1)
-	// go SubscribeToDuties(ctx, s, &wg, req)
 	go SubscribeToChainHead(ctx, s, &wg)
+	defer wg.Wait()
 
 	go MonitorAttestationsAndProposals(ctx, s)
-
-	wg.Wait()
 }
