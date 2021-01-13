@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"eth2-monitor/spec"
 
 	"github.com/gogo/protobuf/types"
+	flags "github.com/jessevdk/go-flags"
 	"github.com/pkg/errors"
 	ethpb "github.com/prysmaticlabs/ethereumapis/eth/v1alpha1"
 	bitfield "github.com/prysmaticlabs/go-bitfield"
@@ -56,12 +58,16 @@ type LocalCache struct {
 	Validators map[string]CachedIndex
 }
 
+var (
+	cacheFilePath = path.Join(os.TempDir(), "stakefish-eth2-monitor-cache.json")
+)
+
 func LoadCache() *LocalCache {
 	cache := &LocalCache{
 		Validators: make(map[string]CachedIndex),
 	}
 
-	fd, err := os.Open("/tmp/stakefish-eth2-monitor-cache.json")
+	fd, err := os.Open(cacheFilePath)
 	if err != nil {
 		log.Debug().Err(err).Msg("LoadCache: os.Open failed; skip")
 		return cache
@@ -85,23 +91,22 @@ func SaveCache(cache *LocalCache) {
 		return
 	}
 
-	// TODO: Create a temporary file.
-	fd, err := os.OpenFile("/tmp/stakefish-eth2-monitor-cache.json.tmp", os.O_RDWR|os.O_CREATE, 0600)
+	tmpfile, err := ioutil.TempFile("", "stakefish-eth2-monitor-cache.*.json")
 	if err != nil {
 		log.Debug().Err(err).Msg("SaveCache: os.Open failed; skip")
 		return
 	}
-	defer fd.Close()
+	defer os.Remove(tmpfile.Name())
 
 	for bytesWritten := 0; bytesWritten < len(rawCache); {
-		nWritten, err := fd.Write(rawCache[bytesWritten:])
+		nWritten, err := tmpfile.Write(rawCache[bytesWritten:])
 		if err != nil && err != io.ErrShortWrite {
-			log.Debug().Err(err).Msg("SaveCache: fd.Write failed; skip")
+			log.Debug().Err(err).Msg("SaveCache: tmpfile.Write failed; skip")
 			break
 		}
 		bytesWritten += nWritten
 	}
-	os.Rename("/tmp/stakefish-eth2-monitor-cache.json.tmp", "/tmp/stakefish-eth2-monitor-cache.json")
+	os.Rename(tmpfile.Name(), cacheFilePath)
 }
 
 func IndexPubkeys(ctx context.Context, s *prysmgrpc.Service, pubkeys []string) (map[string]spec.ValidatorIndex, map[spec.ValidatorIndex]string, error) {
@@ -166,12 +171,12 @@ func SubscribeToChainHead(ctx context.Context, s *prysmgrpc.Service, wg *sync.Wa
 	if err != nil {
 		panic(err)
 	}
-	epoch := lastChainHead.JustifiedEpoch
-	lastChainHead.JustifiedEpoch -= 8
+	// epoch := lastChainHead.JustifiedEpoch
+	// lastChainHead.JustifiedEpoch -= 8
 
-	for ; lastChainHead.JustifiedEpoch < epoch; lastChainHead.JustifiedEpoch++ {
-		s.ChainHeadChan <- &ethpb.ChainHead{JustifiedEpoch: lastChainHead.JustifiedEpoch}
-	}
+	// for ; lastChainHead.JustifiedEpoch < epoch; lastChainHead.JustifiedEpoch++ {
+	// 	s.ChainHeadChan <- &ethpb.ChainHead{JustifiedEpoch: lastChainHead.JustifiedEpoch}
+	// }
 
 	conn := ethpb.NewBeaconChainClient(s.Connection())
 
@@ -324,7 +329,7 @@ type BlockAttestationStatus struct {
 
 func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service) (*ethpb.ChainHead, error) {
 	var plainKeys []string
-	file, err := os.Open("pubkeys.txt")
+	file, err := os.Open(opts.PubkeysFilename)
 	Must(err)
 	defer file.Close()
 
@@ -434,15 +439,12 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service) 
 						attStatus.IsPrinted = true
 					} else if att := includedAttestations[epoch][index]; att != nil && !attStatus.IsPrinted {
 						distance := att.InclusionSlot - att.Slot - 1
-						var emoji string
-						if distance > 1 {
-							emoji = "⚠️"
-							log.Warn().Msgf("%s Validator %v attested epoch %v slot %v at slot %v, distance is %v",
-								emoji, index, epoch, att.Slot, att.InclusionSlot, distance)
-						} else {
-							emoji = "✅"
-							log.Info().Msgf("%s Validator %v attested epoch %v slot %v at slot %v, distance is %v",
-								emoji, index, epoch, att.Slot, att.InclusionSlot, distance)
+						if distance > opts.DistanceTolerance {
+							log.Warn().Msgf("⚠️ Validator %v attested epoch %v slot %v at slot %v, distance is %v",
+								index, epoch, att.Slot, att.InclusionSlot, distance)
+						} else if opts.PrintSuccessful {
+							log.Info().Msgf("✅ Validator %v attested epoch %v slot %v at slot %v, distance is %v",
+								index, epoch, att.Slot, att.InclusionSlot, distance)
 						}
 						attStatus.IsPrinted = true
 					}
@@ -472,7 +474,28 @@ func init() {
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
 }
 
+type Opts struct {
+	PrintSuccessful   bool   `short:"s" long:"print-successful" description:"Print successful attestations"`
+	DistanceTolerance uint64 `short:"d" long:"distance-tolerance" description:"Longest tolerated inclusion slot distance"`
+
+	PubkeysFilename string
+}
+
+var opts Opts
+
 func main() {
+	opts.PrintSuccessful = false
+	opts.DistanceTolerance = 2
+
+	args, err := flags.ParseArgs(&opts, os.Args[1:])
+	if err != nil {
+		os.Exit(1)
+	}
+	if len(args) < 1 {
+		panic("Need more keys")
+	}
+	opts.PubkeysFilename = args[0]
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	s, err := prysmgrpc.New(ctx,
