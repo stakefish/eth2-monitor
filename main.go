@@ -509,7 +509,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service) 
 
 func Must(err error) {
 	if err != nil {
-		log.Fatal().Err(err).Stack().Msg("Fatal error occurred")
+		log.Error().Stack().Err(err).Msg("Fatal error occurred")
 		panic(err)
 	}
 }
