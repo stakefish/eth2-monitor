@@ -159,7 +159,9 @@ func ListProposers(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch, 
 		indexes = append(indexes, index)
 	}
 
-	chunkSize := 1
+	conn := ethpb.NewBeaconChainClient(s.Connection())
+
+	chunkSize := 250
 	for i := 0; i < len(indexes); i += chunkSize {
 		end := i + chunkSize
 		if end > len(indexes) {
@@ -170,17 +172,12 @@ func ListProposers(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch, 
 			Indices:     indexes[i:end],
 		}
 
-		conn := ethpb.NewBeaconChainClient(s.Connection())
-	First:
 		for {
 			opCtx, cancel := context.WithTimeout(ctx, s.Timeout())
 			resp, err := conn.ListValidatorAssignments(opCtx, req)
 			if err != nil {
-				// FIXME: Ignore this error.
-				cancel()
-				break First
-				// log.Error().Stack().Err(err).Msgf("conn.ListValidatorAssignments failed: req=%+v", req)
-				// return nil, err
+				log.Error().Stack().Err(err).Msgf("conn.ListValidatorAssignments failed: req=%+v", req)
+				return nil, err
 			}
 			cancel()
 
