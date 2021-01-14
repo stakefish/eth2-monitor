@@ -174,6 +174,7 @@ func ListProposers(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch, 
 			opCtx, cancel := context.WithTimeout(ctx, s.Timeout())
 			resp, err := conn.ListValidatorAssignments(opCtx, req)
 			if err != nil {
+				log.Error().Stack().Err(err).Msgf("conn.ListValidatorAssignments failed: req=%+v", req)
 				return nil, err
 			}
 			cancel()
