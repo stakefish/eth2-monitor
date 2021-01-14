@@ -105,12 +105,15 @@ func IndexPubkeys(ctx context.Context, s *prysmgrpc.Service, pubkeys []string) (
 		pubkey := strings.TrimPrefix(pubkey, "0x")
 		pubkey = strings.ToLower(pubkey)
 
-		if cachedIndex, ok := cache.Validators[pubkey]; ok && cachedIndex.At.Sub(time.Now()) < 3600*time.Second {
+		if cachedIndex, ok := cache.Validators[pubkey]; ok {
 			if cachedIndex.Index != ^spec.ValidatorIndex(0) {
 				result[pubkey] = cachedIndex.Index
 				reversed[cachedIndex.Index] = pubkey
+				continue
 			}
-			continue
+			if cachedIndex.At.Sub(time.Now()) < 3600*time.Second {
+				continue
+			}
 		}
 
 		pk, err := hex.DecodeString(pubkey)
