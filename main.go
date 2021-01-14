@@ -159,8 +159,9 @@ func ListProposers(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch, 
 		indexes = append(indexes, index)
 	}
 
-	for i := 0; i < len(indexes); i += 250 {
-		end := i + 250
+	chunkSize := 1
+	for i := 0; i < len(indexes); i += chunkSize {
+		end := i + chunkSize
 		if end > len(indexes) {
 			end = len(indexes)
 		}
@@ -174,6 +175,9 @@ func ListProposers(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch, 
 			opCtx, cancel := context.WithTimeout(ctx, s.Timeout())
 			resp, err := conn.ListValidatorAssignments(opCtx, req)
 			if err != nil {
+				// FIXME: Ignore this error.
+				cancel()
+				continue
 				log.Error().Stack().Err(err).Msgf("conn.ListValidatorAssignments failed: req=%+v", req)
 				return nil, err
 			}
