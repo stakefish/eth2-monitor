@@ -27,27 +27,11 @@ import (
 	"github.com/rs/zerolog/pkgerrors"
 )
 
-// var log zerolog.Logger
-
-var ValidatorKeys = map[spec.ValidatorIndex]string{
-	// Proposed epoch=0 slot=1
-	// Missed attestation epoch=0 slot=4
-	// Missed attestation epoch=1 slot=48
-	// Missed attestation epoch=2 slot=65
-	// Orphaned attestation epoch=3 slot=110
-	61090: "aed825e4d2b730bf483c235f734a91ffe82f0cef4e3d492d1f3ac2d9bd9b379d04e5f04e334c2532d6a73a91292a9095",
-	// Orphaned epoch=0 slot=2
-	// Orphaned attestation epoch=4 slot=154
-	97715: "8fc9924187b17bc48d75fa225c0c9beee585f73deaed406a6817ab54f9e641a568472d0bcabb30e586da8bb8158d028d",
-	// Missed   epoch=3 slot=96
-	62723: "a8c80e7388d4c714707ec1ddfb648466d1f5d1de6a95564572384ac0d803bf01bef652d949a2c28c0ab8bbc163320154",
-}
-
 func Measure(handler func(), title string, args ...interface{}) {
 	start := time.Now()
 	handler()
 	elapsed := time.Now().Sub(start)
-	log.Debug().Msgf("⌛ %s took %v", fmt.Sprintf(title, args...), elapsed)
+	log.Debug().Msgf("⏱️ %s took %v", fmt.Sprintf(title, args...), elapsed)
 }
 
 type CachedIndex struct {
