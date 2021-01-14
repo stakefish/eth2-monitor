@@ -159,8 +159,8 @@ func ListProposers(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch, 
 		indexes = append(indexes, index)
 	}
 
-	for i := 0; i < len(indexes); i += 1000 {
-		end := i + 1000
+	for i := 0; i < len(indexes); i += 250 {
+		end := i + 250
 		if end > len(indexes) {
 			end = len(indexes)
 		}
