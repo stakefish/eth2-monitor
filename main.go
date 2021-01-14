@@ -31,7 +31,7 @@ func Measure(handler func(), title string, args ...interface{}) {
 	start := time.Now()
 	handler()
 	elapsed := time.Now().Sub(start)
-	log.Debug().Msgf("⏱️ %s took %v", fmt.Sprintf(title, args...), elapsed)
+	log.Debug().Msgf("⏱️  %s took %v", fmt.Sprintf(title, args...), elapsed)
 }
 
 type CachedIndex struct {
@@ -148,13 +148,55 @@ func IndexPubkeys(ctx context.Context, s *prysmgrpc.Service, pubkeys []string) (
 	return result, reversed, nil
 }
 
+func ListProposers(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch, validators map[string]spec.ValidatorIndex) (map[spec.Slot]spec.ValidatorIndex, error) {
+	result := make(map[spec.Slot]spec.ValidatorIndex)
+
+	var indexes []spec.ValidatorIndex
+	for _, index := range validators {
+		indexes = append(indexes, index)
+	}
+
+	for i := 0; i < len(indexes); i += 1000 {
+		end := i + 1000
+		if end > len(indexes) {
+			end = len(indexes)
+		}
+		req := &ethpb.ListValidatorAssignmentsRequest{
+			QueryFilter: &ethpb.ListValidatorAssignmentsRequest_Epoch{Epoch: uint64(epoch)},
+			Indices:     indexes[i:end],
+		}
+
+		conn := ethpb.NewBeaconChainClient(s.Connection())
+		for {
+			opCtx, cancel := context.WithTimeout(ctx, s.Timeout())
+			resp, err := conn.ListValidatorAssignments(opCtx, req)
+			if err != nil {
+				return nil, err
+			}
+			cancel()
+
+			for _, assignment := range resp.Assignments {
+				if len(assignment.ProposerSlots) > 0 {
+					result[assignment.ProposerSlots[0]] = assignment.ValidatorIndex
+				}
+			}
+
+			req.PageToken = resp.NextPageToken
+			if req.PageToken == "" {
+				break
+			}
+		}
+	}
+
+	return result, nil
+}
+
 func SubscribeToChainHead(ctx context.Context, s *prysmgrpc.Service, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	lastChainHead, err := GetChainHead(ctx, s)
-	if err != nil {
-		panic(err)
-	}
+	Must(err)
+
 	// epoch := lastChainHead.JustifiedEpoch
 	// lastChainHead.JustifiedEpoch -= 8
 
@@ -325,7 +367,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service) 
 	err = scanner.Err()
 	Must(err)
 
-	_, reversedIndexes, err := IndexPubkeys(ctx, s, plainKeys)
+	directIndexes, reversedIndexes, err := IndexPubkeys(ctx, s, plainKeys)
 	Must(err)
 
 	var validatorIndexes []spec.ValidatorIndex
@@ -354,7 +396,12 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service) 
 			var err error
 			var epochCommittees map[spec.Slot]BeaconCommittees
 			var epochBlocks map[spec.Slot]*Block
+			var proposals map[spec.Slot]spec.ValidatorIndex
 
+			Measure(func() {
+				proposals, err = ListProposers(ctx, s, spec.Epoch(epoch), directIndexes)
+				Must(err)
+			}, "ListProposers(epoch=%v)", epoch)
 			Measure(func() {
 				epochCommittees, err = ListBeaconCommittees(ctx, s, spec.Epoch(epoch))
 				Must(err)
@@ -380,7 +427,10 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service) 
 				for _, committee := range epochCommittees {
 					for _, index := range committee {
 						if _, ok := attestedEpoches[epoch][index]; !ok {
-							attestedEpoches[epoch][index] = &BlockAttestationStatus{IsAttested: false, IsPrinted: false}
+							attestedEpoches[epoch][index] = &BlockAttestationStatus{
+								IsAttested: false,
+								IsPrinted:  false,
+							}
 						}
 					}
 				}
@@ -419,21 +469,29 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service) 
 					}
 
 					if epoch <= chainHead.JustifiedEpoch-2 && !attStatus.IsAttested && !attStatus.IsPrinted {
-						log.Warn().Msgf("❌ Validator %v did not attest epoch %v", index, epoch)
+						log.Warn().Msgf("❌ 🧾 Validator %v did not attest epoch %v", index, epoch)
 						attStatus.IsPrinted = true
 					} else if att := includedAttestations[epoch][index]; att != nil && !attStatus.IsPrinted {
 						distance := att.InclusionSlot - att.Slot - 1
 						if distance > opts.DistanceTolerance {
-							log.Warn().Msgf("⚠️ Validator %v attested epoch %v slot %v at slot %v, distance is %v",
+							log.Warn().Msgf("⚠️ 🧾 Validator %v attested epoch %v slot %v at slot %v, distance is %v",
 								index, epoch, att.Slot, att.InclusionSlot, distance)
 						} else if opts.PrintSuccessful {
-							log.Info().Msgf("✅ Validator %v attested epoch %v slot %v at slot %v, distance is %v",
+							log.Info().Msgf("✅ 🧾 Validator %v attested epoch %v slot %v at slot %v, distance is %v",
 								index, epoch, att.Slot, att.InclusionSlot, distance)
 						}
 						attStatus.IsPrinted = true
 					}
 				}
 			}
+
+			for slot, index := range proposals {
+				if _, ok := blocks[slot]; !ok {
+					log.Warn().Msgf("❌ 🧱 Validator %v missed block at epoch %v and slot %v",
+						index, chainHead.JustifiedEpoch, slot)
+				}
+			}
+
 			for _, epoch := range epochsToGarbage {
 				delete(attestedEpoches, epoch)
 				delete(includedAttestations, epoch)
