@@ -480,8 +480,19 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service) 
 					} else if att := includedAttestations[epoch][index]; att != nil && !attStatus.IsPrinted {
 						distance := att.InclusionSlot - att.Slot - 1
 						if distance > opts.DistanceTolerance {
-							log.Warn().Msgf("⚠️ 🧾 Validator %v attested epoch %v slot %v at slot %v, distance is %v",
-								index, epoch, att.Slot, att.InclusionSlot, distance)
+							var optimalDistance spec.Slot = 0
+							for e := att.Slot + 1; e < att.InclusionSlot; e++ {
+								if _, ok := blocks[e]; ok {
+									optimalDistance++
+								}
+							}
+							if optimalDistance > opts.DistanceTolerance {
+								log.Warn().Msgf("⚠️ 🧾 Validator %v attested epoch %v slot %v at slot %v, opt distance is %v, abs distance is %v",
+									index, epoch, att.Slot, att.InclusionSlot, optimalDistance, distance)
+							} else if opts.PrintSuccessful {
+								log.Info().Msgf("✅ 🧾 Validator %v attested epoch %v slot %v at slot %v, opt distance is %v, abs distance is %v",
+									index, epoch, att.Slot, att.InclusionSlot, optimalDistance, distance)
+							}
 						} else if opts.PrintSuccessful {
 							log.Info().Msgf("✅ 🧾 Validator %v attested epoch %v slot %v at slot %v, distance is %v",
 								index, epoch, att.Slot, att.InclusionSlot, distance)
