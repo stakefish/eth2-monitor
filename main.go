@@ -139,8 +139,8 @@ func IndexPubkeys(ctx context.Context, s *prysmgrpc.Service, pubkeys []string) (
 				Index: ^spec.ValidatorIndex(0),
 				At:    time.Now(),
 			}
+			// Ignore pending indexes.
 			continue
-			// return nil, nil, errors.Wrap(err, "rpc call ValidatorIndex failed")
 		}
 
 		result[pubkey] = resp.Index
@@ -193,8 +193,7 @@ func ListProposers(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch, 
 			opCtx, cancel := context.WithTimeout(ctx, s.Timeout())
 			resp, err := conn.ListValidatorAssignments(opCtx, req)
 			if err != nil {
-				log.Error().Stack().Err(err).Msgf("conn.ListValidatorAssignments failed: req=%+v", req)
-				return nil, err
+				return nil, errors.Wrap(err, "rpc call ListValidatorAssignments failed")
 			}
 			cancel()
 
@@ -285,7 +284,7 @@ func ListBeaconCommittees(ctx context.Context, s *prysmgrpc.Service, epoch spec.
 	opCtx, cancel := context.WithTimeout(ctx, s.Timeout())
 	resp, err := conn.ListBeaconCommittees(opCtx, req)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "rpc call ListBeaconCommittees failed")
 	}
 	cancel()
 
@@ -330,7 +329,7 @@ func ListBlocks(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch) (ma
 	opCtx, cancel := context.WithTimeout(ctx, s.Timeout())
 	resp, err := conn.ListBlocks(opCtx, req)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "rpc call ListBlocks failed")
 	}
 	cancel()
 
