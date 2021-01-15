@@ -158,17 +158,27 @@ func IndexPubkeys(ctx context.Context, s *prysmgrpc.Service, pubkeys []string) (
 	return result, reversed, nil
 }
 
-func ListProposers(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch, validators map[string]spec.ValidatorIndex) (map[spec.Slot]spec.ValidatorIndex, error) {
-	result := make(map[spec.Slot]spec.ValidatorIndex)
+func ListProposers(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch, validators map[string]spec.ValidatorIndex, epochCommittees map[spec.Slot]BeaconCommittees) (map[spec.Slot]spec.ValidatorIndex, error) {
+	activeIndexes := make(map[spec.ValidatorIndex]interface{})
+	for _, committees := range epochCommittees {
+		for _, indexes := range committees {
+			for _, index := range indexes {
+				activeIndexes[index] = nil
+			}
+		}
+	}
 
 	var indexes []spec.ValidatorIndex
 	for _, index := range validators {
-		indexes = append(indexes, index)
+		if _, ok := activeIndexes[index]; ok {
+			indexes = append(indexes, index)
+		}
 	}
 
 	conn := ethpb.NewBeaconChainClient(s.Connection())
 
 	chunkSize := 250
+	result := make(map[spec.Slot]spec.ValidatorIndex)
 	for i := 0; i < len(indexes); i += chunkSize {
 		end := i + chunkSize
 		if end > len(indexes) {
@@ -412,10 +422,6 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service) 
 			var proposals map[spec.Slot]spec.ValidatorIndex
 
 			Measure(func() {
-				proposals, err = ListProposers(ctx, s, spec.Epoch(epoch), directIndexes)
-				Must(err)
-			}, "ListProposers(epoch=%v)", epoch)
-			Measure(func() {
 				epochCommittees, err = ListBeaconCommittees(ctx, s, spec.Epoch(epoch))
 				Must(err)
 			}, "ListBeaconCommittees(epoch=%v)", epoch)
@@ -423,6 +429,10 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service) 
 				epochBlocks, err = ListBlocks(ctx, s, spec.Epoch(epoch))
 				Must(err)
 			}, "ListBlocks(epoch=%v)", epoch)
+			Measure(func() {
+				proposals, err = ListProposers(ctx, s, spec.Epoch(epoch), directIndexes, epochCommittees)
+				Must(err)
+			}, "ListProposers(epoch=%v)", epoch)
 
 			for slot, v := range epochCommittees {
 				committees[slot] = v
