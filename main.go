@@ -68,7 +68,14 @@ func LoadCache() *LocalCache {
 	return cache
 }
 
-func SaveCache(cache *LocalCache) {
+func SaveCache(newCache *LocalCache) {
+	// Merge with the current cache.
+	cache := LoadCache()
+	for pubkey, validator := range newCache.Validators {
+		validator := validator
+		cache.Validators[pubkey] = validator
+	}
+
 	rawCache, err := json.MarshalIndent(cache, "", "  ")
 	if err != nil {
 		log.Debug().Err(err).Msg("SaveCache: json.MarshalIndent failed; skip")
