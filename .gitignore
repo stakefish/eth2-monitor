@@ -139,3 +139,5 @@ tags
 # End of https://www.toptal.com/developers/gitignore/api/go,emacs,macos,linux,vim
 
 log.*
+*.txt
+eth2-monitor

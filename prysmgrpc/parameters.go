@@ -4,13 +4,11 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/rs/zerolog"
 )
 
 type parameters struct {
-	logLevel zerolog.Level
-	address  string
-	timeout  time.Duration
+	address string
+	timeout time.Duration
 }
 
 // Parameter is the interface for service parameters.
@@ -22,13 +20,6 @@ type parameterFunc func(*parameters)
 
 func (f parameterFunc) apply(p *parameters) {
 	f(p)
-}
-
-// WithLogLevel sets the log level for the module.
-func WithLogLevel(logLevel zerolog.Level) Parameter {
-	return parameterFunc(func(p *parameters) {
-		p.logLevel = logLevel
-	})
 }
 
 // WithAddress provides the address for the endpoint.
@@ -48,9 +39,8 @@ func WithTimeout(timeout time.Duration) Parameter {
 // parseAndCheckParameters parses and checks parameters to ensure that mandatory parameters are present and correct.
 func parseAndCheckParameters(params ...Parameter) (*parameters, error) {
 	parameters := parameters{
-		logLevel: zerolog.GlobalLevel(),
-		address:  "localhost:4000",
-		timeout:  2 * time.Minute,
+		address: "localhost:4000",
+		timeout: 2 * time.Minute,
 	}
 	for _, p := range params {
 		if params != nil {
