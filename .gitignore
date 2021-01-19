@@ -141,3 +141,4 @@ tags
 log.*
 *.txt
 eth2-monitor
+!LICENSE.txt
