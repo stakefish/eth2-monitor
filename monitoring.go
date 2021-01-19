@@ -287,7 +287,7 @@ const (
 )
 
 // MonitorAttestationsAndProposals listens to the beacon chain head changes and checks new blocks and attestations.
-func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, wg *sync.WaitGroup) (*ethpb.ChainHead, error) {
+func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	plainKeys := opts.Pubkeys
@@ -319,9 +319,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 	includedAttestations := make(map[spec.Epoch]map[spec.ValidatorIndex]*ChainAttestation)
 	attestedEpoches := make(map[spec.Epoch]map[spec.ValidatorIndex]*AttestationLoggingStatus)
 
-	for {
-		justifiedEpoch := <-epochsChan
-
+	for justifiedEpoch := range epochsChan {
 		// On every chain head update we:
 		// * Retrieve new committees for the new epoch,
 		// * Mark scheduled attestations as attested,
