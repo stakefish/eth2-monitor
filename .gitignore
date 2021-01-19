@@ -61,6 +61,8 @@ flycheck_*.el
 *.so
 *.dylib
 
+bin
+
 # Test binary, built with `go test -c`
 *.test
 
