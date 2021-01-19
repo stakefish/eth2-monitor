@@ -12,25 +12,29 @@ import (
 func ReportSlashing(ctx context.Context, prefix string, reason string, slot spec.Slot, slasher spec.ValidatorIndex, slashee spec.ValidatorIndex) {
 	var epoch spec.Epoch = slot / spec.SLOTS_PER_EPOCH
 	var balances map[spec.Epoch]spec.Gwei
-	var err error
 
-	s, err := prysmgrpc.New(ctx, prysmgrpc.WithAddress(opts.BeaconNode))
-	if err != nil {
-		log.Error().Err(err).Msg("ReportSlashing failed while reporting a slashing")
-		return
+	rewardStr := ""
+
+	if opts.ShowSlashingReward {
+		rewardStr = "; reward is unknown"
+
+		s, err := prysmgrpc.New(ctx, prysmgrpc.WithAddress(opts.BeaconNode))
+		if err != nil {
+			log.Error().Err(err).Msg("ReportSlashing failed while reporting a slashing")
+			return
+		}
+
+		Measure(func() {
+			balances, err = s.GetValidatorBalances(slasher, []spec.Epoch{epoch, epoch + 1})
+		}, "ListValidatorBalance(epoch=%v, slasher=%v)", epoch, slasher)
+		if err != nil {
+			log.Error().Err(err).Msg("ListValidatorBalance failed while determing slasher's reward")
+		} else {
+			rewardStr = fmt.Sprintf("; next epoch reward is %.03f ETH", float32(balances[epoch+1]-balances[epoch])*1e-9)
+		}
 	}
 
-	rewardStr := "reward is unknown"
-	Measure(func() {
-		balances, err = s.GetValidatorBalances(slasher, []spec.Epoch{epoch, epoch + 1})
-	}, "ListValidatorBalance(epoch=%v, slasher=%v)", epoch, slasher)
-	if err != nil {
-		log.Error().Err(err).Msg("ListValidatorBalance failed while determing slasher's reward")
-	} else {
-		rewardStr = fmt.Sprintf("next epoch reward is %.03f ETH", float32(balances[epoch+1]-balances[epoch])*1e-9)
-	}
-
-	log.Warn().Msgf("%s Slashing occurred! Validator %v %s and slashed by %v at slot %v; %s",
+	Report("%s Slashing occurred! Validator %v %s and slashed by %v at slot %v%s",
 		prefix, slashee, reason, slasher, slot, rewardStr)
 }
 

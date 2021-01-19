@@ -18,18 +18,20 @@ import (
 
 var (
 	opts struct {
-		LogLevel          string       `long:"log-level" default:"info" choice:"error" choice:"warn" choice:"info" choice:"debug" choice:"trace" description:"Log level"`
-		ReplayEpoch       []spec.Epoch `long:"replay-epoch" description:"Replay epoch for debug purposes"`
-		SinceEpoch        *spec.Epoch  `long:"since-epoch" description:"Replay epochs the specified one"`
-		PrintSuccessful   bool         `long:"print-successful" description:"Print successful attestations"`
-		DistanceTolerance uint64       `short:"d" default:"2" long:"distance-tolerance" description:"Longest tolerated inclusion slot distance"`
+		LogLevel           string       `long:"log-level" default:"info" choice:"error" choice:"warn" choice:"info" choice:"debug" choice:"trace" description:"Log level"`
+		ReplayEpoch        []spec.Epoch `long:"replay-epoch" description:"Replay epoch for debug purposes"`
+		SinceEpoch         *spec.Epoch  `long:"since-epoch" description:"Replay epochs the specified one"`
+		PrintSuccessful    bool         `long:"print-successful" description:"Print successful attestations"`
+		ShowSlashingReward bool         `long:"show-slashing-reward" description:"Shows slashing reward (NB it's slow and may be inaccurate)"`
+		DistanceTolerance  uint64       `long:"distance-tolerance" short:"d" default:"2" description:"Longest tolerated inclusion slot distance"`
 
 		BeaconNode string `long:"beacon-node" value-name:"HOST:PORT" default:"localhost:4000" description:"Prysm beacon node GRPC address"`
+		SlackURL   string `long:"slack-url" description:"Slack Webhook URL"`
 
 		Pubkeys    []string `short:"k" long:"pubkey" value-name:"PUBKEY" description:"Validator public key"`
 		Positional struct {
-			PubkeysFiles []string
-		} `positional-args:"yes" positional-arg-name:"PUBKEYS_FILE" description:"Files with validator public keys"`
+			PubkeysFiles []string `positional-arg-name:"PUBKEYS_FILE" description:"Files with validator public keys"`
+		} `positional-args:"yes"`
 	}
 
 	epochsChan chan spec.Epoch
