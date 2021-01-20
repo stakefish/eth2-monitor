@@ -413,8 +413,8 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 					Report("❌ 🧾 Validator %v did not attest epoch %v", index, epoch)
 					attStatus.IsPrinted = true
 				} else if att := includedAttestations[epoch][index]; att != nil && !attStatus.IsPrinted {
-					var absDistance spec.Slot = att.InclusionSlot - att.Slot - 1
-					var optimalDistance spec.Slot = absDistance
+					var absDistance spec.Slot = att.InclusionSlot - att.Slot
+					var optimalDistance spec.Slot = absDistance - 1
 					if absDistance > opts.DistanceTolerance {
 						for e := att.Slot + 1; e < att.InclusionSlot; e++ {
 							if _, ok := blocks[e]; !ok {
