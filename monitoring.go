@@ -415,14 +415,16 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 				} else if att := includedAttestations[epoch][index]; att != nil && !attStatus.IsPrinted {
 					var absDistance spec.Slot = att.InclusionSlot - att.Slot
 					var optimalDistance spec.Slot = absDistance - 1
-					if absDistance > opts.DistanceTolerance {
-						for e := att.Slot + 1; e < att.InclusionSlot; e++ {
-							if _, ok := blocks[e]; !ok {
-								optimalDistance--
-							}
+					for e := att.Slot + 1; e < att.InclusionSlot; e++ {
+						if _, ok := blocks[e]; !ok {
+							optimalDistance--
 						}
 					}
-					if optimalDistance > opts.DistanceTolerance {
+					distanceToCompare := optimalDistance
+					if opts.UseAbsoluteDistance {
+						distanceToCompare = absDistance
+					}
+					if distanceToCompare > opts.DistanceTolerance {
 						Report("⚠️ 🧾 Validator %v attested epoch %v slot %v at slot %v, opt distance is %v, abs distance is %v",
 							index, epoch, att.Slot, att.InclusionSlot, optimalDistance, absDistance)
 					} else if opts.PrintSuccessful {

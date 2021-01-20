@@ -18,12 +18,13 @@ import (
 
 var (
 	opts struct {
-		LogLevel           string       `long:"log-level" default:"info" choice:"error" choice:"warn" choice:"info" choice:"debug" choice:"trace" description:"Log level"`
-		ReplayEpoch        []spec.Epoch `long:"replay-epoch" description:"Replay epoch for debug purposes"`
-		SinceEpoch         *spec.Epoch  `long:"since-epoch" description:"Replay epochs from the specified one"`
-		PrintSuccessful    bool         `long:"print-successful" description:"Print successful attestations"`
-		ShowSlashingReward bool         `long:"show-slashing-reward" description:"Shows slashing reward (NB it's slow and may be inaccurate)"`
-		DistanceTolerance  uint64       `long:"distance-tolerance" short:"d" default:"2" description:"Longest tolerated inclusion slot distance"`
+		LogLevel            string       `long:"log-level" default:"info" choice:"error" choice:"warn" choice:"info" choice:"debug" choice:"trace" description:"Log level"`
+		ReplayEpoch         []spec.Epoch `long:"replay-epoch" description:"Replay epoch for debug purposes"`
+		SinceEpoch          *spec.Epoch  `long:"since-epoch" description:"Replay epochs from the specified one"`
+		PrintSuccessful     bool         `long:"print-successful" description:"Print successful attestations"`
+		ShowSlashingReward  bool         `long:"show-slashing-reward" description:"Shows slashing reward (NB it's slow and may be inaccurate)"`
+		DistanceTolerance   uint64       `long:"distance-tolerance" short:"d" default:"2" description:"Longest tolerated inclusion slot distance"`
+		UseAbsoluteDistance bool         `long:"use-absolute-distance" description:"Use the absolute distance to compare against the tolerance"`
 
 		BeaconNode string `long:"beacon-node" value-name:"HOST:PORT" default:"localhost:4000" description:"Prysm beacon node GRPC address"`
 		SlackURL   string `long:"slack-url" description:"Slack Webhook URL"`
