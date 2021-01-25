@@ -279,6 +279,7 @@ func SubscribeToEpochs(ctx context.Context, s *prysmgrpc.Service, wg *sync.WaitG
 type AttestationLoggingStatus struct {
 	IsAttested bool
 	IsPrinted  bool
+	Slot       spec.Slot
 }
 
 const (
@@ -366,6 +367,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 						attestedEpoches[epoch][index] = &AttestationLoggingStatus{
 							IsAttested: false,
 							IsPrinted:  false,
+							Slot:       slot,
 						}
 					}
 				}
@@ -410,7 +412,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 				}
 
 				if epoch <= justifiedEpoch-missedAttestationDistance && !attStatus.IsAttested && !attStatus.IsPrinted {
-					Report("❌ 🧾 Validator %v did not attest epoch %v", index, epoch)
+					Report("❌ 🧾 Validator %v did not attest epoch %v slot %v", index, epoch, attStatus.Slot)
 					attStatus.IsPrinted = true
 				} else if att := includedAttestations[epoch][index]; att != nil && !attStatus.IsPrinted {
 					var absDistance spec.Slot = att.InclusionSlot - att.Slot
