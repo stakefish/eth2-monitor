@@ -1,10 +1,12 @@
-package main
+package pkg
 
 import (
 	"context"
 	"eth2-monitor/prysmgrpc"
 	"eth2-monitor/spec"
 	"fmt"
+
+	"eth2-monitor/cmd/opts"
 
 	"github.com/rs/zerolog/log"
 )
@@ -15,7 +17,7 @@ func ReportSlashing(ctx context.Context, prefix string, reason string, slot spec
 
 	rewardStr := ""
 
-	if opts.ShowSlashingReward {
+	if opts.Slashings.ShowSlashingReward {
 		rewardStr = "; reward is unknown"
 
 		s, err := prysmgrpc.New(ctx, prysmgrpc.WithAddress(opts.BeaconNode))
@@ -36,6 +38,7 @@ func ReportSlashing(ctx context.Context, prefix string, reason string, slot spec
 
 	Report("%s Slashing occurred! Validator %v %s and slashed by %v at slot %v%s",
 		prefix, slashee, reason, slasher, slot, rewardStr)
+	TweetSlashing(reason, slot, slasher, slashee)
 }
 
 func ProcessSlashings(ctx context.Context, blocks map[spec.Slot]*ChainBlock) (err error) {

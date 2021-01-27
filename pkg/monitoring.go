@@ -1,4 +1,4 @@
-package main
+package pkg
 
 import (
 	"bufio"
@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"eth2-monitor/cmd/opts"
 	"eth2-monitor/prysmgrpc"
 	"eth2-monitor/spec"
 
@@ -228,15 +229,15 @@ func SubscribeToEpochs(ctx context.Context, s *prysmgrpc.Service, wg *sync.WaitG
 	lastChainHead, err := s.GetChainHead()
 	Must(err)
 
-	if len(opts.ReplayEpoch) > 0 {
-		for _, epoch := range opts.ReplayEpoch {
-			epochsChan <- epoch
+	if len(opts.Monitor.ReplayEpoch) > 0 {
+		for _, epoch := range opts.Monitor.ReplayEpoch {
+			epochsChan <- spec.Epoch(epoch)
 		}
 		close(epochsChan)
 		return
 	}
-	if opts.SinceEpoch != nil {
-		for epoch := *opts.SinceEpoch; epoch < lastChainHead.JustifiedEpoch; epoch++ {
+	if opts.Monitor.SinceEpoch != ^uint64(0) {
+		for epoch := opts.Monitor.SinceEpoch; epoch < lastChainHead.JustifiedEpoch; epoch++ {
 			epochsChan <- epoch
 		}
 		close(epochsChan)
@@ -287,14 +288,13 @@ const (
 	missedAttestationDistance = 2
 )
 
-// MonitorAttestationsAndProposals listens to the beacon chain head changes and checks new blocks and attestations.
-func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	plainKeys := opts.Pubkeys
-	for _, fname := range opts.Positional.PubkeysFiles {
+func LoadKeys(pubkeysFiles []string) ([]string, error) {
+	plainKeys := opts.Monitor.Pubkeys[:]
+	for _, fname := range pubkeysFiles {
 		file, err := os.Open(fname)
-		Must(err)
+		if err != nil {
+			return nil, err
+		}
 		defer file.Close()
 
 		scanner := bufio.NewScanner(file)
@@ -303,8 +303,17 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 		}
 
 		err = scanner.Err()
-		Must(err)
+		if err != nil {
+			return nil, err
+		}
 	}
+
+	return plainKeys, nil
+}
+
+// MonitorAttestationsAndProposals listens to the beacon chain head changes and checks new blocks and attestations.
+func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, plainKeys []string, wg *sync.WaitGroup) {
+	defer wg.Done()
 
 	directIndexes, reversedIndexes, err := IndexPubkeys(ctx, s, plainKeys)
 	Must(err)
@@ -345,8 +354,6 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 			proposals, err = ListProposers(ctx, s, spec.Epoch(epoch), directIndexes, epochCommittees)
 			Must(err)
 		}, "ListProposers(epoch=%v)", epoch)
-
-		ProcessSlashings(ctx, epochBlocks)
 
 		for slot, v := range epochCommittees {
 			committees[slot] = v
@@ -423,13 +430,13 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 						}
 					}
 					distanceToCompare := optimalDistance
-					if opts.UseAbsoluteDistance {
+					if opts.Monitor.UseAbsoluteDistance {
 						distanceToCompare = absDistance
 					}
-					if distanceToCompare > opts.DistanceTolerance {
+					if distanceToCompare > opts.Monitor.DistanceTolerance {
 						Report("⚠️ 🧾 Validator %v attested epoch %v slot %v at slot %v, opt distance is %v, abs distance is %v",
 							index, epoch, att.Slot, att.InclusionSlot, optimalDistance, absDistance)
-					} else if opts.PrintSuccessful {
+					} else if opts.Monitor.PrintSuccessful {
 						Report("✅ 🧾 Validator %v attested epoch %v slot %v at slot %v, opt distance is %v, abs distance is %v",
 							index, epoch, att.Slot, att.InclusionSlot, optimalDistance, absDistance)
 					}
@@ -454,5 +461,91 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 				delete(committees, slot)
 			}
 		}
+	}
+}
+
+// MonitorSlashings listens to the beacon chain head changes and checks for slashings.
+func MonitorSlashings(ctx context.Context, s *prysmgrpc.Service, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	for justifiedEpoch := range epochsChan {
+		log.Info().Msgf("New justified epoch %v", justifiedEpoch)
+
+		var err error
+		var blocks map[spec.Slot]*ChainBlock
+
+		epoch := justifiedEpoch
+		Measure(func() {
+			blocks, err = ListBlocks(ctx, s, spec.Epoch(epoch))
+			Must(err)
+		}, "ListBlocks(epoch=%v)", epoch)
+
+		ProcessSlashings(ctx, blocks)
+	}
+}
+
+// ShowMaintenance shows gaps between block proposals for possible maintenance windows.
+func ShowMaintenance(ctx context.Context, s *prysmgrpc.Service, plainKeys []string) {
+	directIndexes, reversedIndexes, err := IndexPubkeys(ctx, s, plainKeys)
+	Must(err)
+
+	validatorIndexes := make(map[spec.ValidatorIndex]interface{})
+	for index := range reversedIndexes {
+		validatorIndexes[index] = nil
+	}
+
+	genesis, err := s.GetGenesis()
+	Must(err)
+	genesisAt := time.Unix(genesis.GenesisTime.GetSeconds(), int64(genesis.GenesisTime.GetNanos()%1e9))
+
+	epoch := opts.Maintenance.Epoch
+	if epoch == ^spec.Epoch(0) {
+		chainHead, err := s.GetChainHead()
+		Must(err)
+		epoch = chainHead.HeadEpoch
+	}
+
+	log.Info().Msgf("Genesis happened at %v", genesisAt)
+	log.Info().Msgf("Using epoch %v", epoch)
+
+	var proposals map[spec.Slot]spec.ValidatorIndex
+	var committees map[spec.Slot]BeaconCommittees
+	Measure(func() {
+		committees, err = ListBeaconCommittees(ctx, s, spec.Epoch(epoch))
+		Must(err)
+	}, "ListBeaconCommittees(epoch=%v)", epoch)
+	Measure(func() {
+		proposals, err = ListProposers(ctx, s, spec.Epoch(epoch), directIndexes, committees)
+		Must(err)
+	}, "ListProposers(epoch=%v)", epoch)
+
+	closestSlot := (epoch + 1) * spec.SLOTS_PER_EPOCH
+	for slot, index := range proposals {
+		if _, ok := validatorIndexes[index]; ok {
+			closestSlot = slot
+
+			now := time.Now()
+			slotAt := genesisAt.Add(time.Duration(int64(slot*spec.SECONDS_PER_SLOT)) * time.Second)
+			if now.After(slotAt) {
+				gap := now.Sub(slotAt)
+				Report("🚧 🧱 Validator %v proposed a block at epoch %v slot %v %v ago at %v",
+					index, epoch, slot, gap, slotAt)
+			} else {
+				gap := slotAt.Sub(now)
+				Report("🚧 🧱 Validator %v proposes a block at epoch %v slot %v in %v at %v",
+					index, epoch, slot, gap, slotAt)
+			}
+		}
+	}
+
+	now := time.Now()
+	slotAt := genesisAt.Add(time.Duration(int64(closestSlot*spec.SECONDS_PER_SLOT)) * time.Second)
+	if now.After(slotAt) {
+		now = genesisAt.Add(time.Duration(int64(epoch*spec.SLOTS_PER_EPOCH*spec.SECONDS_PER_SLOT)) * time.Second)
+		Report("🚧 🧱 Retrospectively at %v, epoch %v had maintenance window ending in %v at %v",
+			now, epoch, slotAt.Sub(now), slotAt)
+	} else {
+		Report("🚧 🧱 Epoch %v has maintenance window ending in %v at %v",
+			epoch, slotAt.Sub(now), slotAt)
 	}
 }

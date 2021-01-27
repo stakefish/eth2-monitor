@@ -31,3 +31,16 @@ func (s *Service) StreamChainHead() (ethpb.BeaconChain_StreamChainHeadClient, er
 
 	return stream, nil
 }
+
+func (s *Service) GetGenesis() (*ethpb.Genesis, error) {
+	conn := ethpb.NewNodeClient(s.Connection())
+
+	opCtx, cancel := context.WithTimeout(s.ctx, s.timeout)
+	resp, err := conn.GetGenesis(opCtx, &types.Empty{})
+	cancel()
+	if err != nil {
+		return nil, errors.Wrap(err, "rpc call GetGenesis failed")
+	}
+
+	return resp, nil
+}
