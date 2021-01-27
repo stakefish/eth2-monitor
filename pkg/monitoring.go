@@ -368,14 +368,19 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 			blocks[slot] = v
 		}
 
-		for slot, epochCommittees := range committees {
+		attestingValidatorsCount := 0
+		for slot, slotCommittees := range committees {
 			var epoch spec.Epoch = slot / spec.SLOTS_PER_EPOCH
 			if _, ok := attestedEpoches[epoch]; !ok {
 				attestedEpoches[epoch] = make(map[spec.ValidatorIndex]*AttestationLoggingStatus)
 			}
 
-			for _, committee := range epochCommittees {
+			for _, committee := range slotCommittees {
 				for _, index := range committee {
+					if _, ok := reversedIndexes[index]; ok {
+						attestingValidatorsCount++
+					}
+
 					if _, ok := attestedEpoches[epoch][index]; !ok {
 						attestedEpoches[epoch][index] = &AttestationLoggingStatus{
 							IsAttested: false,
@@ -386,6 +391,8 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 				}
 			}
 		}
+
+		log.Info().Msgf("Number of attesting validators is %v", attestingValidatorsCount)
 
 		for _, block := range blocks {
 			for _, attestation := range block.Attestations {
