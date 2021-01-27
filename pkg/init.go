@@ -1,6 +1,8 @@
 package pkg
 
-import "eth2-monitor/spec"
+import (
+	"eth2-monitor/spec"
+)
 
 var epochsChan chan spec.Epoch
 

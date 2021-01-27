@@ -60,7 +60,7 @@ var (
 
 			var wg sync.WaitGroup
 			wg.Add(2)
-			go pkg.SubscribeToEpochs(ctx, s, &wg)
+			go pkg.SubscribeToEpochs(ctx, s, true, &wg)
 			go pkg.MonitorAttestationsAndProposals(ctx, s, plainPubkeys, &wg)
 			defer wg.Wait()
 		},
@@ -80,7 +80,7 @@ var (
 
 			var wg sync.WaitGroup
 			wg.Add(2)
-			go pkg.SubscribeToEpochs(ctx, s, &wg)
+			go pkg.SubscribeToEpochs(ctx, s, true, &wg)
 			go pkg.MonitorSlashings(ctx, s, &wg)
 			defer wg.Wait()
 		},
@@ -107,7 +107,11 @@ var (
 			plainPubkeys, err := pkg.LoadKeys(args)
 			pkg.Must(err)
 
-			pkg.ShowMaintenance(ctx, s, plainPubkeys)
+			var wg sync.WaitGroup
+			wg.Add(2)
+			go pkg.SubscribeToEpochs(ctx, s, false, &wg)
+			go pkg.MonitorMaintenanceWindows(ctx, s, plainPubkeys, &wg)
+			defer wg.Wait()
 		},
 	}
 
@@ -162,8 +166,9 @@ func init() {
 	rootCmd.AddCommand(slashingsCmd)
 
 	maintenanceCmd.PersistentFlags().StringSliceVarP(&opts.Monitor.Pubkeys, "pubkey", "k", nil, "validator public key")
-	maintenanceCmd.PersistentFlags().Uint64Var(&opts.Maintenance.Epoch, "epoch", ^uint64(0), "use this epoch")
-	maintenanceCmd.PersistentFlags().Lookup("epoch").DefValue = "current head epoch"
+	maintenanceCmd.PersistentFlags().UintSliceVar(&opts.Monitor.ReplayEpoch, "replay-epoch", nil, "replay epoch for debug purposes")
+	maintenanceCmd.PersistentFlags().Uint64Var(&opts.Monitor.SinceEpoch, "since-epoch", ^uint64(0), "replay epochs from the specified one")
+	maintenanceCmd.PersistentFlags().Lookup("since-epoch").DefValue = "follows head epoch"
 	maintenanceCmd.PersistentFlags().SortFlags = false
 	rootCmd.AddCommand(maintenanceCmd)
 }

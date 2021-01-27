@@ -223,8 +223,15 @@ func ListBlocks(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch) (ma
 // SubscribeToEpochs subscribes to changings of the beacon chain head.
 // Note, if --replay-epoch or --since-epoch options passed, SubscribeToEpochs will not
 // listen to real-time changes.
-func SubscribeToEpochs(ctx context.Context, s *prysmgrpc.Service, wg *sync.WaitGroup) {
+func SubscribeToEpochs(ctx context.Context, s *prysmgrpc.Service, useJustified bool, wg *sync.WaitGroup) {
 	defer wg.Done()
+
+	getEpoch := func(chainHead *ethpb.ChainHead) spec.Epoch {
+		if useJustified {
+			return chainHead.JustifiedEpoch
+		}
+		return chainHead.HeadEpoch
+	}
 
 	lastChainHead, err := s.GetChainHead()
 	Must(err)
@@ -237,7 +244,7 @@ func SubscribeToEpochs(ctx context.Context, s *prysmgrpc.Service, wg *sync.WaitG
 		return
 	}
 	if opts.Monitor.SinceEpoch != ^uint64(0) {
-		for epoch := opts.Monitor.SinceEpoch; epoch < lastChainHead.JustifiedEpoch; epoch++ {
+		for epoch := opts.Monitor.SinceEpoch; epoch < getEpoch(lastChainHead); epoch++ {
 			epochsChan <- epoch
 		}
 		close(epochsChan)
@@ -253,7 +260,7 @@ func SubscribeToEpochs(ctx context.Context, s *prysmgrpc.Service, wg *sync.WaitG
 
 	waitc := make(chan struct{})
 	go func() {
-		epochsChan <- lastChainHead.JustifiedEpoch
+		epochsChan <- getEpoch(lastChainHead)
 
 		for {
 			chainHead, err := stream.Recv()
@@ -262,15 +269,14 @@ func SubscribeToEpochs(ctx context.Context, s *prysmgrpc.Service, wg *sync.WaitG
 				return
 			}
 			if err != nil {
-				// TODO: Handle err gracefully.
-				panic(err)
-				return
+				close(epochsChan)
+				Must(err)
 			}
 
-			if chainHead.JustifiedEpoch > lastChainHead.JustifiedEpoch {
+			if getEpoch(chainHead) > getEpoch(lastChainHead) {
 				lastChainHead = chainHead
 
-				epochsChan <- lastChainHead.JustifiedEpoch
+				epochsChan <- getEpoch(lastChainHead)
 			}
 		}
 	}()
@@ -484,8 +490,8 @@ func MonitorSlashings(ctx context.Context, s *prysmgrpc.Service, wg *sync.WaitGr
 	}
 }
 
-// ShowMaintenance shows gaps between block proposals for possible maintenance windows.
-func ShowMaintenance(ctx context.Context, s *prysmgrpc.Service, plainKeys []string) {
+// MonitorMaintenanceWindows monitors possible gaps between block proposals for possible maintenance windows.
+func MonitorMaintenanceWindows(ctx context.Context, s *prysmgrpc.Service, plainKeys []string, wg *sync.WaitGroup) {
 	directIndexes, reversedIndexes, err := IndexPubkeys(ctx, s, plainKeys)
 	Must(err)
 
@@ -498,54 +504,52 @@ func ShowMaintenance(ctx context.Context, s *prysmgrpc.Service, plainKeys []stri
 	Must(err)
 	genesisAt := time.Unix(genesis.GenesisTime.GetSeconds(), int64(genesis.GenesisTime.GetNanos()%1e9))
 
-	epoch := opts.Maintenance.Epoch
-	if epoch == ^spec.Epoch(0) {
-		chainHead, err := s.GetChainHead()
-		Must(err)
-		epoch = chainHead.HeadEpoch
-	}
-
 	log.Info().Msgf("Genesis happened at %v", genesisAt)
-	log.Info().Msgf("Using epoch %v", epoch)
 
-	var proposals map[spec.Slot]spec.ValidatorIndex
-	var committees map[spec.Slot]BeaconCommittees
-	Measure(func() {
-		committees, err = ListBeaconCommittees(ctx, s, spec.Epoch(epoch))
-		Must(err)
-	}, "ListBeaconCommittees(epoch=%v)", epoch)
-	Measure(func() {
-		proposals, err = ListProposers(ctx, s, spec.Epoch(epoch), directIndexes, committees)
-		Must(err)
-	}, "ListProposers(epoch=%v)", epoch)
+	for epoch := range epochsChan {
+		log.Info().Msgf("Using epoch %v", epoch)
 
-	closestSlot := (epoch + 1) * spec.SLOTS_PER_EPOCH
-	for slot, index := range proposals {
-		if _, ok := validatorIndexes[index]; ok {
-			closestSlot = slot
+		var proposals map[spec.Slot]spec.ValidatorIndex
+		var committees map[spec.Slot]BeaconCommittees
+		Measure(func() {
+			committees, err = ListBeaconCommittees(ctx, s, spec.Epoch(epoch))
+			Must(err)
+		}, "ListBeaconCommittees(epoch=%v)", epoch)
+		Measure(func() {
+			proposals, err = ListProposers(ctx, s, spec.Epoch(epoch), directIndexes, committees)
+			Must(err)
+		}, "ListProposers(epoch=%v)", epoch)
 
-			now := time.Now()
-			slotAt := genesisAt.Add(time.Duration(int64(slot*spec.SECONDS_PER_SLOT)) * time.Second)
-			if now.After(slotAt) {
-				gap := now.Sub(slotAt)
-				Report("🚧 🧱 Validator %v proposed a block at epoch %v slot %v %v ago at %v",
-					index, epoch, slot, gap, slotAt)
-			} else {
-				gap := slotAt.Sub(now)
-				Report("🚧 🧱 Validator %v proposes a block at epoch %v slot %v in %v at %v",
-					index, epoch, slot, gap, slotAt)
+		closestSlot := (epoch + 1) * spec.SLOTS_PER_EPOCH
+		for slot, index := range proposals {
+			if _, ok := validatorIndexes[index]; ok {
+				if slot < closestSlot {
+					closestSlot = slot
+				}
+
+				now := time.Now()
+				slotAt := genesisAt.Add(time.Duration(int64(slot*spec.SECONDS_PER_SLOT)) * time.Second)
+				if now.After(slotAt) {
+					gap := now.Sub(slotAt)
+					Report("🚧 🧱 Validator %v proposed a block at epoch %v slot %v %v ago at %v",
+						index, epoch, slot, gap, slotAt)
+				} else {
+					gap := slotAt.Sub(now)
+					Report("🚧 🧱 Validator %v proposes a block at epoch %v slot %v in %v at %v",
+						index, epoch, slot, gap, slotAt)
+				}
 			}
 		}
-	}
 
-	now := time.Now()
-	slotAt := genesisAt.Add(time.Duration(int64(closestSlot*spec.SECONDS_PER_SLOT)) * time.Second)
-	if now.After(slotAt) {
-		now = genesisAt.Add(time.Duration(int64(epoch*spec.SLOTS_PER_EPOCH*spec.SECONDS_PER_SLOT)) * time.Second)
-		Report("🚧 🧱 Retrospectively at %v, epoch %v had maintenance window ending in %v at %v",
-			now, epoch, slotAt.Sub(now), slotAt)
-	} else {
-		Report("🚧 🧱 Epoch %v has maintenance window ending in %v at %v",
-			epoch, slotAt.Sub(now), slotAt)
+		now := time.Now()
+		slotAt := genesisAt.Add(time.Duration(int64(closestSlot*spec.SECONDS_PER_SLOT)) * time.Second)
+		if now.After(slotAt) {
+			now = genesisAt.Add(time.Duration(int64(epoch*spec.SLOTS_PER_EPOCH*spec.SECONDS_PER_SLOT)) * time.Second)
+			Report("🚧 🪟 Retrospectively at %v, epoch %v had a maintenance window ending in %v at %v",
+				now, epoch, slotAt.Sub(now), slotAt)
+		} else {
+			Report("🚧 🪟 Epoch %v has a maintenance window ending in %v at %v",
+				epoch, slotAt.Sub(now), slotAt)
+		}
 	}
 }
