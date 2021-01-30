@@ -369,7 +369,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 		}
 
 		attestingValidatorsCount := 0
-		for slot, slotCommittees := range committees {
+		for slot, slotCommittees := range epochCommittees {
 			var epoch spec.Epoch = slot / spec.SLOTS_PER_EPOCH
 			if _, ok := attestedEpoches[epoch]; !ok {
 				attestedEpoches[epoch] = make(map[spec.ValidatorIndex]*AttestationLoggingStatus)
