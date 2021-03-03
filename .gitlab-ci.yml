@@ -1,9 +1,9 @@
-image: go
+image: golang
 
 stages:
   - build
 
-build-linux-amd64:
+build:
   stage: build
   script:
     - GOOS=linux   GOARCH=amd64 make eth2-monitor && mv bin/eth2-monitor{,-linux-amd64}
