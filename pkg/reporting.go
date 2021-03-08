@@ -35,9 +35,13 @@ func reportToSlack(message string) {
 	}
 
 	var body struct {
-		Text string `json:"text"`
+		Text     string  `json:"text"`
+		Username *string `json:"username"`
 	}
 	body.Text = message
+	if opts.SlackUsername != "" {
+		body.Username = &opts.SlackUsername
+	}
 
 	buf, err := json.Marshal(body)
 	if err != nil {
