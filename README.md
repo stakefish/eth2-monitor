@@ -1,4 +1,8 @@
-# Eth2 Monitor [![pipeline status][pipeline badge]][repo link]
+# Eth2 Monitor [![Github Actions Status][svg link]][ci link]
 
-  [pipeline badge]: https://gitlab.fish/stakefish/eth2-monitor/badges/master/pipeline.svg
-  [repo link]: https://gitlab.fish/stakefish/eth2-monitor/-/commits/master
+[svg link]: https://github.com/stakefish/eth2-monitor/actions/workflows/main.yml/badge.svg
+[ci link]: https://github.com/stakefish/eth2-monitor/actions/workflows/main.yml
+
+## Installation ##
+
+You can g

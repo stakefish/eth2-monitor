@@ -16,5 +16,8 @@ require (
 	github.com/rs/zerolog v1.20.0
 	github.com/spf13/cobra v1.1.1
 	github.com/spf13/viper v1.7.1
+	golang.org/x/mod v0.4.2 // indirect
+	golang.org/x/sys v0.0.0-20210326220804-49726bf1d181 // indirect
 	google.golang.org/grpc v1.34.0
+	honnef.co/go/tools v0.1.3 // indirect
 )
