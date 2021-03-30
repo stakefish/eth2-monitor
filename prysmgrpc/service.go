@@ -13,7 +13,7 @@ import (
 
 // Service is an Ethereum 2 client service.
 type Service struct {
-	// Hold the initialising context to allow for streams to use it.
+	// Hold the initializing context to allow for streams to use it.
 	ctx context.Context
 	// Client connection.
 	conn    *grpc.ClientConn

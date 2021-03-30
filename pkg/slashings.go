@@ -30,7 +30,7 @@ func ReportSlashing(ctx context.Context, prefix string, reason string, slot spec
 			balances, err = s.GetValidatorBalances(slasher, []spec.Epoch{epoch, epoch + 1})
 		}, "ListValidatorBalance(epoch=%v, slasher=%v)", epoch, slasher)
 		if err != nil {
-			log.Error().Err(err).Msg("ListValidatorBalance failed while determing slasher's reward")
+			log.Error().Err(err).Msg("ListValidatorBalance failed while determining slasher's reward")
 		} else {
 			rewardStr = fmt.Sprintf("; next epoch reward is %.03f ETH", float32(balances[epoch+1]-balances[epoch])*1e-9)
 		}

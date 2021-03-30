@@ -43,7 +43,7 @@ var (
 		Args:  cobra.ArbitraryArgs,
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			if len(args)+len(opts.Monitor.Pubkeys) < 1 {
-				return errors.New("provide validator public keys using -k or by specifing files with public keys")
+				return errors.New("provide validator public keys using -k or by specifying files with public keys")
 			}
 			return nil
 		},
@@ -92,7 +92,7 @@ var (
 		Args:  cobra.ArbitraryArgs,
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			if len(args)+len(opts.Monitor.Pubkeys) < 1 {
-				return errors.New("provide validator public keys using -k or by specifing files with public keys")
+				return errors.New("provide validator public keys using -k or by specifying files with public keys")
 			}
 			return nil
 		},
