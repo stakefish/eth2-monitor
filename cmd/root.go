@@ -43,7 +43,7 @@ var (
 		Args:  cobra.ArbitraryArgs,
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			if len(args)+len(opts.Monitor.Pubkeys) < 1 {
-				return errors.New("Provide validator public keys using -k or by specifing files with public keys")
+				return errors.New("provide validator public keys using -k or by specifing files with public keys")
 			}
 			return nil
 		},
@@ -92,7 +92,7 @@ var (
 		Args:  cobra.ArbitraryArgs,
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			if len(args)+len(opts.Monitor.Pubkeys) < 1 {
-				return errors.New("Provide validator public keys using -k or by specifing files with public keys")
+				return errors.New("provide validator public keys using -k or by specifing files with public keys")
 			}
 			return nil
 		},
@@ -116,21 +116,11 @@ var (
 	}
 
 	version = ""
-
-	// metadata is extra build time data
-	metadata = ""
-	// gitCommit is the git sha1
-	gitCommit = ""
-	// gitTreeState is the state of the git tree
-	gitTreeState = ""
 )
 
 // GetVersion returns the semver string of the version
 func GetVersion() string {
-	if metadata == "" {
-		return version
-	}
-	return version + "+" + metadata
+	return version
 }
 
 // Execute executes the root command.

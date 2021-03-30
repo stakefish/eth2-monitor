@@ -14,13 +14,6 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-const (
-	consumerKey    = "tI99uYeVNDaqT32S27GcAiYgX"
-	consumerSecret = "2EAzStYk6fWGDmCBGZmfydF6uEKRuwu7zWAPbOgAHAz76hb9gl"
-	accessToken    = "54508179-CobBiELtwcvsmUdeQI4X81mY1otnfYbSrIZwovwtN"
-	accessSecret   = "Ob1iqwuShKwznpkL0c0wfBIRzko0a4bs8eu6nErAl0Af5"
-)
-
 func Report(format string, args ...interface{}) {
 	message := fmt.Sprintf(format, args...)
 

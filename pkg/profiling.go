@@ -10,6 +10,6 @@ import (
 func Measure(handler func(), title string, args ...interface{}) {
 	start := time.Now()
 	handler()
-	elapsed := time.Now().Sub(start)
+	elapsed := time.Since(start)
 	log.Debug().Msgf("⏱️ %s took %v", fmt.Sprintf(title, args...), elapsed)
 }

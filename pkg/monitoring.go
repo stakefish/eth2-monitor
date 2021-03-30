@@ -39,7 +39,7 @@ func IndexPubkeys(ctx context.Context, s *prysmgrpc.Service, pubkeys []string) (
 				reversed[cachedIndex.Index] = pubkey
 				continue
 			}
-			if cachedIndex.At.Sub(time.Now()) < 8*time.Hour {
+			if time.Until(cachedIndex.At) < 8*time.Hour {
 				continue
 			}
 		}
@@ -323,11 +323,6 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 
 	directIndexes, reversedIndexes, err := IndexPubkeys(ctx, s, plainKeys)
 	Must(err)
-
-	var validatorIndexes []spec.ValidatorIndex
-	for index := range reversedIndexes {
-		validatorIndexes = append(validatorIndexes, index)
-	}
 
 	committees := make(map[spec.Slot]BeaconCommittees)
 	blocks := make(map[spec.Slot]*ChainBlock)
