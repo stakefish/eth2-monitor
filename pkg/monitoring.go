@@ -39,7 +39,7 @@ func IndexPubkeys(ctx context.Context, s *prysmgrpc.Service, pubkeys []string) (
 				reversed[cachedIndex.Index] = pubkey
 				continue
 			}
-			if cachedIndex.At.Sub(time.Now()) < 8*time.Hour {
+			if time.Until(cachedIndex.At) < 8*time.Hour {
 				continue
 			}
 		}
@@ -111,10 +111,10 @@ func ListProposers(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch, 
 		for {
 			opCtx, cancel := context.WithTimeout(ctx, s.Timeout())
 			resp, err := conn.ListValidatorAssignments(opCtx, req)
+			cancel()
 			if err != nil {
 				return nil, errors.Wrap(err, "rpc call ListValidatorAssignments failed")
 			}
-			cancel()
 
 			for _, assignment := range resp.Assignments {
 				for _, proposerSlot := range assignment.ProposerSlots {
@@ -144,10 +144,10 @@ func ListBeaconCommittees(ctx context.Context, s *prysmgrpc.Service, epoch spec.
 
 	opCtx, cancel := context.WithTimeout(ctx, s.Timeout())
 	resp, err := conn.ListBeaconCommittees(opCtx, req)
+	cancel()
 	if err != nil {
 		return nil, errors.Wrap(err, "rpc call ListBeaconCommittees failed")
 	}
-	cancel()
 
 	result := make(map[spec.Slot]BeaconCommittees)
 
@@ -184,10 +184,10 @@ func ListBlocks(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch) (ma
 	conn := ethpb.NewBeaconChainClient(s.Connection())
 	opCtx, cancel := context.WithTimeout(ctx, s.Timeout())
 	resp, err := conn.ListBlocks(opCtx, req)
+	cancel()
 	if err != nil {
 		return nil, errors.Wrap(err, "rpc call ListBlocks failed")
 	}
-	cancel()
 
 	result := make(map[spec.Slot]*ChainBlock)
 
@@ -323,11 +323,6 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 
 	directIndexes, reversedIndexes, err := IndexPubkeys(ctx, s, plainKeys)
 	Must(err)
-
-	var validatorIndexes []spec.ValidatorIndex
-	for index := range reversedIndexes {
-		validatorIndexes = append(validatorIndexes, index)
-	}
 
 	committees := make(map[spec.Slot]BeaconCommittees)
 	blocks := make(map[spec.Slot]*ChainBlock)
