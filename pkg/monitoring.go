@@ -17,6 +17,7 @@ import (
 	"github.com/pkg/errors"
 	bitfield "github.com/prysmaticlabs/go-bitfield"
 
+	eth2types "github.com/prysmaticlabs/eth2-types"
 	ethpb "github.com/prysmaticlabs/ethereumapis/eth/v1alpha1"
 	"github.com/rs/zerolog/log"
 )
@@ -78,7 +79,7 @@ func IndexPubkeys(ctx context.Context, s *prysmgrpc.Service, pubkeys []string) (
 // To improve performance, it has to narrow the set of validators for which it checks duties.
 func ListProposers(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch, validators map[string]spec.ValidatorIndex, epochCommittees map[spec.Slot]BeaconCommittees) (map[spec.Slot]spec.ValidatorIndex, error) {
 	// Filter out non-activated validator indexes and use only active ones.
-	var indexes []spec.ValidatorIndex
+	var indexes []eth2types.ValidatorIndex
 	activeIndexes := make(map[spec.ValidatorIndex]interface{})
 	for _, committees := range epochCommittees {
 		for _, indexes := range committees {
@@ -89,7 +90,7 @@ func ListProposers(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch, 
 	}
 	for _, index := range validators {
 		if _, ok := activeIndexes[index]; ok {
-			indexes = append(indexes, index)
+			indexes = append(indexes, eth2types.ValidatorIndex(index))
 		}
 	}
 
@@ -104,7 +105,7 @@ func ListProposers(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch, 
 			end = len(indexes)
 		}
 		req := &ethpb.ListValidatorAssignmentsRequest{
-			QueryFilter: &ethpb.ListValidatorAssignmentsRequest_Epoch{Epoch: uint64(epoch)},
+			QueryFilter: &ethpb.ListValidatorAssignmentsRequest_Epoch{Epoch: eth2types.Epoch(epoch)},
 			Indices:     indexes[i:end],
 		}
 
@@ -118,7 +119,7 @@ func ListProposers(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch, 
 
 			for _, assignment := range resp.Assignments {
 				for _, proposerSlot := range assignment.ProposerSlots {
-					result[proposerSlot] = assignment.ValidatorIndex
+					result[spec.Slot(proposerSlot)] = spec.ValidatorIndex(assignment.ValidatorIndex)
 				}
 			}
 
@@ -137,7 +138,7 @@ type BeaconCommittees map[spec.CommitteeIndex][]spec.ValidatorIndex
 // ListBeaconCommittees lists committees for a specific epoch.
 func ListBeaconCommittees(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch) (map[spec.Slot]BeaconCommittees, error) {
 	req := &ethpb.ListCommitteesRequest{
-		QueryFilter: &ethpb.ListCommitteesRequest_Epoch{Epoch: uint64(epoch)},
+		QueryFilter: &ethpb.ListCommitteesRequest_Epoch{Epoch: eth2types.Epoch(epoch)},
 	}
 
 	conn := ethpb.NewBeaconChainClient(s.Connection())
@@ -157,7 +158,11 @@ func ListBeaconCommittees(ctx context.Context, s *prysmgrpc.Service, epoch spec.
 		}
 
 		for committeeIndex, items := range committees.Committees {
-			result[slot][spec.CommitteeIndex(committeeIndex)] = items.ValidatorIndices
+			var indexes []spec.ValidatorIndex
+			for _, index := range items.ValidatorIndices {
+				indexes = append(indexes, spec.ValidatorIndex(index))
+			}
+			result[slot][spec.CommitteeIndex(committeeIndex)] = indexes
 		}
 	}
 
@@ -177,9 +182,9 @@ type ChainAttestation struct {
 }
 
 // ListBlocks lists blocks and attestations for a specific epoch.
-func ListBlocks(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch) (map[spec.Slot]*ChainBlock, error) {
+func ListBlocks(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch) (map[spec.Slot][]*ChainBlock, error) {
 	req := &ethpb.ListBlocksRequest{
-		QueryFilter: &ethpb.ListBlocksRequest_Epoch{Epoch: epoch},
+		QueryFilter: &ethpb.ListBlocksRequest_Epoch{Epoch: eth2types.Epoch(epoch)},
 	}
 	conn := ethpb.NewBeaconChainClient(s.Connection())
 	opCtx, cancel := context.WithTimeout(ctx, s.Timeout())
@@ -189,7 +194,7 @@ func ListBlocks(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch) (ma
 		return nil, errors.Wrap(err, "rpc call ListBlocks failed")
 	}
 
-	result := make(map[spec.Slot]*ChainBlock)
+	result := make(map[spec.Slot][]*ChainBlock)
 
 	for {
 		for _, blockContainer := range resp.BlockContainers {
@@ -197,18 +202,20 @@ func ListBlocks(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch) (ma
 			block := blockContainer.Block.Block
 			body := block.Body
 
-			result[block.Slot] = &ChainBlock{
-				BlockContainer: blockContainer,
-			}
-
+			var attestations []*ChainAttestation
 			for _, att := range body.Attestations {
-				result[block.Slot].Attestations = append(result[block.Slot].Attestations, &ChainAttestation{
+				attestations = append(attestations, &ChainAttestation{
 					AggregationBits: att.AggregationBits,
-					CommitteeIndex:  att.Data.CommitteeIndex,
-					Slot:            att.Data.Slot,
-					InclusionSlot:   block.Slot,
+					CommitteeIndex:  spec.CommitteeIndex(att.Data.CommitteeIndex),
+					Slot:            spec.Slot(att.Data.Slot),
+					InclusionSlot:   spec.Slot(block.Slot),
 				})
 			}
+
+			result[spec.Slot(block.Slot)] = append(result[spec.Slot(block.Slot)], &ChainBlock{
+				BlockContainer: blockContainer,
+				Attestations:   attestations,
+			})
 		}
 
 		req.PageToken = resp.NextPageToken
@@ -228,9 +235,9 @@ func SubscribeToEpochs(ctx context.Context, s *prysmgrpc.Service, useJustified b
 
 	getEpoch := func(chainHead *ethpb.ChainHead) spec.Epoch {
 		if useJustified {
-			return chainHead.JustifiedEpoch
+			return spec.Epoch(chainHead.JustifiedEpoch)
 		}
-		return chainHead.HeadEpoch
+		return spec.Epoch(chainHead.HeadEpoch)
 	}
 
 	lastChainHead, err := s.GetChainHead()
@@ -284,9 +291,10 @@ func SubscribeToEpochs(ctx context.Context, s *prysmgrpc.Service, useJustified b
 }
 
 type AttestationLoggingStatus struct {
-	IsAttested bool
-	IsPrinted  bool
-	Slot       spec.Slot
+	IsAttested  bool
+	IsCanonical bool
+	IsPrinted   bool
+	Slot        spec.Slot
 }
 
 const (
@@ -325,7 +333,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 	Must(err)
 
 	committees := make(map[spec.Slot]BeaconCommittees)
-	blocks := make(map[spec.Slot]*ChainBlock)
+	blocks := make(map[spec.Slot][]*ChainBlock)
 
 	includedAttestations := make(map[spec.Epoch]map[spec.ValidatorIndex]*ChainAttestation)
 	attestedEpoches := make(map[spec.Epoch]map[spec.ValidatorIndex]*AttestationLoggingStatus)
@@ -339,7 +347,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 
 		var err error
 		var epochCommittees map[spec.Slot]BeaconCommittees
-		var epochBlocks map[spec.Slot]*ChainBlock
+		var epochBlocks map[spec.Slot][]*ChainBlock
 		var proposals map[spec.Slot]spec.ValidatorIndex
 
 		epoch := justifiedEpoch
@@ -378,9 +386,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 
 					if _, ok := attestedEpoches[epoch][index]; !ok {
 						attestedEpoches[epoch][index] = &AttestationLoggingStatus{
-							IsAttested: false,
-							IsPrinted:  false,
-							Slot:       slot,
+							Slot: slot,
 						}
 					}
 				}
@@ -389,25 +395,32 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 
 		log.Info().Msgf("Number of attesting validators is %v", attestingValidatorsCount)
 
-		for _, block := range blocks {
-			for _, attestation := range block.Attestations {
-				// Every included attestation contains aggregation bits, i.e. a list of validators
-				// from which attestations were aggregated.
-				// We check if a validator was included in this list and, if not, such validator
-				// may have missed the attestation.
-				// The attestation of such validator might be aggregated and be included in later blocks.
-				bits := bitfield.Bitlist(attestation.AggregationBits)
+		for _, slotBlocks := range blocks {
+			for _, chainBlock := range slotBlocks {
+				for _, attestation := range chainBlock.Attestations {
+					isCanonical := chainBlock.BlockContainer.Canonical
 
-				var epoch spec.Epoch = attestation.Slot / spec.SLOTS_PER_EPOCH
-				committee := committees[attestation.Slot][attestation.CommitteeIndex]
-				for i, index := range committee {
-					if _, ok := includedAttestations[epoch]; !ok {
-						includedAttestations[epoch] = make(map[spec.ValidatorIndex]*ChainAttestation)
-					}
-					if bits.BitAt(uint64(i)) {
-						if att := includedAttestations[epoch][index]; att == nil || att.InclusionSlot > attestation.InclusionSlot {
-							includedAttestations[epoch][index] = attestation
-							attestedEpoches[epoch][index].IsAttested = true
+					// Every included attestation contains aggregation bits, i.e. a list of validators
+					// from which attestations were aggregated.
+					// We check if a validator was included in this list and, if not, such validator
+					// may have missed the attestation.
+					// The attestation of such validator might be aggregated and be included in later blocks.
+					bits := bitfield.Bitlist(attestation.AggregationBits)
+
+					var epoch spec.Epoch = attestation.Slot / spec.SLOTS_PER_EPOCH
+					committee := committees[attestation.Slot][attestation.CommitteeIndex]
+					for i, index := range committee {
+						if _, ok := includedAttestations[epoch]; !ok {
+							includedAttestations[epoch] = make(map[spec.ValidatorIndex]*ChainAttestation)
+						}
+						if bits.BitAt(uint64(i)) {
+							attestedEpoch := attestedEpoches[epoch][index]
+							att := includedAttestations[epoch][index]
+							if att == nil || att.InclusionSlot > attestation.InclusionSlot || !attestedEpoch.IsCanonical {
+								includedAttestations[epoch][index] = attestation
+								attestedEpoches[epoch][index].IsAttested = true
+								attestedEpoches[epoch][index].IsCanonical = isCanonical
+							}
 						}
 					}
 				}
@@ -480,7 +493,7 @@ func MonitorSlashings(ctx context.Context, s *prysmgrpc.Service, wg *sync.WaitGr
 		log.Info().Msgf("New justified epoch %v", justifiedEpoch)
 
 		var err error
-		var blocks map[spec.Slot]*ChainBlock
+		var blocks map[spec.Slot][]*ChainBlock
 
 		epoch := justifiedEpoch
 		Measure(func() {

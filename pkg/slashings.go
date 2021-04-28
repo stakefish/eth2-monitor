@@ -41,34 +41,36 @@ func ReportSlashing(ctx context.Context, prefix string, reason string, slot spec
 	TweetSlashing(reason, slot, slasher, slashee)
 }
 
-func ProcessSlashings(ctx context.Context, blocks map[spec.Slot]*ChainBlock) (err error) {
-	for slot, block := range blocks {
-		body := block.BlockContainer.Block.Block.Body
-		slasher := block.BlockContainer.Block.Block.ProposerIndex
+func ProcessSlashings(ctx context.Context, blocks map[spec.Slot][]*ChainBlock) (err error) {
+	for slot, blockContainers := range blocks {
+		for _, block := range blockContainers {
+			body := block.BlockContainer.Block.Block.Body
+			slasher := spec.ValidatorIndex(block.BlockContainer.Block.Block.ProposerIndex)
 
-		for _, proposerSlashing := range body.ProposerSlashings {
-			slashee := proposerSlashing.Header_1.Header.ProposerIndex
+			for _, proposerSlashing := range body.ProposerSlashings {
+				slashee := spec.ValidatorIndex(proposerSlashing.Header_1.Header.ProposerIndex)
 
-			ReportSlashing(ctx, "🚫 🧱", "proposed two conflicting blocks",
-				slot, slasher, slashee)
-		}
-
-		for _, attesterSlashing := range body.AttesterSlashings {
-			var slashee spec.ValidatorIndex
-			attestation1Validators := make(map[spec.ValidatorIndex]interface{})
-			for _, index := range attesterSlashing.Attestation_1.AttestingIndices {
-				attestation1Validators[index] = nil
+				ReportSlashing(ctx, "🚫 🧱", "proposed two conflicting blocks",
+					slot, slasher, slashee)
 			}
 
-			for _, index := range attesterSlashing.Attestation_2.AttestingIndices {
-				if _, ok := attestation1Validators[index]; ok {
-					slashee = index
-					break
+			for _, attesterSlashing := range body.AttesterSlashings {
+				var slashee spec.ValidatorIndex
+				attestation1Validators := make(map[spec.ValidatorIndex]interface{})
+				for _, index := range attesterSlashing.Attestation_1.AttestingIndices {
+					attestation1Validators[index] = nil
 				}
-			}
 
-			ReportSlashing(ctx, "🚫 🧾", "attested two conflicting blocks",
-				slot, slasher, slashee)
+				for _, index := range attesterSlashing.Attestation_2.AttestingIndices {
+					if _, ok := attestation1Validators[index]; ok {
+						slashee = index
+						break
+					}
+				}
+
+				ReportSlashing(ctx, "🚫 🧾", "attested two conflicting blocks",
+					slot, slasher, slashee)
+			}
 		}
 	}
 

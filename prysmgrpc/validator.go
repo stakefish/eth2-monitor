@@ -5,6 +5,7 @@ import (
 	"eth2-monitor/spec"
 
 	"github.com/pkg/errors"
+	eth2types "github.com/prysmaticlabs/eth2-types"
 	ethpb "github.com/prysmaticlabs/ethereumapis/eth/v1alpha1"
 )
 
@@ -22,7 +23,7 @@ func (s *Service) GetValidatorIndex(pubkey []byte) (spec.ValidatorIndex, error) 
 		return ^spec.ValidatorIndex(0), err
 	}
 
-	return resp.Index, nil
+	return spec.ValidatorIndex(resp.Index), nil
 }
 
 func (s *Service) GetValidatorBalances(index spec.ValidatorIndex, epochs []spec.Epoch) (map[spec.Epoch]spec.Gwei, error) {
@@ -31,8 +32,8 @@ func (s *Service) GetValidatorBalances(index spec.ValidatorIndex, epochs []spec.
 
 	for _, epoch := range epochs {
 		req := &ethpb.ListValidatorBalancesRequest{
-			QueryFilter: &ethpb.ListValidatorBalancesRequest_Epoch{Epoch: epoch},
-			Indices:     []spec.ValidatorIndex{index},
+			QueryFilter: &ethpb.ListValidatorBalancesRequest_Epoch{Epoch: eth2types.Epoch(epoch)},
+			Indices:     []eth2types.ValidatorIndex{eth2types.ValidatorIndex(index)},
 		}
 
 		for {
