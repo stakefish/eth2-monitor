@@ -183,20 +183,20 @@ type ChainAttestation struct {
 
 // ListBlocks lists blocks and attestations for a specific epoch.
 func ListBlocks(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch) (map[spec.Slot][]*ChainBlock, error) {
+	conn := ethpb.NewBeaconChainClient(s.Connection())
 	req := &ethpb.ListBlocksRequest{
 		QueryFilter: &ethpb.ListBlocksRequest_Epoch{Epoch: eth2types.Epoch(epoch)},
 	}
-	conn := ethpb.NewBeaconChainClient(s.Connection())
-	opCtx, cancel := context.WithTimeout(ctx, s.Timeout())
-	resp, err := conn.ListBlocks(opCtx, req)
-	cancel()
-	if err != nil {
-		return nil, errors.Wrap(err, "rpc call ListBlocks failed")
-	}
 
 	result := make(map[spec.Slot][]*ChainBlock)
-
 	for {
+		opCtx, cancel := context.WithTimeout(ctx, s.Timeout())
+		resp, err := conn.ListBlocks(opCtx, req)
+		cancel()
+		if err != nil {
+			return nil, errors.Wrap(err, "rpc call ListBlocks failed")
+		}
+
 		for _, blockContainer := range resp.BlockContainers {
 			blockContainer := blockContainer
 			block := blockContainer.Block.Block
