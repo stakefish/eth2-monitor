@@ -346,9 +346,55 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 			Name:      "epoch",
 			Help:      "Current justified epoch",
 		})
-
 	prometheus.MustRegister(epochGauge)
 
+	epochMissedProposalsGauge := prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "ETH2",
+			Name:      "epochMissedProposals",
+			Help:      "Blocks missed in current justified epoch",
+		})
+	prometheus.MustRegister(epochMissedProposalsGauge)
+
+	epochMissedAttestationsGauge := prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "ETH2",
+			Name:      "epochMissedAttestations",
+			Help:      "Attestations missed in current justified epoch",
+		})
+	prometheus.MustRegister(epochMissedAttestationsGauge)
+
+	epochServedAttestationsGauge := prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "ETH2",
+			Name:      "epochServedAttestations",
+			Help:      "Attestations served in current justified epoch",
+		})
+	prometheus.MustRegister(epochServedAttestationsGauge)
+
+	totalMissedProposalsCounter := prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Namespace: "ETH2",
+			Name:      "totalMissedProposals",
+			Help:      "Proposals missed since monitoring started",
+		})
+	prometheus.MustRegister(totalMissedProposalsCounter)
+
+	totalMissedAttestationsCounter := prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Namespace: "ETH2",
+			Name:      "totalMissedAttestations",
+			Help:      "Attestations missed since monitoring started",
+		})
+	prometheus.MustRegister(totalMissedAttestationsCounter)
+
+	totalServedAttestationsCounter := prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Namespace: "ETH2",
+			Name:      "totalServedAttestations",
+			Help:      "Attestations served since monitoring started",
+		})
+	prometheus.MustRegister(totalServedAttestationsCounter)
 
 	for justifiedEpoch := range epochsChan {
 		// On every chain head update we:
@@ -357,6 +403,10 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 		// * Check attestations if some of them too old.
 		log.Info().Msgf("New justified epoch %v", justifiedEpoch)
 		epochGauge.Set(float64(justifiedEpoch))
+		//Reset all metrics for new epoch
+		epochMissedProposalsGauge.Set(float64(0))
+		epochMissedAttestationsGauge.Set(float64(0))
+		epochServedAttestationsGauge.Set(float64(0))
 
 		var err error
 		var epochCommittees map[spec.Slot]BeaconCommittees
@@ -454,6 +504,8 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 
 				if epoch <= justifiedEpoch-missedAttestationDistance && !attStatus.IsAttested && !attStatus.IsPrinted {
 					Report("❌ 🧾 Validator %v did not attest epoch %v slot %v", index, epoch, attStatus.Slot)
+					epochMissedAttestationsGauge.Add(1)
+					totalMissedAttestationsCounter.Inc()
 					attStatus.IsPrinted = true
 				} else if att := includedAttestations[epoch][index]; att != nil && !attStatus.IsPrinted {
 					var absDistance spec.Slot = att.InclusionSlot - att.Slot
@@ -473,6 +525,8 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 					} else if opts.Monitor.PrintSuccessful {
 						Report("✅ 🧾 Validator %v attested epoch %v slot %v at slot %v, opt distance is %v, abs distance is %v",
 							index, epoch, att.Slot, att.InclusionSlot, optimalDistance, absDistance)
+						epochServedAttestationsGauge.Add(1)
+						totalServedAttestationsCounter.Inc()
 					}
 					attStatus.IsPrinted = true
 				}
@@ -483,6 +537,8 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 			if _, ok := blocks[slot]; !ok {
 				Report("❌ 🧱 Validator %v missed block at epoch %v and slot %v",
 					index, justifiedEpoch, slot)
+				epochMissedProposalsGauge.Add(1)
+				totalMissedProposalsCounter.Inc()
 			}
 		}
 
