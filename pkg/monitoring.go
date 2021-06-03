@@ -20,6 +20,8 @@ import (
 	eth2types "github.com/prysmaticlabs/eth2-types"
 	ethpb "github.com/prysmaticlabs/ethereumapis/eth/v1alpha1"
 	"github.com/rs/zerolog/log"
+
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // IndexPubkeys transforms validator public keys into their indexes.
@@ -338,12 +340,23 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 	includedAttestations := make(map[spec.Epoch]map[spec.ValidatorIndex]*ChainAttestation)
 	attestedEpoches := make(map[spec.Epoch]map[spec.ValidatorIndex]*AttestationLoggingStatus)
 
+	epochGauge := prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "ETH2",
+			Name:      "epoch",
+			Help:      "Current justified epoch",
+		})
+
+	prometheus.MustRegister(epochGauge)
+
+
 	for justifiedEpoch := range epochsChan {
 		// On every chain head update we:
 		// * Retrieve new committees for the new epoch,
 		// * Mark scheduled attestations as attested,
 		// * Check attestations if some of them too old.
 		log.Info().Msgf("New justified epoch %v", justifiedEpoch)
+		epochGauge.Set(float64(justifiedEpoch))
 
 		var err error
 		var epochCommittees map[spec.Slot]BeaconCommittees

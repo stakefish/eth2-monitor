@@ -8,6 +8,7 @@ require (
 	github.com/gogo/protobuf v1.3.2
 	github.com/mattn/go-isatty v0.0.12
 	github.com/pkg/errors v0.9.1
+	github.com/prometheus/client_golang v0.9.3
 	github.com/prysmaticlabs/eth2-types v0.0.0-20210127031309-22cbe426eba6
 	github.com/prysmaticlabs/ethereumapis v0.0.0-20210319233437-ea56a070452b
 	github.com/prysmaticlabs/go-bitfield v0.0.0-20210202205921-7fcea7c45dc8
