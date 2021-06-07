@@ -508,6 +508,8 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 					totalMissedAttestationsCounter.Inc()
 					attStatus.IsPrinted = true
 				} else if att := includedAttestations[epoch][index]; att != nil && !attStatus.IsPrinted {
+					epochServedAttestationsGauge.Add(1)
+					totalServedAttestationsCounter.Inc()
 					var absDistance spec.Slot = att.InclusionSlot - att.Slot
 					var optimalDistance spec.Slot = absDistance - 1
 					for e := att.Slot + 1; e < att.InclusionSlot; e++ {
@@ -525,8 +527,6 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 					} else if opts.Monitor.PrintSuccessful {
 						Report("✅ 🧾 Validator %v attested epoch %v slot %v at slot %v, opt distance is %v, abs distance is %v",
 							index, epoch, att.Slot, att.InclusionSlot, optimalDistance, absDistance)
-						epochServedAttestationsGauge.Add(1)
-						totalServedAttestationsCounter.Inc()
 					}
 					attStatus.IsPrinted = true
 				}
