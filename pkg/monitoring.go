@@ -348,6 +348,8 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 		})
 	prometheus.MustRegister(epochGauge)
 
+	var epochTracker float64
+
 	epochMissedProposalsGauge := prometheus.NewGauge(
 		prometheus.GaugeOpts{
 			Namespace: "ETH2",
@@ -363,6 +365,14 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 			Help:      "Attestations missed in current justified epoch",
 		})
 	prometheus.MustRegister(epochMissedAttestationsGauge)
+
+	lastEpochMissedAttestationsGauge := prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "ETH2",
+			Name:      "lastEpochMissedAttestations",
+			Help:      "Attestations missed in last (n-1) justified epoch",
+		})
+	prometheus.MustRegister(lastEpochMissedAttestationsGauge)
 
 	epochServedAttestationsGauge := prometheus.NewGauge(
 		prometheus.GaugeOpts{
@@ -405,6 +415,8 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 		epochGauge.Set(float64(justifiedEpoch))
 		//Reset all metrics for new epoch
 		epochMissedProposalsGauge.Set(float64(0))
+		lastEpochMissedAttestationsGauge.Set(epochTracker)
+		epochTracker = 0
 		epochMissedAttestationsGauge.Set(float64(0))
 		epochServedAttestationsGauge.Set(float64(0))
 
@@ -504,6 +516,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 
 				if epoch <= justifiedEpoch-missedAttestationDistance && !attStatus.IsAttested && !attStatus.IsPrinted {
 					Report("❌ 🧾 Validator %v did not attest epoch %v slot %v", index, epoch, attStatus.Slot)
+					epochTracker += 1
 					epochMissedAttestationsGauge.Add(1)
 					totalMissedAttestationsCounter.Inc()
 					attStatus.IsPrinted = true
