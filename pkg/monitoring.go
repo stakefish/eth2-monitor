@@ -18,7 +18,7 @@ import (
 	bitfield "github.com/prysmaticlabs/go-bitfield"
 
 	eth2types "github.com/prysmaticlabs/eth2-types"
-	ethpb "github.com/prysmaticlabs/ethereumapis/eth/v1alpha1"
+	ethpb "github.com/prysmaticlabs/prysm/v2/proto/prysm/v1alpha1"
 	"github.com/rs/zerolog/log"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -193,7 +193,7 @@ func ListBlocks(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch) (ma
 	result := make(map[spec.Slot][]*ChainBlock)
 	for {
 		opCtx, cancel := context.WithTimeout(ctx, s.Timeout())
-		resp, err := conn.ListBlocks(opCtx, req)
+		resp, err := conn.ListBeaconBlocks(opCtx, req)
 		cancel()
 		if err != nil {
 			return nil, errors.Wrap(err, "rpc call ListBlocks failed")
@@ -201,20 +201,31 @@ func ListBlocks(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch) (ma
 
 		for _, blockContainer := range resp.BlockContainers {
 			blockContainer := blockContainer
-			block := blockContainer.Block.Block
-			body := block.Body
+			var slot spec.Slot
+			var blockAttestations []*ethpb.Attestation
+
+			switch blockContainer.Block.(type) {
+			case *ethpb.BeaconBlockContainer_Phase0Block:
+				phase0Block := blockContainer.GetPhase0Block().Block
+				slot = spec.Slot(phase0Block.Slot)
+				blockAttestations = phase0Block.Body.Attestations
+			case *ethpb.BeaconBlockContainer_AltairBlock:
+				altairBlock := blockContainer.GetAltairBlock().Block
+				slot = spec.Slot(altairBlock.Slot)
+				blockAttestations = altairBlock.Body.Attestations
+			}
 
 			var attestations []*ChainAttestation
-			for _, att := range body.Attestations {
+			for _, att := range blockAttestations {
 				attestations = append(attestations, &ChainAttestation{
 					AggregationBits: att.AggregationBits,
 					CommitteeIndex:  spec.CommitteeIndex(att.Data.CommitteeIndex),
 					Slot:            spec.Slot(att.Data.Slot),
-					InclusionSlot:   spec.Slot(block.Slot),
+					InclusionSlot:   slot,
 				})
 			}
 
-			result[spec.Slot(block.Slot)] = append(result[spec.Slot(block.Slot)], &ChainBlock{
+			result[slot] = append(result[slot], &ChainBlock{
 				BlockContainer: blockContainer,
 				Attestations:   attestations,
 			})
