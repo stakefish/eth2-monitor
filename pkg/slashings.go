@@ -8,6 +8,7 @@ import (
 
 	"eth2-monitor/cmd/opts"
 
+	ethpb "github.com/prysmaticlabs/prysm/v2/proto/prysm/v1alpha1"
 	"github.com/rs/zerolog/log"
 )
 
@@ -44,17 +45,31 @@ func ReportSlashing(ctx context.Context, prefix string, reason string, slot spec
 func ProcessSlashings(ctx context.Context, blocks map[spec.Slot][]*ChainBlock) (err error) {
 	for slot, blockContainers := range blocks {
 		for _, block := range blockContainers {
-			body := block.BlockContainer.Block.Block.Body
-			slasher := spec.ValidatorIndex(block.BlockContainer.Block.Block.ProposerIndex)
+			var slasher spec.ValidatorIndex
+			var proposerSlashings []*ethpb.ProposerSlashing
+			var attesterSlashings []*ethpb.AttesterSlashing
 
-			for _, proposerSlashing := range body.ProposerSlashings {
+			switch block.BlockContainer.Block.(type) {
+			case *ethpb.BeaconBlockContainer_Phase0Block:
+				phase0Block := block.BlockContainer.GetPhase0Block().Block
+				slasher = spec.ValidatorIndex(phase0Block.ProposerIndex)
+				proposerSlashings = phase0Block.Body.ProposerSlashings
+				attesterSlashings = phase0Block.Body.AttesterSlashings
+			case *ethpb.BeaconBlockContainer_AltairBlock:
+				altairBlock := block.BlockContainer.GetAltairBlock().Block
+				slasher = spec.ValidatorIndex(altairBlock.ProposerIndex)
+				proposerSlashings = altairBlock.Body.ProposerSlashings
+				attesterSlashings = altairBlock.Body.AttesterSlashings
+			}
+
+			for _, proposerSlashing := range proposerSlashings {
 				slashee := spec.ValidatorIndex(proposerSlashing.Header_1.Header.ProposerIndex)
 
 				ReportSlashing(ctx, "🚫 🧱", "proposed two conflicting blocks",
 					slot, slasher, slashee)
 			}
 
-			for _, attesterSlashing := range body.AttesterSlashings {
+			for _, attesterSlashing := range attesterSlashings {
 				var slashee spec.ValidatorIndex
 				attestation1Validators := make(map[spec.ValidatorIndex]interface{})
 				for _, index := range attesterSlashing.Attestation_1.AttestingIndices {

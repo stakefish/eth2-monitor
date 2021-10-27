@@ -3,16 +3,16 @@ package prysmgrpc
 import (
 	"context"
 
-	"github.com/gogo/protobuf/types"
+	empty "github.com/golang/protobuf/ptypes/empty"
 	"github.com/pkg/errors"
-	ethpb "github.com/prysmaticlabs/ethereumapis/eth/v1alpha1"
+	ethpb "github.com/prysmaticlabs/prysm/v2/proto/prysm/v1alpha1"
 )
 
 func (s *Service) GetChainHead() (*ethpb.ChainHead, error) {
 	conn := ethpb.NewBeaconChainClient(s.conn)
 
 	opCtx, cancel := context.WithTimeout(s.ctx, s.timeout)
-	resp, err := conn.GetChainHead(opCtx, &types.Empty{})
+	resp, err := conn.GetChainHead(opCtx, &empty.Empty{})
 	cancel()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to obtain current head")
@@ -24,7 +24,7 @@ func (s *Service) GetChainHead() (*ethpb.ChainHead, error) {
 func (s *Service) StreamChainHead() (ethpb.BeaconChain_StreamChainHeadClient, error) {
 	conn := ethpb.NewBeaconChainClient(s.conn)
 
-	stream, err := conn.StreamChainHead(s.ctx, &types.Empty{})
+	stream, err := conn.StreamChainHead(s.ctx, &empty.Empty{})
 	if err != nil {
 		return nil, err
 	}
@@ -36,7 +36,7 @@ func (s *Service) GetGenesis() (*ethpb.Genesis, error) {
 	conn := ethpb.NewNodeClient(s.Connection())
 
 	opCtx, cancel := context.WithTimeout(s.ctx, s.timeout)
-	resp, err := conn.GetGenesis(opCtx, &types.Empty{})
+	resp, err := conn.GetGenesis(opCtx, &empty.Empty{})
 	cancel()
 	if err != nil {
 		return nil, errors.Wrap(err, "rpc call GetGenesis failed")

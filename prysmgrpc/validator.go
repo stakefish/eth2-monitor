@@ -6,7 +6,7 @@ import (
 
 	"github.com/pkg/errors"
 	eth2types "github.com/prysmaticlabs/eth2-types"
-	ethpb "github.com/prysmaticlabs/ethereumapis/eth/v1alpha1"
+	ethpb "github.com/prysmaticlabs/prysm/v2/proto/prysm/v1alpha1"
 )
 
 func (s *Service) GetValidatorIndex(pubkey []byte) (spec.ValidatorIndex, error) {
