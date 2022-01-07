@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	"github.com/gogo/protobuf/types"
+	empty "github.com/golang/protobuf/ptypes/empty"
 	"github.com/pkg/errors"
-	ethpb "github.com/prysmaticlabs/ethereumapis/eth/v1alpha1"
+	ethpb "github.com/prysmaticlabs/prysm/v2/proto/prysm/v1alpha1"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
 )
@@ -90,7 +90,7 @@ func (s *Service) close() {
 func (s *Service) NodeVersion(ctx context.Context) (string, error) {
 	conn := ethpb.NewNodeClient(s.conn)
 	opCtx, cancel := context.WithTimeout(ctx, s.timeout)
-	version, err := conn.GetVersion(opCtx, &types.Empty{})
+	version, err := conn.GetVersion(opCtx, &empty.Empty{})
 	cancel()
 	if err != nil {
 		return "", errors.Wrap(err, "failed to obtain node version")

@@ -18,8 +18,10 @@ import (
 	bitfield "github.com/prysmaticlabs/go-bitfield"
 
 	eth2types "github.com/prysmaticlabs/eth2-types"
-	ethpb "github.com/prysmaticlabs/ethereumapis/eth/v1alpha1"
+	ethpb "github.com/prysmaticlabs/prysm/v2/proto/prysm/v1alpha1"
 	"github.com/rs/zerolog/log"
+
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // IndexPubkeys transforms validator public keys into their indexes.
@@ -191,7 +193,7 @@ func ListBlocks(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch) (ma
 	result := make(map[spec.Slot][]*ChainBlock)
 	for {
 		opCtx, cancel := context.WithTimeout(ctx, s.Timeout())
-		resp, err := conn.ListBlocks(opCtx, req)
+		resp, err := conn.ListBeaconBlocks(opCtx, req)
 		cancel()
 		if err != nil {
 			return nil, errors.Wrap(err, "rpc call ListBlocks failed")
@@ -199,20 +201,31 @@ func ListBlocks(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch) (ma
 
 		for _, blockContainer := range resp.BlockContainers {
 			blockContainer := blockContainer
-			block := blockContainer.Block.Block
-			body := block.Body
+			var slot spec.Slot
+			var blockAttestations []*ethpb.Attestation
+
+			switch blockContainer.Block.(type) {
+			case *ethpb.BeaconBlockContainer_Phase0Block:
+				phase0Block := blockContainer.GetPhase0Block().Block
+				slot = spec.Slot(phase0Block.Slot)
+				blockAttestations = phase0Block.Body.Attestations
+			case *ethpb.BeaconBlockContainer_AltairBlock:
+				altairBlock := blockContainer.GetAltairBlock().Block
+				slot = spec.Slot(altairBlock.Slot)
+				blockAttestations = altairBlock.Body.Attestations
+			}
 
 			var attestations []*ChainAttestation
-			for _, att := range body.Attestations {
+			for _, att := range blockAttestations {
 				attestations = append(attestations, &ChainAttestation{
 					AggregationBits: att.AggregationBits,
 					CommitteeIndex:  spec.CommitteeIndex(att.Data.CommitteeIndex),
 					Slot:            spec.Slot(att.Data.Slot),
-					InclusionSlot:   spec.Slot(block.Slot),
+					InclusionSlot:   slot,
 				})
 			}
 
-			result[spec.Slot(block.Slot)] = append(result[spec.Slot(block.Slot)], &ChainBlock{
+			result[slot] = append(result[slot], &ChainBlock{
 				BlockContainer: blockContainer,
 				Attestations:   attestations,
 			})
@@ -338,12 +351,85 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 	includedAttestations := make(map[spec.Epoch]map[spec.ValidatorIndex]*ChainAttestation)
 	attestedEpoches := make(map[spec.Epoch]map[spec.ValidatorIndex]*AttestationLoggingStatus)
 
+	epochGauge := prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "ETH2",
+			Name:      "epoch",
+			Help:      "Current justified epoch",
+		})
+	prometheus.MustRegister(epochGauge)
+
+	var epochTracker float64
+
+	epochMissedProposalsGauge := prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "ETH2",
+			Name:      "epochMissedProposals",
+			Help:      "Blocks missed in current justified epoch",
+		})
+	prometheus.MustRegister(epochMissedProposalsGauge)
+
+	epochMissedAttestationsGauge := prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "ETH2",
+			Name:      "epochMissedAttestations",
+			Help:      "Attestations missed in current justified epoch",
+		})
+	prometheus.MustRegister(epochMissedAttestationsGauge)
+
+	lastEpochMissedAttestationsGauge := prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "ETH2",
+			Name:      "lastEpochMissedAttestations",
+			Help:      "Attestations missed in last (n-1) justified epoch",
+		})
+	prometheus.MustRegister(lastEpochMissedAttestationsGauge)
+
+	epochServedAttestationsGauge := prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "ETH2",
+			Name:      "epochServedAttestations",
+			Help:      "Attestations served in current justified epoch",
+		})
+	prometheus.MustRegister(epochServedAttestationsGauge)
+
+	totalMissedProposalsCounter := prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Namespace: "ETH2",
+			Name:      "totalMissedProposals",
+			Help:      "Proposals missed since monitoring started",
+		})
+	prometheus.MustRegister(totalMissedProposalsCounter)
+
+	totalMissedAttestationsCounter := prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Namespace: "ETH2",
+			Name:      "totalMissedAttestations",
+			Help:      "Attestations missed since monitoring started",
+		})
+	prometheus.MustRegister(totalMissedAttestationsCounter)
+
+	totalServedAttestationsCounter := prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Namespace: "ETH2",
+			Name:      "totalServedAttestations",
+			Help:      "Attestations served since monitoring started",
+		})
+	prometheus.MustRegister(totalServedAttestationsCounter)
+
 	for justifiedEpoch := range epochsChan {
 		// On every chain head update we:
 		// * Retrieve new committees for the new epoch,
 		// * Mark scheduled attestations as attested,
 		// * Check attestations if some of them too old.
 		log.Info().Msgf("New justified epoch %v", justifiedEpoch)
+		epochGauge.Set(float64(justifiedEpoch))
+		//Reset all metrics for new epoch
+		epochMissedProposalsGauge.Set(float64(0))
+		lastEpochMissedAttestationsGauge.Set(epochTracker)
+		epochTracker = 0
+		epochMissedAttestationsGauge.Set(float64(0))
+		epochServedAttestationsGauge.Set(float64(0))
 
 		var err error
 		var epochCommittees map[spec.Slot]BeaconCommittees
@@ -441,8 +527,13 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 
 				if epoch <= justifiedEpoch-missedAttestationDistance && !attStatus.IsAttested && !attStatus.IsPrinted {
 					Report("❌ 🧾 Validator %v did not attest epoch %v slot %v", index, epoch, attStatus.Slot)
+					epochTracker += 1
+					epochMissedAttestationsGauge.Add(1)
+					totalMissedAttestationsCounter.Inc()
 					attStatus.IsPrinted = true
 				} else if att := includedAttestations[epoch][index]; att != nil && !attStatus.IsPrinted {
+					epochServedAttestationsGauge.Add(1)
+					totalServedAttestationsCounter.Inc()
 					var absDistance spec.Slot = att.InclusionSlot - att.Slot
 					var optimalDistance spec.Slot = absDistance - 1
 					for e := att.Slot + 1; e < att.InclusionSlot; e++ {
@@ -470,6 +561,8 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 			if _, ok := blocks[slot]; !ok {
 				Report("❌ 🧱 Validator %v missed block at epoch %v and slot %v",
 					index, justifiedEpoch, slot)
+				epochMissedProposalsGauge.Add(1)
+				totalMissedProposalsCounter.Inc()
 			}
 		}
 

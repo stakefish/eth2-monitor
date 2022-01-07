@@ -13,6 +13,10 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
+
+	"net/http"
+
+  "github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 var (
@@ -62,6 +66,11 @@ var (
 			wg.Add(2)
 			go pkg.SubscribeToEpochs(ctx, s, true, &wg)
 			go pkg.MonitorAttestationsAndProposals(ctx, s, plainPubkeys, &wg)
+
+			//Create Prometheus Metrics Client
+			http.Handle("/metrics", promhttp.Handler())
+			http.ListenAndServe(":1337", nil)
+			
 			defer wg.Wait()
 		},
 	}
