@@ -16,7 +16,7 @@ import (
 
 	"net/http"
 
-  "github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 var (
@@ -69,8 +69,8 @@ var (
 
 			//Create Prometheus Metrics Client
 			http.Handle("/metrics", promhttp.Handler())
-			http.ListenAndServe(":1337", nil)
-			
+			http.ListenAndServe(":"+opts.MetricsPort, nil)
+
 			defer wg.Wait()
 		},
 	}
@@ -140,6 +140,7 @@ func Execute() error {
 func init() {
 	rootCmd.PersistentFlags().StringVarP(&opts.LogLevel, "log-level", "l", "info", "log level (error, warn, info, debug, trace)")
 	rootCmd.PersistentFlags().StringVar(&opts.BeaconNode, "beacon-node", "localhost:4000", "Prysm beacon node GRPC address")
+	rootCmd.PersistentFlags().StringVar(&opts.MetricsPort, "metrics-port", "1337", "Metrics port to expose metrics for Prometheus")
 	rootCmd.PersistentFlags().StringVar(&opts.SlackURL, "slack-url", "", "Slack Webhook URL")
 	rootCmd.PersistentFlags().StringVar(&opts.SlackUsername, "slack-username", "", "Slack username")
 
