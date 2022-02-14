@@ -393,6 +393,14 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 		})
 	prometheus.MustRegister(epochServedAttestationsGauge)
 
+	epochDelayedAttestationsOverToleranceGauge := prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "ETH2",
+			Name:      "epochDelayedAttestationsOverTolerance",
+			Help:      "Attestation delayed over tolerance distance setting in current justified epoch",
+		})
+	prometheus.MustRegister(epochDelayedAttestationsOverToleranceGauge)
+
 	totalMissedProposalsCounter := prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Namespace: "ETH2",
@@ -430,6 +438,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 		epochTracker = 0
 		epochMissedAttestationsGauge.Set(float64(0))
 		epochServedAttestationsGauge.Set(float64(0))
+		epochDelayedAttestationsOverToleranceGauge.Set(float64(0))
 
 		var err error
 		var epochCommittees map[spec.Slot]BeaconCommittees
@@ -548,6 +557,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 					if distanceToCompare > opts.Monitor.DistanceTolerance {
 						Report("⚠️ 🧾 Validator %v attested epoch %v slot %v at slot %v, opt distance is %v, abs distance is %v",
 							index, epoch, att.Slot, att.InclusionSlot, optimalDistance, absDistance)
+						epochDelayedAttestationsOverToleranceGauge.Add(1)
 					} else if opts.Monitor.PrintSuccessful {
 						Report("✅ 🧾 Validator %v attested epoch %v slot %v at slot %v, opt distance is %v, abs distance is %v",
 							index, epoch, att.Slot, att.InclusionSlot, optimalDistance, absDistance)
