@@ -18,6 +18,14 @@ You can use pre-built binaries from [the latest published release][releases link
 
 [releases link]: https://github.com/stakefish/eth2-monitor/releases
 
+### Containers ###
+
+You can use pre-built containers from Github public container registry.
+
+```
+docker pull ghcr.io/stakefish/eth2-monitor
+```
+
 ### Sources ###
 
 If you choose to build from sources, use this command:
