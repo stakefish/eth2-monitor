@@ -425,6 +425,14 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 		})
 	prometheus.MustRegister(totalServedAttestationsCounter)
 
+	totalDelayedAttestationsOverToleranceCounter := prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Namespace: "ETH2",
+			Name:      "totalDelayedAttestationsOverTolerance",
+			Help:      "Attestation delayed over tolerance distance setting since monitoring started",
+		})
+	prometheus.MustRegister(totalDelayedAttestationsOverToleranceCounter)
+
 	for justifiedEpoch := range epochsChan {
 		// On every chain head update we:
 		// * Retrieve new committees for the new epoch,
@@ -558,6 +566,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 						Report("⚠️ 🧾 Validator %v attested epoch %v slot %v at slot %v, opt distance is %v, abs distance is %v",
 							index, epoch, att.Slot, att.InclusionSlot, optimalDistance, absDistance)
 						epochDelayedAttestationsOverToleranceGauge.Add(1)
+						totalDelayedAttestationsOverToleranceCounter.Inc()
 					} else if opts.Monitor.PrintSuccessful {
 						Report("✅ 🧾 Validator %v attested epoch %v slot %v at slot %v, opt distance is %v, abs distance is %v",
 							index, epoch, att.Slot, att.InclusionSlot, optimalDistance, absDistance)
