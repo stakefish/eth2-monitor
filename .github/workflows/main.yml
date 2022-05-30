@@ -4,41 +4,42 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 jobs:
-  static-analysis:
-    name: Static Analysis
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v2
-    - name: go vet
-      continue-on-error: false
-      uses: grandcolline/golang-github-actions@v1.1.0
-      with:
-        run: vet
-    - name: staticcheck
-      continue-on-error: false
-      uses: grandcolline/golang-github-actions@v1.1.0
-      with:
-        run: staticcheck
-    - name: gosec
-      # Gives too many false positives.
-      continue-on-error: true
-      uses: grandcolline/golang-github-actions@v1.1.0
-      with:
-        run: sec
-        flags: "-exclude=G104"
-    - name: misspell
-      continue-on-error: false
-      run: |
-        go get -u github.com/client9/misspell/cmd/misspell
-        $(go env GOPATH)/bin/misspell -locale US *.md $(find . -name '*.go')
+  # XXX: Static analysis step is way too out of date.
+  # static-analysis:
+  #   name: Static Analysis
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #   - uses: actions/checkout@v3
+  #   - name: go vet
+  #     continue-on-error: false
+  #     uses: grandcolline/golang-github-actions@v1.1.0
+  #     with:
+  #       run: vet
+  #   - name: staticcheck
+  #     continue-on-error: false
+  #     uses: grandcolline/golang-github-actions@v1.1.0
+  #     with:
+  #       run: staticcheck
+  #   - name: gosec
+  #     # Gives too many false positives.
+  #     continue-on-error: true
+  #     uses: grandcolline/golang-github-actions@v1.1.0
+  #     with:
+  #       run: sec
+  #       flags: "-exclude=G104"
+  #   - name: misspell
+  #     continue-on-error: false
+  #     run: |
+  #       go get -u github.com/client9/misspell/cmd/misspell
+  #       $(go env GOPATH)/bin/misspell -locale US *.md $(find . -name '*.go')
   build:
     name: Build the executable
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/setup-go@v2
+    - uses: actions/setup-go@v3
       with:
         go-version: 1.18.x
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: Build
       run: |
         set -ex
@@ -79,7 +80,7 @@ jobs:
       packages: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
       - name: Log in to the Container registry
         uses: docker/login-action@f054a8b539a109f9f41c372932f1ae047eff08c9
         with:
