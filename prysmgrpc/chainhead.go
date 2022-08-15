@@ -3,9 +3,9 @@ package prysmgrpc
 import (
 	"context"
 
-	empty "github.com/golang/protobuf/ptypes/empty"
 	"github.com/pkg/errors"
-	ethpb "github.com/prysmaticlabs/prysm/v2/proto/prysm/v1alpha1"
+	ethpb "github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1"
+	empty "google.golang.org/protobuf/types/known/emptypb"
 )
 
 func (s *Service) GetChainHead() (*ethpb.ChainHead, error) {

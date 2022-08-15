@@ -22,6 +22,14 @@ func Report(format string, args ...interface{}) {
 	reportToSlack(message)
 }
 
+func Info(format string, args ...interface{}) {
+	message := fmt.Sprintf(format, args...)
+
+	log.Info().Msgf(message)
+
+	reportToSlack(message)
+}
+
 func reportToSlack(message string) {
 	if opts.SlackURL == "" {
 		return

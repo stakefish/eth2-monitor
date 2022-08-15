@@ -5,8 +5,8 @@ import (
 	"eth2-monitor/spec"
 
 	"github.com/pkg/errors"
-	eth2types "github.com/prysmaticlabs/eth2-types"
-	ethpb "github.com/prysmaticlabs/prysm/v2/proto/prysm/v1alpha1"
+	primitives "github.com/prysmaticlabs/prysm/consensus-types/primitives"
+	ethpb "github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1"
 )
 
 func (s *Service) GetValidatorIndex(pubkey []byte) (spec.ValidatorIndex, error) {
@@ -32,8 +32,8 @@ func (s *Service) GetValidatorBalances(index spec.ValidatorIndex, epochs []spec.
 
 	for _, epoch := range epochs {
 		req := &ethpb.ListValidatorBalancesRequest{
-			QueryFilter: &ethpb.ListValidatorBalancesRequest_Epoch{Epoch: eth2types.Epoch(epoch)},
-			Indices:     []eth2types.ValidatorIndex{eth2types.ValidatorIndex(index)},
+			QueryFilter: &ethpb.ListValidatorBalancesRequest_Epoch{Epoch: primitives.Epoch(epoch)},
+			Indices:     []primitives.ValidatorIndex{primitives.ValidatorIndex(index)},
 		}
 
 		for {

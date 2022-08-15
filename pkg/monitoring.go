@@ -15,11 +15,16 @@ import (
 	"eth2-monitor/spec"
 
 	"github.com/pkg/errors"
-	bitfield "github.com/prysmaticlabs/go-bitfield"
-
-	eth2types "github.com/prysmaticlabs/eth2-types"
-	ethpb "github.com/prysmaticlabs/prysm/v2/proto/prysm/v1alpha1"
 	"github.com/rs/zerolog/log"
+	codes "google.golang.org/grpc/codes"
+	status "google.golang.org/grpc/status"
+
+	bitfield "github.com/prysmaticlabs/go-bitfield"
+	primitives "github.com/prysmaticlabs/prysm/consensus-types/primitives"
+	ethpbservice "github.com/prysmaticlabs/prysm/proto/eth/service"
+	ethpbv1 "github.com/prysmaticlabs/prysm/proto/eth/v1"
+	ethpbv2 "github.com/prysmaticlabs/prysm/proto/eth/v2"
+	ethpb "github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1"
 
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -81,7 +86,7 @@ func IndexPubkeys(ctx context.Context, s *prysmgrpc.Service, pubkeys []string) (
 // To improve performance, it has to narrow the set of validators for which it checks duties.
 func ListProposers(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch, validators map[string]spec.ValidatorIndex, epochCommittees map[spec.Slot]BeaconCommittees) (map[spec.Slot]spec.ValidatorIndex, error) {
 	// Filter out non-activated validator indexes and use only active ones.
-	var indexes []eth2types.ValidatorIndex
+	var indexes []primitives.ValidatorIndex
 	activeIndexes := make(map[spec.ValidatorIndex]interface{})
 	for _, committees := range epochCommittees {
 		for _, indexes := range committees {
@@ -92,7 +97,7 @@ func ListProposers(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch, 
 	}
 	for _, index := range validators {
 		if _, ok := activeIndexes[index]; ok {
-			indexes = append(indexes, eth2types.ValidatorIndex(index))
+			indexes = append(indexes, primitives.ValidatorIndex(index))
 		}
 	}
 
@@ -107,7 +112,7 @@ func ListProposers(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch, 
 			end = len(indexes)
 		}
 		req := &ethpb.ListValidatorAssignmentsRequest{
-			QueryFilter: &ethpb.ListValidatorAssignmentsRequest_Epoch{Epoch: eth2types.Epoch(epoch)},
+			QueryFilter: &ethpb.ListValidatorAssignmentsRequest_Epoch{Epoch: primitives.Epoch(epoch)},
 			Indices:     indexes[i:end],
 		}
 
@@ -140,7 +145,7 @@ type BeaconCommittees map[spec.CommitteeIndex][]spec.ValidatorIndex
 // ListBeaconCommittees lists committees for a specific epoch.
 func ListBeaconCommittees(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch) (map[spec.Slot]BeaconCommittees, error) {
 	req := &ethpb.ListCommitteesRequest{
-		QueryFilter: &ethpb.ListCommitteesRequest_Epoch{Epoch: eth2types.Epoch(epoch)},
+		QueryFilter: &ethpb.ListCommitteesRequest_Epoch{Epoch: primitives.Epoch(epoch)},
 	}
 
 	conn := ethpb.NewBeaconChainClient(s.Connection())
@@ -172,8 +177,15 @@ func ListBeaconCommittees(ctx context.Context, s *prysmgrpc.Service, epoch spec.
 }
 
 type ChainBlock struct {
-	BlockContainer *ethpb.BeaconBlockContainer
-	Attestations   []*ChainAttestation
+	IsCanonical       bool
+	Attestations      []*ethpbv1.Attestation
+	BlockContainer    *ethpbv2.SignedBeaconBlockContainerV2
+	ChainAttestations []*ChainAttestation
+	Deposits          []*ethpbv1.Deposit
+	ProposerIndex     spec.ValidatorIndex
+	AttesterSlashings []*ethpbv1.AttesterSlashing
+	ProposerSlashings []*ethpbv1.ProposerSlashing
+	VoluntaryExits    []*ethpbv1.SignedVoluntaryExit
 }
 
 type ChainAttestation struct {
@@ -183,57 +195,89 @@ type ChainAttestation struct {
 	AggregationBits []byte
 }
 
+// getBlock retrieves the block for a specific block root.
+func getBlock(ctx context.Context, s *prysmgrpc.Service, root []byte) (*ethpbv2.SignedBeaconBlockContainerV2, error) {
+	conn := ethpbservice.NewBeaconChainClient(s.Connection())
+	opCtx, cancel := context.WithTimeout(ctx, s.Timeout())
+	req := &ethpbv2.BlockRequestV2{
+		BlockId: root,
+	}
+	resp, err := conn.GetBlockV2(opCtx, req)
+	cancel()
+	if err != nil {
+		return nil, errors.Wrapf(err, "rpc call GetBlockV2 failed, root=%q", root)
+	}
+	return resp.GetData(), nil
+}
+
 // ListBlocks lists blocks and attestations for a specific epoch.
 func ListBlocks(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch) (map[spec.Slot][]*ChainBlock, error) {
-	conn := ethpb.NewBeaconChainClient(s.Connection())
-	req := &ethpb.ListBlocksRequest{
-		QueryFilter: &ethpb.ListBlocksRequest_Epoch{Epoch: eth2types.Epoch(epoch)},
-	}
+	conn := ethpbservice.NewBeaconChainClient(s.Connection())
 
 	result := make(map[spec.Slot][]*ChainBlock)
-	for {
+	lastSlot := (epoch + 1) * spec.SLOTS_PER_EPOCH
+	for slot := epoch * spec.SLOTS_PER_EPOCH; slot < lastSlot; slot++ {
 		opCtx, cancel := context.WithTimeout(ctx, s.Timeout())
-		resp, err := conn.ListBeaconBlocks(opCtx, req)
+		pslot := primitives.Slot(slot)
+		req := &ethpbv1.BlockHeadersRequest{
+			Slot: &pslot,
+		}
+		resp, err := conn.ListBlockHeaders(opCtx, req)
 		cancel()
+		if err != nil && status.Code(err) == codes.NotFound {
+			continue
+		}
 		if err != nil {
-			return nil, errors.Wrap(err, "rpc call ListBlocks failed")
+			return nil, errors.Wrapf(err, "rpc call ListBlockHeaders failed, req=%q", req)
 		}
 
-		for _, blockContainer := range resp.BlockContainers {
-			blockContainer := blockContainer
-			var slot spec.Slot
-			var blockAttestations []*ethpb.Attestation
+		for _, blockHeaderContainer := range resp.GetData() {
+			proposerIndex := spec.ValidatorIndex(blockHeaderContainer.GetHeader().GetMessage().GetProposerIndex())
 
-			switch blockContainer.Block.(type) {
-			case *ethpb.BeaconBlockContainer_Phase0Block:
-				phase0Block := blockContainer.GetPhase0Block().Block
-				slot = spec.Slot(phase0Block.Slot)
-				blockAttestations = phase0Block.Body.Attestations
-			case *ethpb.BeaconBlockContainer_AltairBlock:
-				altairBlock := blockContainer.GetAltairBlock().Block
-				slot = spec.Slot(altairBlock.Slot)
-				blockAttestations = altairBlock.Body.Attestations
+			signedBeaconBlockContainer, err := getBlock(ctx, s, blockHeaderContainer.GetRoot())
+			if err != nil {
+				return nil, err
 			}
 
-			var attestations []*ChainAttestation
+			var blockAttestations []*ethpbv1.Attestation
+			var attesterSlashings []*ethpbv1.AttesterSlashing
+			var proposerSlashings []*ethpbv1.ProposerSlashing
+			switch signedBeaconBlockContainer.GetMessage().(type) {
+			case *ethpbv2.SignedBeaconBlockContainerV2_Phase0Block:
+				phase0Block := signedBeaconBlockContainer.GetPhase0Block()
+				blockAttestations = phase0Block.GetBody().GetAttestations()
+				attesterSlashings = phase0Block.GetBody().GetAttesterSlashings()
+				proposerSlashings = phase0Block.GetBody().GetProposerSlashings()
+			case *ethpbv2.SignedBeaconBlockContainerV2_AltairBlock:
+				altairBlock := signedBeaconBlockContainer.GetAltairBlock()
+				blockAttestations = altairBlock.GetBody().GetAttestations()
+				attesterSlashings = altairBlock.GetBody().GetAttesterSlashings()
+				proposerSlashings = altairBlock.GetBody().GetProposerSlashings()
+			case *ethpbv2.SignedBeaconBlockContainerV2_BellatrixBlock:
+				bellatrixBlock := signedBeaconBlockContainer.GetBellatrixBlock()
+				blockAttestations = bellatrixBlock.GetBody().GetAttestations()
+				attesterSlashings = bellatrixBlock.GetBody().GetAttesterSlashings()
+				proposerSlashings = bellatrixBlock.GetBody().GetProposerSlashings()
+			}
+
+			var chainAttestations []*ChainAttestation
 			for _, att := range blockAttestations {
-				attestations = append(attestations, &ChainAttestation{
-					AggregationBits: att.AggregationBits,
-					CommitteeIndex:  spec.CommitteeIndex(att.Data.CommitteeIndex),
-					Slot:            spec.Slot(att.Data.Slot),
+				chainAttestations = append(chainAttestations, &ChainAttestation{
+					AggregationBits: att.GetAggregationBits(),
+					CommitteeIndex:  spec.CommitteeIndex(att.GetData().GetIndex()),
+					Slot:            spec.Slot(att.GetData().GetSlot()),
 					InclusionSlot:   slot,
 				})
 			}
 
 			result[slot] = append(result[slot], &ChainBlock{
-				BlockContainer: blockContainer,
-				Attestations:   attestations,
+				IsCanonical:       blockHeaderContainer.GetCanonical(),
+				ProposerIndex:     proposerIndex,
+				AttesterSlashings: attesterSlashings,
+				ProposerSlashings: proposerSlashings,
+				BlockContainer:    signedBeaconBlockContainer,
+				ChainAttestations: chainAttestations,
 			})
-		}
-
-		req.PageToken = resp.NextPageToken
-		if req.PageToken == "" {
-			break
 		}
 	}
 
@@ -500,8 +544,8 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 
 		for _, slotBlocks := range blocks {
 			for _, chainBlock := range slotBlocks {
-				for _, attestation := range chainBlock.Attestations {
-					isCanonical := chainBlock.BlockContainer.Canonical
+				for _, attestation := range chainBlock.ChainAttestations {
+					isCanonical := chainBlock.IsCanonical
 
 					// Every included attestation contains aggregation bits, i.e. a list of validators
 					// from which attestations were aggregated.
@@ -568,7 +612,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 						epochDelayedAttestationsOverToleranceGauge.Add(1)
 						totalDelayedAttestationsOverToleranceCounter.Inc()
 					} else if opts.Monitor.PrintSuccessful {
-						Report("✅ 🧾 Validator %v attested epoch %v slot %v at slot %v, opt distance is %v, abs distance is %v",
+						Info("✅ 🧾 Validator %v attested epoch %v slot %v at slot %v, opt distance is %v, abs distance is %v",
 							index, epoch, att.Slot, att.InclusionSlot, optimalDistance, absDistance)
 					}
 					attStatus.IsPrinted = true

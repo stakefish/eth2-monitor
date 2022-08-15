@@ -8,7 +8,6 @@ import (
 
 	"eth2-monitor/cmd/opts"
 
-	ethpb "github.com/prysmaticlabs/prysm/v2/proto/prysm/v1alpha1"
 	"github.com/rs/zerolog/log"
 )
 
@@ -43,27 +42,14 @@ func ReportSlashing(ctx context.Context, prefix string, reason string, slot spec
 }
 
 func ProcessSlashings(ctx context.Context, blocks map[spec.Slot][]*ChainBlock) (err error) {
-	for slot, blockContainers := range blocks {
-		for _, block := range blockContainers {
-			var slasher spec.ValidatorIndex
-			var proposerSlashings []*ethpb.ProposerSlashing
-			var attesterSlashings []*ethpb.AttesterSlashing
-
-			switch block.BlockContainer.Block.(type) {
-			case *ethpb.BeaconBlockContainer_Phase0Block:
-				phase0Block := block.BlockContainer.GetPhase0Block().Block
-				slasher = spec.ValidatorIndex(phase0Block.ProposerIndex)
-				proposerSlashings = phase0Block.Body.ProposerSlashings
-				attesterSlashings = phase0Block.Body.AttesterSlashings
-			case *ethpb.BeaconBlockContainer_AltairBlock:
-				altairBlock := block.BlockContainer.GetAltairBlock().Block
-				slasher = spec.ValidatorIndex(altairBlock.ProposerIndex)
-				proposerSlashings = altairBlock.Body.ProposerSlashings
-				attesterSlashings = altairBlock.Body.AttesterSlashings
-			}
+	for slot, chainBlocks := range blocks {
+		for _, chainBlock := range chainBlocks {
+			slasher := chainBlock.ProposerIndex
+			proposerSlashings := chainBlock.ProposerSlashings
+			attesterSlashings := chainBlock.AttesterSlashings
 
 			for _, proposerSlashing := range proposerSlashings {
-				slashee := spec.ValidatorIndex(proposerSlashing.Header_1.Header.ProposerIndex)
+				slashee := spec.ValidatorIndex(proposerSlashing.GetSignedHeader_1().GetMessage().GetProposerIndex())
 
 				ReportSlashing(ctx, "🚫 🧱", "proposed two conflicting blocks",
 					slot, slasher, slashee)
@@ -72,11 +58,11 @@ func ProcessSlashings(ctx context.Context, blocks map[spec.Slot][]*ChainBlock) (
 			for _, attesterSlashing := range attesterSlashings {
 				var slashee spec.ValidatorIndex
 				attestation1Validators := make(map[spec.ValidatorIndex]interface{})
-				for _, index := range attesterSlashing.Attestation_1.AttestingIndices {
+				for _, index := range attesterSlashing.GetAttestation_1().GetAttestingIndices() {
 					attestation1Validators[index] = nil
 				}
 
-				for _, index := range attesterSlashing.Attestation_2.AttestingIndices {
+				for _, index := range attesterSlashing.GetAttestation_2().GetAttestingIndices() {
 					if _, ok := attestation1Validators[index]; ok {
 						slashee = index
 						break
