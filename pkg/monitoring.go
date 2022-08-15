@@ -16,6 +16,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
+	"golang.org/x/exp/maps"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
 
@@ -80,6 +81,26 @@ func IndexPubkeys(ctx context.Context, s *prysmgrpc.Service, pubkeys []string) (
 	SaveCache(cache)
 
 	return result, reversed, nil
+}
+
+func processDeposits(ctx context.Context, s *prysmgrpc.Service, hashedKeys map[string]interface{}, deposits []*ethpbv1.Deposit) (map[string]spec.ValidatorIndex, map[spec.ValidatorIndex]string, error) {
+	var pubkeys []string
+
+	for _, deposit := range deposits {
+		binPubkey := deposit.GetData().GetPubkey()
+		pubkey := hex.EncodeToString(binPubkey)
+		pubkey = strings.ToLower(pubkey)
+
+		if _, ok := hashedKeys[pubkey]; !ok {
+			continue
+		}
+
+		Info("Validator %v has been deposited", pubkey)
+
+		pubkeys = append(pubkeys, pubkey)
+	}
+
+	return IndexPubkeys(ctx, s, pubkeys)
 }
 
 // ListProposers returns block proposers scheduled for epoch.
@@ -178,11 +199,12 @@ func ListBeaconCommittees(ctx context.Context, s *prysmgrpc.Service, epoch spec.
 
 type ChainBlock struct {
 	IsCanonical       bool
-	Attestations      []*ethpbv1.Attestation
-	BlockContainer    *ethpbv2.SignedBeaconBlockContainerV2
-	ChainAttestations []*ChainAttestation
-	Deposits          []*ethpbv1.Deposit
+	Slot              spec.Slot
 	ProposerIndex     spec.ValidatorIndex
+	ChainAttestations []*ChainAttestation
+	BlockContainer    *ethpbv2.SignedBeaconBlockContainerV2
+	Attestations      []*ethpbv1.Attestation
+	Deposits          []*ethpbv1.Deposit
 	AttesterSlashings []*ethpbv1.AttesterSlashing
 	ProposerSlashings []*ethpbv1.ProposerSlashing
 	VoluntaryExits    []*ethpbv1.SignedVoluntaryExit
@@ -242,22 +264,26 @@ func ListBlocks(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch) (ma
 			var blockAttestations []*ethpbv1.Attestation
 			var attesterSlashings []*ethpbv1.AttesterSlashing
 			var proposerSlashings []*ethpbv1.ProposerSlashing
+			var deposits []*ethpbv1.Deposit
 			switch signedBeaconBlockContainer.GetMessage().(type) {
 			case *ethpbv2.SignedBeaconBlockContainerV2_Phase0Block:
 				phase0Block := signedBeaconBlockContainer.GetPhase0Block()
 				blockAttestations = phase0Block.GetBody().GetAttestations()
 				attesterSlashings = phase0Block.GetBody().GetAttesterSlashings()
 				proposerSlashings = phase0Block.GetBody().GetProposerSlashings()
+				deposits = phase0Block.GetBody().GetDeposits()
 			case *ethpbv2.SignedBeaconBlockContainerV2_AltairBlock:
 				altairBlock := signedBeaconBlockContainer.GetAltairBlock()
 				blockAttestations = altairBlock.GetBody().GetAttestations()
 				attesterSlashings = altairBlock.GetBody().GetAttesterSlashings()
 				proposerSlashings = altairBlock.GetBody().GetProposerSlashings()
+				deposits = altairBlock.GetBody().GetDeposits()
 			case *ethpbv2.SignedBeaconBlockContainerV2_BellatrixBlock:
 				bellatrixBlock := signedBeaconBlockContainer.GetBellatrixBlock()
 				blockAttestations = bellatrixBlock.GetBody().GetAttestations()
 				attesterSlashings = bellatrixBlock.GetBody().GetAttesterSlashings()
 				proposerSlashings = bellatrixBlock.GetBody().GetProposerSlashings()
+				deposits = bellatrixBlock.GetBody().GetDeposits()
 			}
 
 			var chainAttestations []*ChainAttestation
@@ -273,10 +299,12 @@ func ListBlocks(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch) (ma
 			result[slot] = append(result[slot], &ChainBlock{
 				IsCanonical:       blockHeaderContainer.GetCanonical(),
 				ProposerIndex:     proposerIndex,
+				Slot:              slot,
 				AttesterSlashings: attesterSlashings,
 				ProposerSlashings: proposerSlashings,
 				BlockContainer:    signedBeaconBlockContainer,
 				ChainAttestations: chainAttestations,
+				Deposits:          deposits,
 			})
 		}
 	}
@@ -386,6 +414,12 @@ func LoadKeys(pubkeysFiles []string) ([]string, error) {
 func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, plainKeys []string, wg *sync.WaitGroup) {
 	defer wg.Done()
 
+	hashedKeys := make(map[string]interface{})
+	for _, pubkey := range plainKeys {
+		pubkey := strings.TrimPrefix(pubkey, "0x")
+		pubkey = strings.ToLower(pubkey)
+		hashedKeys[pubkey] = nil
+	}
 	directIndexes, reversedIndexes, err := IndexPubkeys(ctx, s, plainKeys)
 	Must(err)
 
@@ -484,7 +518,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 		// * Check attestations if some of them too old.
 		log.Info().Msgf("New justified epoch %v", justifiedEpoch)
 		epochGauge.Set(float64(justifiedEpoch))
-		//Reset all metrics for new epoch
+		// Reset all metrics for new epoch.
 		epochMissedProposalsGauge.Set(float64(0))
 		lastEpochMissedAttestationsGauge.Set(epochTracker)
 		epochTracker = 0
@@ -544,6 +578,11 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 
 		for _, slotBlocks := range blocks {
 			for _, chainBlock := range slotBlocks {
+				newDirectIndexes, newReversedIndexes, err := processDeposits(ctx, s, hashedKeys, chainBlock.Deposits)
+				Must(err)
+				maps.Copy(directIndexes, newDirectIndexes)
+				maps.Copy(reversedIndexes, newReversedIndexes)
+
 				for _, attestation := range chainBlock.ChainAttestations {
 					isCanonical := chainBlock.IsCanonical
 
