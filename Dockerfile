@@ -19,7 +19,7 @@ COPY . .
 RUN go build -o /go/bin/eth2-monitor -ldflags '-extldflags "-static"'
 
 # second step to build minimal image
-FROM alpine:3.16
+FROM scratch
 
 # add common trusted certificates from the build stage
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
