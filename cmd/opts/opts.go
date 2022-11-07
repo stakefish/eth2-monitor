@@ -1,11 +1,13 @@
 package opts
 
 var (
-	LogLevel      string
-	BeaconNode    string
-	MetricsPort   string
-	SlackURL      string
-	SlackUsername string
+	LogLevel       string
+	BeaconNode     string
+	MetricsPort    string
+	SlackURL       string
+	SlackUsername  string
+	PushGatewayUrl string
+	PushGatewayJob string
 
 	Monitor struct {
 		ReplayEpoch         []uint

@@ -28,6 +28,7 @@ import (
 	ethpb "github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/push"
 )
 
 // IndexPubkeys transforms validator public keys into their indexes.
@@ -543,6 +544,18 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 		})
 	prometheus.MustRegister(totalDelayedAttestationsOverToleranceCounter)
 
+	var pusher *push.Pusher
+	if opts.PushGatewayUrl != "" && opts.PushGatewayJob != "" {
+		registry := prometheus.NewRegistry()
+		registry.MustRegister(epochGauge, epochMissedProposalsGauge, epochCanonicalProposalsGauge,
+			epochOrphanedProposalsGauge, epochMissedAttestationsGauge, lastEpochMissedAttestationsGauge,
+			epochServedAttestationsGauge, epochDelayedAttestationsOverToleranceGauge,
+			totalMissedProposalsCounter, totalCanonicalProposalsCounter, totalOrphanedProposalsCounter,
+			totalMissedAttestationsCounter, totalServedAttestationsCounter,
+			totalDelayedAttestationsOverToleranceCounter)
+		pusher = push.New(opts.PushGatewayUrl, opts.PushGatewayJob).Gatherer(registry)
+	}
+
 	for justifiedEpoch := range epochsChan {
 		// On every chain head update we:
 		// * Retrieve new committees for the new epoch,
@@ -718,6 +731,12 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 					index, justifiedEpoch, slot)
 				epochOrphanedProposalsGauge.Add(1)
 				totalOrphanedProposalsCounter.Inc()
+			}
+		}
+
+		if pusher != nil {
+			if err := pusher.Add(); err != nil {
+				log.Error().Msgf("❌ Could not push to Pushgateway: %v", err)
 			}
 		}
 
