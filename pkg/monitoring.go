@@ -480,13 +480,22 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 		})
 	prometheus.MustRegister(lastEpochMissedAttestationsGauge)
 
-	epochServedAttestationsGauge := prometheus.NewGauge(
+	epochCanonicalAttestationsGauge := prometheus.NewGauge(
 		prometheus.GaugeOpts{
 			Namespace: "ETH2",
+			// TODO(deni): Rename to epochCanonicalAttestations
 			Name:      "epochServedAttestations",
-			Help:      "Attestations served in current justified epoch",
+			Help:      "Canonical attestations in current justified epoch",
 		})
-	prometheus.MustRegister(epochServedAttestationsGauge)
+	prometheus.MustRegister(epochCanonicalAttestationsGauge)
+
+	epochOrphanedAttestationsGauge := prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "ETH2",
+			Name:      "epochOrphanedAttestations",
+			Help:      "Attestations orphaned in current justified epoch",
+		})
+	prometheus.MustRegister(epochOrphanedAttestationsGauge)
 
 	epochDelayedAttestationsOverToleranceGauge := prometheus.NewGauge(
 		prometheus.GaugeOpts{
@@ -528,13 +537,22 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 		})
 	prometheus.MustRegister(totalMissedAttestationsCounter)
 
-	totalServedAttestationsCounter := prometheus.NewCounter(
+	totalCanonicalAttestationsCounter := prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Namespace: "ETH2",
+			// TODO(deni): Rename to totalCanonicalAttestations
 			Name:      "totalServedAttestations",
-			Help:      "Attestations served since monitoring started",
+			Help:      "Canonical attestations since monitoring started",
 		})
-	prometheus.MustRegister(totalServedAttestationsCounter)
+	prometheus.MustRegister(totalCanonicalAttestationsCounter)
+
+	totalOrphanedAttestationsCounter := prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Namespace: "ETH2",
+			Name:      "totalOrphanedAttestations",
+			Help:      "Attestations orphaned since monitoring started",
+		})
+	prometheus.MustRegister(totalOrphanedAttestationsCounter)
 
 	totalDelayedAttestationsOverToleranceCounter := prometheus.NewCounter(
 		prometheus.CounterOpts{
@@ -544,15 +562,30 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 		})
 	prometheus.MustRegister(totalDelayedAttestationsOverToleranceCounter)
 
+	canonicalAttestationDistances := prometheus.NewHistogram(prometheus.HistogramOpts{
+		Namespace: "ETH2",
+		Name:    "canonicalAttestationDistances",
+		Help:    "Histogram of canonical attestation distances.",
+		Buckets: prometheus.LinearBuckets(1, 1, 32),
+	})
+	prometheus.MustRegister(canonicalAttestationDistances)
+	orphanedAttestationDistances := prometheus.NewHistogram(prometheus.HistogramOpts{
+		Namespace: "ETH2",
+		Name:    "orphanedAttestationDistances",
+		Help:    "Histogram of orphaned attestation distances.",
+		Buckets: prometheus.LinearBuckets(1, 1, 32),
+	})
+	prometheus.MustRegister(orphanedAttestationDistances)
+
 	var pusher *push.Pusher
 	if opts.PushGatewayUrl != "" && opts.PushGatewayJob != "" {
 		registry := prometheus.NewRegistry()
 		registry.MustRegister(epochGauge, epochMissedProposalsGauge, epochCanonicalProposalsGauge,
 			epochOrphanedProposalsGauge, epochMissedAttestationsGauge, lastEpochMissedAttestationsGauge,
-			epochServedAttestationsGauge, epochDelayedAttestationsOverToleranceGauge,
+			epochCanonicalAttestationsGauge, epochOrphanedAttestationsGauge, epochDelayedAttestationsOverToleranceGauge,
 			totalMissedProposalsCounter, totalCanonicalProposalsCounter, totalOrphanedProposalsCounter,
-			totalMissedAttestationsCounter, totalServedAttestationsCounter,
-			totalDelayedAttestationsOverToleranceCounter)
+			totalMissedAttestationsCounter, totalCanonicalAttestationsCounter, totalOrphanedAttestationsCounter,
+			totalDelayedAttestationsOverToleranceCounter, canonicalAttestationDistances, orphanedAttestationDistances)
 		pusher = push.New(opts.PushGatewayUrl, opts.PushGatewayJob).Gatherer(registry)
 	}
 
@@ -570,7 +603,8 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 		lastEpochMissedAttestationsGauge.Set(epochMissedAttestationsTracker)
 		epochMissedAttestationsTracker = 0
 		epochMissedAttestationsGauge.Set(float64(0))
-		epochServedAttestationsGauge.Set(float64(0))
+		epochCanonicalAttestationsGauge.Set(float64(0))
+		epochOrphanedAttestationsGauge.Set(float64(0))
 		epochDelayedAttestationsOverToleranceGauge.Set(float64(0))
 
 		var err error
@@ -679,8 +713,6 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 					totalMissedAttestationsCounter.Inc()
 					attStatus.IsPrinted = true
 				} else if att := includedAttestations[epoch][index]; att != nil && !attStatus.IsPrinted {
-					epochServedAttestationsGauge.Add(1)
-					totalServedAttestationsCounter.Inc()
 					var absDistance spec.Slot = att.InclusionSlot - att.Slot
 					var optimalDistance spec.Slot = absDistance - 1
 					for e := att.Slot + 1; e < att.InclusionSlot; e++ {
@@ -702,6 +734,16 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 							index, epoch, att.Slot, att.InclusionSlot, optimalDistance, absDistance)
 					}
 					attStatus.IsPrinted = true
+
+					if attStatus.IsCanonical {
+						epochCanonicalAttestationsGauge.Add(1)
+						totalCanonicalAttestationsCounter.Inc()
+						canonicalAttestationDistances.Observe(float64(absDistance))
+					} else {
+						epochOrphanedAttestationsGauge.Add(1)
+						totalOrphanedAttestationsCounter.Inc()
+						orphanedAttestationDistances.Observe(float64(absDistance))
+					}
 				}
 			}
 		}
