@@ -437,15 +437,31 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 		})
 	prometheus.MustRegister(epochGauge)
 
-	var epochTracker float64
+	var epochMissedAttestationsTracker float64
 
 	epochMissedProposalsGauge := prometheus.NewGauge(
 		prometheus.GaugeOpts{
 			Namespace: "ETH2",
 			Name:      "epochMissedProposals",
-			Help:      "Blocks missed in current justified epoch",
+			Help:      "Proposals missed in current justified epoch",
 		})
 	prometheus.MustRegister(epochMissedProposalsGauge)
+
+	epochCanonicalProposalsGauge := prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "ETH2",
+			Name:      "epochCanonicalProposals",
+			Help:      "Canonical proposals in current justified epoch",
+		})
+	prometheus.MustRegister(epochCanonicalProposalsGauge)
+
+	epochOrphanedProposalsGauge := prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "ETH2",
+			Name:      "epochOrphanedProposals",
+			Help:      "Orphaned proposals in current justified epoch",
+		})
+	prometheus.MustRegister(epochOrphanedProposalsGauge)
 
 	epochMissedAttestationsGauge := prometheus.NewGauge(
 		prometheus.GaugeOpts{
@@ -487,6 +503,22 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 		})
 	prometheus.MustRegister(totalMissedProposalsCounter)
 
+	totalCanonicalProposalsCounter := prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Namespace: "ETH2",
+			Name:      "totalServedProposals",
+			Help:      "Canonical proposals since monitoring started",
+		})
+	prometheus.MustRegister(totalCanonicalProposalsCounter)
+
+	totalOrphanedProposalsCounter := prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Namespace: "ETH2",
+			Name:      "totalOrphanedProposals",
+			Help:      "Proposals orphaned since monitoring started",
+		})
+	prometheus.MustRegister(totalOrphanedProposalsCounter)
+
 	totalMissedAttestationsCounter := prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Namespace: "ETH2",
@@ -520,8 +552,10 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 		epochGauge.Set(float64(justifiedEpoch))
 		// Reset all metrics for new epoch.
 		epochMissedProposalsGauge.Set(float64(0))
-		lastEpochMissedAttestationsGauge.Set(epochTracker)
-		epochTracker = 0
+		epochCanonicalProposalsGauge.Set(float64(0))
+		epochOrphanedProposalsGauge.Set(float64(0))
+		lastEpochMissedAttestationsGauge.Set(epochMissedAttestationsTracker)
+		epochMissedAttestationsTracker = 0
 		epochMissedAttestationsGauge.Set(float64(0))
 		epochServedAttestationsGauge.Set(float64(0))
 		epochDelayedAttestationsOverToleranceGauge.Set(float64(0))
@@ -627,7 +661,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 
 				if epoch <= justifiedEpoch-missedAttestationDistance && !attStatus.IsAttested && !attStatus.IsPrinted {
 					Report("❌ 🧾 Validator %v did not attest epoch %v slot %v", index, epoch, attStatus.Slot)
-					epochTracker += 1
+					epochMissedAttestationsTracker += 1
 					epochMissedAttestationsGauge.Add(1)
 					totalMissedAttestationsCounter.Inc()
 					attStatus.IsPrinted = true
@@ -660,11 +694,30 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 		}
 
 		for slot, index := range proposals {
-			if _, ok := blocks[slot]; !ok {
+			slotBlocks, ok := blocks[slot]
+			if !ok {
 				Report("❌ 🧱 Validator %v missed block at epoch %v and slot %v",
 					index, justifiedEpoch, slot)
 				epochMissedProposalsGauge.Add(1)
 				totalMissedProposalsCounter.Inc()
+				break
+			}
+
+			isCanonical := false
+			for _, slotBlock := range slotBlocks {
+				if slotBlock.ProposerIndex == index && slotBlock.IsCanonical {
+					isCanonical = true
+					break
+				}
+			}
+			if isCanonical {
+				epochCanonicalProposalsGauge.Add(1)
+				totalCanonicalProposalsCounter.Inc()
+			} else {
+				Report("⚠️ 🧱 Validator %v has got block orphaned at epoch %v and slot %v",
+					index, justifiedEpoch, slot)
+				epochOrphanedProposalsGauge.Add(1)
+				totalOrphanedProposalsCounter.Inc()
 			}
 		}
 
