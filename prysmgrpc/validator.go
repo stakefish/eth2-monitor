@@ -5,8 +5,8 @@ import (
 	"eth2-monitor/spec"
 
 	"github.com/pkg/errors"
-	primitives "github.com/prysmaticlabs/prysm/consensus-types/primitives"
-	ethpb "github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1"
+	primitives "github.com/prysmaticlabs/prysm/v4/consensus-types/primitives"
+	ethpb "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1"
 )
 
 func (s *Service) GetValidatorIndex(pubkey []byte) (spec.ValidatorIndex, error) {
