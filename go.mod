@@ -11,6 +11,7 @@ require (
 	github.com/prysmaticlabs/go-bitfield v0.0.0-20210809151128-385d8c5e3fb7
 	github.com/prysmaticlabs/prysm/v4 v4.0.1
 	github.com/rs/zerolog v1.27.0
+	github.com/sanity-io/litter v1.5.5
 	github.com/spf13/cobra v1.5.0
 	golang.org/x/exp v0.0.0-20230206171751-46f607a40771
 	google.golang.org/grpc v1.48.0

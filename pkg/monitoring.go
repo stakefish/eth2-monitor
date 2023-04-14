@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -15,17 +16,16 @@ import (
 	"eth2-monitor/spec"
 
 	"github.com/pkg/errors"
-	"github.com/rs/zerolog/log"
-	"golang.org/x/exp/maps"
-	codes "google.golang.org/grpc/codes"
-	status "google.golang.org/grpc/status"
-
 	bitfield "github.com/prysmaticlabs/go-bitfield"
 	primitives "github.com/prysmaticlabs/prysm/v4/consensus-types/primitives"
 	ethpbservice "github.com/prysmaticlabs/prysm/v4/proto/eth/service"
 	ethpbv1 "github.com/prysmaticlabs/prysm/v4/proto/eth/v1"
 	ethpbv2 "github.com/prysmaticlabs/prysm/v4/proto/eth/v2"
 	ethpb "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1"
+	"github.com/rs/zerolog/log"
+	"golang.org/x/exp/maps"
+	codes "google.golang.org/grpc/codes"
+	status "google.golang.org/grpc/status"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/push"
@@ -285,6 +285,14 @@ func ListBlocks(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch) (ma
 				attesterSlashings = bellatrixBlock.GetBody().GetAttesterSlashings()
 				proposerSlashings = bellatrixBlock.GetBody().GetProposerSlashings()
 				deposits = bellatrixBlock.GetBody().GetDeposits()
+			case *ethpbv2.SignedBeaconBlockContainer_CapellaBlock:
+				capellaBlock := signedBeaconBlockContainer.GetCapellaBlock()
+				blockAttestations = capellaBlock.GetBody().GetAttestations()
+				attesterSlashings = capellaBlock.GetBody().GetAttesterSlashings()
+				proposerSlashings = capellaBlock.GetBody().GetProposerSlashings()
+			default:
+				fmt.Println("Unknown Hardfork, exiting...")
+				log.Fatal()
 			}
 
 			var chainAttestations []*ChainAttestation
@@ -663,10 +671,8 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 				Must(err)
 				maps.Copy(directIndexes, newDirectIndexes)
 				maps.Copy(reversedIndexes, newReversedIndexes)
-
 				for _, attestation := range chainBlock.ChainAttestations {
 					isCanonical := chainBlock.IsCanonical
-
 					// Every included attestation contains aggregation bits, i.e. a list of validators
 					// from which attestations were aggregated.
 					// We check if a validator was included in this list and, if not, such validator
@@ -705,7 +711,6 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 				if _, ok := reversedIndexes[index]; !ok {
 					continue
 				}
-
 				if epoch <= justifiedEpoch-missedAttestationDistance && !attStatus.IsAttested && !attStatus.IsPrinted {
 					Report("❌ 🧾 Validator %v did not attest epoch %v slot %v", index, epoch, attStatus.Slot)
 					epochMissedAttestationsTracker += 1
