@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -15,17 +16,16 @@ import (
 	"eth2-monitor/spec"
 
 	"github.com/pkg/errors"
+	bitfield "github.com/prysmaticlabs/go-bitfield"
+	primitives "github.com/prysmaticlabs/prysm/v4/consensus-types/primitives"
+	ethpbservice "github.com/prysmaticlabs/prysm/v4/proto/eth/service"
+	ethpbv1 "github.com/prysmaticlabs/prysm/v4/proto/eth/v1"
+	ethpbv2 "github.com/prysmaticlabs/prysm/v4/proto/eth/v2"
+	ethpb "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/exp/maps"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
-
-	bitfield "github.com/prysmaticlabs/go-bitfield"
-	primitives "github.com/prysmaticlabs/prysm/consensus-types/primitives"
-	ethpbservice "github.com/prysmaticlabs/prysm/proto/eth/service"
-	ethpbv1 "github.com/prysmaticlabs/prysm/proto/eth/v1"
-	ethpbv2 "github.com/prysmaticlabs/prysm/proto/eth/v2"
-	ethpb "github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/push"
@@ -203,7 +203,7 @@ type ChainBlock struct {
 	Slot              spec.Slot
 	ProposerIndex     spec.ValidatorIndex
 	ChainAttestations []*ChainAttestation
-	BlockContainer    *ethpbv2.SignedBeaconBlockContainerV2
+	BlockContainer    *ethpbv2.SignedBeaconBlockContainer
 	Attestations      []*ethpbv1.Attestation
 	Deposits          []*ethpbv1.Deposit
 	AttesterSlashings []*ethpbv1.AttesterSlashing
@@ -219,7 +219,7 @@ type ChainAttestation struct {
 }
 
 // getBlock retrieves the block for a specific block root.
-func getBlock(ctx context.Context, s *prysmgrpc.Service, root []byte) (*ethpbv2.SignedBeaconBlockContainerV2, error) {
+func getBlock(ctx context.Context, s *prysmgrpc.Service, root []byte) (*ethpbv2.SignedBeaconBlockContainer, error) {
 	conn := ethpbservice.NewBeaconChainClient(s.Connection())
 	opCtx, cancel := context.WithTimeout(ctx, s.Timeout())
 	req := &ethpbv2.BlockRequestV2{
@@ -267,24 +267,32 @@ func ListBlocks(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch) (ma
 			var proposerSlashings []*ethpbv1.ProposerSlashing
 			var deposits []*ethpbv1.Deposit
 			switch signedBeaconBlockContainer.GetMessage().(type) {
-			case *ethpbv2.SignedBeaconBlockContainerV2_Phase0Block:
+			case *ethpbv2.SignedBeaconBlockContainer_Phase0Block:
 				phase0Block := signedBeaconBlockContainer.GetPhase0Block()
 				blockAttestations = phase0Block.GetBody().GetAttestations()
 				attesterSlashings = phase0Block.GetBody().GetAttesterSlashings()
 				proposerSlashings = phase0Block.GetBody().GetProposerSlashings()
 				deposits = phase0Block.GetBody().GetDeposits()
-			case *ethpbv2.SignedBeaconBlockContainerV2_AltairBlock:
+			case *ethpbv2.SignedBeaconBlockContainer_AltairBlock:
 				altairBlock := signedBeaconBlockContainer.GetAltairBlock()
 				blockAttestations = altairBlock.GetBody().GetAttestations()
 				attesterSlashings = altairBlock.GetBody().GetAttesterSlashings()
 				proposerSlashings = altairBlock.GetBody().GetProposerSlashings()
 				deposits = altairBlock.GetBody().GetDeposits()
-			case *ethpbv2.SignedBeaconBlockContainerV2_BellatrixBlock:
+			case *ethpbv2.SignedBeaconBlockContainer_BellatrixBlock:
 				bellatrixBlock := signedBeaconBlockContainer.GetBellatrixBlock()
 				blockAttestations = bellatrixBlock.GetBody().GetAttestations()
 				attesterSlashings = bellatrixBlock.GetBody().GetAttesterSlashings()
 				proposerSlashings = bellatrixBlock.GetBody().GetProposerSlashings()
 				deposits = bellatrixBlock.GetBody().GetDeposits()
+			case *ethpbv2.SignedBeaconBlockContainer_CapellaBlock:
+				capellaBlock := signedBeaconBlockContainer.GetCapellaBlock()
+				blockAttestations = capellaBlock.GetBody().GetAttestations()
+				attesterSlashings = capellaBlock.GetBody().GetAttesterSlashings()
+				proposerSlashings = capellaBlock.GetBody().GetProposerSlashings()
+			default:
+				fmt.Println("Unknown Hardfork, exiting...")
+				log.Fatal()
 			}
 
 			var chainAttestations []*ChainAttestation
@@ -484,8 +492,8 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 		prometheus.GaugeOpts{
 			Namespace: "ETH2",
 			// TODO(deni): Rename to epochCanonicalAttestations
-			Name:      "epochServedAttestations",
-			Help:      "Canonical attestations in current justified epoch",
+			Name: "epochServedAttestations",
+			Help: "Canonical attestations in current justified epoch",
 		})
 	prometheus.MustRegister(epochCanonicalAttestationsGauge)
 
@@ -541,8 +549,8 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 		prometheus.CounterOpts{
 			Namespace: "ETH2",
 			// TODO(deni): Rename to totalCanonicalAttestations
-			Name:      "totalServedAttestations",
-			Help:      "Canonical attestations since monitoring started",
+			Name: "totalServedAttestations",
+			Help: "Canonical attestations since monitoring started",
 		})
 	prometheus.MustRegister(totalCanonicalAttestationsCounter)
 
@@ -564,16 +572,16 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 
 	canonicalAttestationDistances := prometheus.NewHistogram(prometheus.HistogramOpts{
 		Namespace: "ETH2",
-		Name:    "canonicalAttestationDistances",
-		Help:    "Histogram of canonical attestation distances.",
-		Buckets: prometheus.LinearBuckets(1, 1, 32),
+		Name:      "canonicalAttestationDistances",
+		Help:      "Histogram of canonical attestation distances.",
+		Buckets:   prometheus.LinearBuckets(1, 1, 32),
 	})
 	prometheus.MustRegister(canonicalAttestationDistances)
 	orphanedAttestationDistances := prometheus.NewHistogram(prometheus.HistogramOpts{
 		Namespace: "ETH2",
-		Name:    "orphanedAttestationDistances",
-		Help:    "Histogram of orphaned attestation distances.",
-		Buckets: prometheus.LinearBuckets(1, 1, 32),
+		Name:      "orphanedAttestationDistances",
+		Help:      "Histogram of orphaned attestation distances.",
+		Buckets:   prometheus.LinearBuckets(1, 1, 32),
 	})
 	prometheus.MustRegister(orphanedAttestationDistances)
 
@@ -663,10 +671,8 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 				Must(err)
 				maps.Copy(directIndexes, newDirectIndexes)
 				maps.Copy(reversedIndexes, newReversedIndexes)
-
 				for _, attestation := range chainBlock.ChainAttestations {
 					isCanonical := chainBlock.IsCanonical
-
 					// Every included attestation contains aggregation bits, i.e. a list of validators
 					// from which attestations were aggregated.
 					// We check if a validator was included in this list and, if not, such validator
@@ -705,7 +711,6 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 				if _, ok := reversedIndexes[index]; !ok {
 					continue
 				}
-
 				if epoch <= justifiedEpoch-missedAttestationDistance && !attStatus.IsAttested && !attStatus.IsPrinted {
 					Report("❌ 🧾 Validator %v did not attest epoch %v slot %v", index, epoch, attStatus.Slot)
 					epochMissedAttestationsTracker += 1
