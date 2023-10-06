@@ -44,16 +44,16 @@ jobs:
       run: |
         set -ex
 
-        GOARCH=amd64
         build () {
-          GOOS=$1 make eth2-monitor && install -v bin/eth2-monitor build/eth2-monitor-$1
+          GOARCH=$1 GOOS=$2 make eth2-monitor && install -v bin/eth2-monitor build/eth2-monitor-$1
         }
 
         mkdir -p build
-        build linux
-        build darwin
-        build freebsd
-        build windows
+        for arch in arm64 arm64; do
+          for os in linux darwin freebsd windows; do
+            build "$arch" "$os"
+          done
+        done
 
         ( cd build
           sha256sum * > sha256sums.txt
