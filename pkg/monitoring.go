@@ -544,6 +544,14 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 		})
 	prometheus.MustRegister(epochDelayedAttestationsOverToleranceGauge)
 
+	lastProposedEmptyBlockSlotGauge := prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "ETH2",
+			Name:      "lastProposedEmptyBlockSlot",
+			Help:      "Slot of the last proposed block containing no transactions",
+		})
+	prometheus.MustRegister(lastProposedEmptyBlockSlotGauge)
+
 	totalMissedProposalsCounter := prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Namespace: "ETH2",
@@ -575,14 +583,6 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 			Help:      "Attestations missed since monitoring started",
 		})
 	prometheus.MustRegister(totalMissedAttestationsCounter)
-
-	totalProposedEmptyBlocksCounter := prometheus.NewCounter(
-		prometheus.CounterOpts{
-			Namespace: "ETH2",
-			Name:      "totalProposedEmptyBlocks",
-			Help:      "Proposed blocks containing no transactions",
-		})
-	prometheus.MustRegister(totalProposedEmptyBlocksCounter)
 
 	totalCanonicalAttestationsCounter := prometheus.NewCounter(
 		prometheus.CounterOpts{
@@ -630,6 +630,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 		registry.MustRegister(epochGauge, epochMissedProposalsGauge, epochCanonicalProposalsGauge,
 			epochOrphanedProposalsGauge, epochMissedAttestationsGauge, lastEpochMissedAttestationsGauge,
 			epochCanonicalAttestationsGauge, epochOrphanedAttestationsGauge, epochDelayedAttestationsOverToleranceGauge,
+			lastProposedEmptyBlockSlotGauge,
 			totalMissedProposalsCounter, totalCanonicalProposalsCounter, totalOrphanedProposalsCounter,
 			totalMissedAttestationsCounter, totalCanonicalAttestationsCounter, totalOrphanedAttestationsCounter,
 			totalDelayedAttestationsOverToleranceCounter, canonicalAttestationDistances, orphanedAttestationDistances)
@@ -808,8 +809,8 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 				}
 				if slotBlock.ProposerIndex == validatorIndex {
 					validatorPublicKey := reversedIndexes[validatorIndex]
-					Report("⚠️ 🧱 Validator %v (%v) proposed a block containing no transaction at epoch %v and slot %v", validatorPublicKey, validatorIndex, justifiedEpoch, slot)
-					totalProposedEmptyBlocksCounter.Inc()
+					Report("⚠️ 🧱 Validator %v (%v) proposed a block containing no transactions at epoch %v and slot %v", validatorPublicKey, validatorIndex, justifiedEpoch, slot)
+					lastProposedEmptyBlockSlotGauge.Set(float64(slot))
 				}
 			}
 
