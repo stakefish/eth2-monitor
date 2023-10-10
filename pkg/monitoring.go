@@ -15,6 +15,7 @@ import (
 	"eth2-monitor/prysmgrpc"
 	"eth2-monitor/spec"
 
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/pkg/errors"
 	bitfield "github.com/prysmaticlabs/go-bitfield"
 	primitives "github.com/prysmaticlabs/prysm/v4/consensus-types/primitives"
@@ -209,6 +210,7 @@ type ChainBlock struct {
 	AttesterSlashings []*ethpbv1.AttesterSlashing
 	ProposerSlashings []*ethpbv1.ProposerSlashing
 	VoluntaryExits    []*ethpbv1.SignedVoluntaryExit
+	Transactions      []types.Transaction
 }
 
 type ChainAttestation struct {
@@ -231,6 +233,17 @@ func getBlock(ctx context.Context, s *prysmgrpc.Service, root []byte) (*ethpbv2.
 		return nil, errors.Wrapf(err, "rpc call GetBlockV2 failed, root=%q", root)
 	}
 	return resp.GetData(), nil
+}
+
+func unmarshallTransactions(rlpEncodedTxs [][]byte) (txs []types.Transaction, err error) {
+	for _, rlpEncodedTx := range rlpEncodedTxs {
+		var tx types.Transaction
+		if err := tx.UnmarshalBinary(rlpEncodedTx); err != nil {
+			return nil, err
+		}
+		txs = append(txs, tx)
+	}
+	return txs, nil
 }
 
 // ListBlocks lists blocks and attestations for a specific epoch.
@@ -265,6 +278,7 @@ func ListBlocks(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch) (ma
 			var blockAttestations []*ethpbv1.Attestation
 			var attesterSlashings []*ethpbv1.AttesterSlashing
 			var proposerSlashings []*ethpbv1.ProposerSlashing
+			var marshalledTransactions [][]byte
 			var deposits []*ethpbv1.Deposit
 			switch signedBeaconBlockContainer.GetMessage().(type) {
 			case *ethpbv2.SignedBeaconBlockContainer_Phase0Block:
@@ -285,11 +299,19 @@ func ListBlocks(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch) (ma
 				attesterSlashings = bellatrixBlock.GetBody().GetAttesterSlashings()
 				proposerSlashings = bellatrixBlock.GetBody().GetProposerSlashings()
 				deposits = bellatrixBlock.GetBody().GetDeposits()
+				marshalledTransactions = bellatrixBlock.GetBody().GetExecutionPayload().GetTransactions()
 			case *ethpbv2.SignedBeaconBlockContainer_CapellaBlock:
 				capellaBlock := signedBeaconBlockContainer.GetCapellaBlock()
 				blockAttestations = capellaBlock.GetBody().GetAttestations()
 				attesterSlashings = capellaBlock.GetBody().GetAttesterSlashings()
 				proposerSlashings = capellaBlock.GetBody().GetProposerSlashings()
+
+				// https://github.com/ethereum/annotated-spec/blob/98c63ebcdfee6435e8b2a76e1fca8549722f6336/merge/beacon-chain.md#custom-types%C2%B6
+				//      [...] execution blocks are stored in SSZ form, but the
+				//      transactions inside them are encoded with RLP, and so
+				//      to software that only understands SSZ they are
+				//      presented as "opaque" byte arrays.
+				marshalledTransactions = capellaBlock.GetBody().GetExecutionPayload().GetTransactions()
 			default:
 				fmt.Println("Unknown Hardfork, exiting...")
 				log.Fatal()
@@ -305,6 +327,14 @@ func ListBlocks(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch) (ma
 				})
 			}
 
+			var unmarshalledTransactions []types.Transaction
+			if marshalledTransactions != nil {
+				txs, err := unmarshallTransactions(marshalledTransactions)
+				if err == nil {
+					unmarshalledTransactions = txs
+				}
+			}
+
 			result[slot] = append(result[slot], &ChainBlock{
 				IsCanonical:       blockHeaderContainer.GetCanonical(),
 				ProposerIndex:     proposerIndex,
@@ -314,6 +344,7 @@ func ListBlocks(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch) (ma
 				BlockContainer:    signedBeaconBlockContainer,
 				ChainAttestations: chainAttestations,
 				Deposits:          deposits,
+				Transactions:      unmarshalledTransactions,
 			})
 		}
 	}
@@ -545,6 +576,14 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 		})
 	prometheus.MustRegister(totalMissedAttestationsCounter)
 
+	totalProposedEmptyBlocksCounter := prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Namespace: "ETH2",
+			Name:      "totalProposedEmptyBlocks",
+			Help:      "Proposed blocks containing no transactions",
+		})
+	prometheus.MustRegister(totalProposedEmptyBlocksCounter)
+
 	totalCanonicalAttestationsCounter := prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Namespace: "ETH2",
@@ -753,19 +792,30 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 			}
 		}
 
-		for slot, index := range proposals {
+		for slot, validatorIndex := range proposals {
 			slotBlocks, ok := blocks[slot]
 			if !ok {
 				Report("❌ 🧱 Validator %v missed block at epoch %v and slot %v",
-					index, justifiedEpoch, slot)
+					validatorIndex, justifiedEpoch, slot)
 				epochMissedProposalsGauge.Add(1)
 				totalMissedProposalsCounter.Inc()
 				break
 			}
 
+			for _, slotBlock := range slotBlocks {
+				if len(slotBlock.Transactions) != 0 {
+					continue
+				}
+				if slotBlock.ProposerIndex == validatorIndex {
+					validatorPublicKey := reversedIndexes[validatorIndex]
+					Report("⚠️ 🧱 Validator %v (%v) proposed a block containing no transaction at epoch %v and slot %v", validatorPublicKey, validatorIndex, justifiedEpoch, slot)
+					totalProposedEmptyBlocksCounter.Inc()
+				}
+			}
+
 			isCanonical := false
 			for _, slotBlock := range slotBlocks {
-				if slotBlock.ProposerIndex == index && slotBlock.IsCanonical {
+				if slotBlock.ProposerIndex == validatorIndex && slotBlock.IsCanonical {
 					isCanonical = true
 					break
 				}
@@ -775,7 +825,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 				totalCanonicalProposalsCounter.Inc()
 			} else {
 				Report("⚠️ 🧱 Validator %v has got block orphaned at epoch %v and slot %v",
-					index, justifiedEpoch, slot)
+					validatorIndex, justifiedEpoch, slot)
 				epochOrphanedProposalsGauge.Add(1)
 				totalOrphanedProposalsCounter.Inc()
 			}
