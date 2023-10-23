@@ -584,6 +584,14 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 		})
 	prometheus.MustRegister(totalMissedAttestationsCounter)
 
+	totalProposedEmptyBlocksCounter := prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Namespace: "ETH2",
+			Name:      "totalProposedEmptyBlocks",
+			Help:      "Proposed blocks containing no transactions",
+		})
+	prometheus.MustRegister(totalProposedEmptyBlocksCounter)
+
 	totalCanonicalAttestationsCounter := prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Namespace: "ETH2",
@@ -811,6 +819,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 					validatorPublicKey := reversedIndexes[validatorIndex]
 					Report("⚠️ 🧱 Validator %v (%v) proposed a block containing no transactions at epoch %v and slot %v", validatorPublicKey, validatorIndex, justifiedEpoch, slot)
 					lastProposedEmptyBlockSlotGauge.Set(float64(slot))
+					totalProposedEmptyBlocksCounter.Inc()
 				}
 			}
 
