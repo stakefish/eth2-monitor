@@ -3,6 +3,7 @@ package opts
 var (
 	LogLevel       string
 	BeaconNode     string
+	BeaconChainAPI string
 	MetricsPort    string
 	SlackURL       string
 	SlackUsername  string

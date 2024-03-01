@@ -11,10 +11,13 @@ import (
 	"sync"
 	"time"
 
+	"eth2-monitor/beaconchain"
 	"eth2-monitor/cmd/opts"
 	"eth2-monitor/prysmgrpc"
 	"eth2-monitor/spec"
 
+	eth2client "github.com/attestantio/go-eth2-client"
+	"github.com/attestantio/go-eth2-client/api"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/pkg/errors"
 	bitfield "github.com/prysmaticlabs/go-bitfield"
@@ -25,8 +28,6 @@ import (
 	ethpb "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/exp/maps"
-	codes "google.golang.org/grpc/codes"
-	status "google.golang.org/grpc/status"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/push"
@@ -247,106 +248,110 @@ func unmarshallTransactions(rlpEncodedTxs [][]byte) (txs []types.Transaction, er
 }
 
 // ListBlocks lists blocks and attestations for a specific epoch.
-func ListBlocks(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch) (map[spec.Slot][]*ChainBlock, error) {
-	conn := ethpbservice.NewBeaconChainClient(s.Connection())
+func ListBlocks(ctx context.Context, s *prysmgrpc.Service, beacon *beaconchain.BeaconChain, epoch spec.Epoch) (map[spec.Slot][]*ChainBlock, error) {
+	provider, isProvider := beacon.Service().(eth2client.BeaconBlockHeadersProvider)
+	if !isProvider {
+		log.Fatal().Msg("Unable to cast to BeaconBlockHeadersProvider")
+	}
 
 	result := make(map[spec.Slot][]*ChainBlock)
 	lastSlot := (epoch + 1) * spec.SLOTS_PER_EPOCH
 	for slot := epoch * spec.SLOTS_PER_EPOCH; slot < lastSlot; slot++ {
-		opCtx, cancel := context.WithTimeout(ctx, s.Timeout())
-		pslot := primitives.Slot(slot)
-		req := &ethpbv1.BlockHeadersRequest{
-			Slot: &pslot,
-		}
-		resp, err := conn.ListBlockHeaders(opCtx, req)
+		opCtx, cancel := context.WithTimeout(ctx, beacon.Timeout())
+
+		resp, err := provider.BeaconBlockHeader(opCtx, &api.BeaconBlockHeaderOpts{
+			Common: api.CommonOpts{},
+			Block:  fmt.Sprint(slot),
+		})
 		cancel()
-		if err != nil && status.Code(err) == codes.NotFound {
+
+		if resp == nil {
 			continue
 		}
+		log.Trace().Msgf("Block at slot=%v %v", slot, strings.TrimSuffix(resp.Data.Header.Message.String(), "\n"))
 		if err != nil {
-			return nil, errors.Wrapf(err, "rpc call ListBlockHeaders failed, req=%q", req)
+			log.Error().Err(err).Msg("BeaconBlockHeader")
+			continue
 		}
 
-		for _, blockHeaderContainer := range resp.GetData() {
-			proposerIndex := spec.ValidatorIndex(blockHeaderContainer.GetHeader().GetMessage().GetProposerIndex())
+		proposerIndex := spec.ValidatorIndex(resp.Data.Header.Message.ProposerIndex)
 
-			signedBeaconBlockContainer, err := getBlock(ctx, s, blockHeaderContainer.GetRoot())
-			if err != nil {
-				return nil, err
-			}
+		signedBeaconBlockContainer, err := getBlock(ctx, s, resp.Data.Root[:])
+		if err != nil {
+			return nil, err
+		}
 
-			var blockAttestations []*ethpbv1.Attestation
-			var attesterSlashings []*ethpbv1.AttesterSlashing
-			var proposerSlashings []*ethpbv1.ProposerSlashing
-			var marshalledTransactions [][]byte
-			var deposits []*ethpbv1.Deposit
-			switch signedBeaconBlockContainer.GetMessage().(type) {
-			case *ethpbv2.SignedBeaconBlockContainer_Phase0Block:
-				phase0Block := signedBeaconBlockContainer.GetPhase0Block()
-				blockAttestations = phase0Block.GetBody().GetAttestations()
-				attesterSlashings = phase0Block.GetBody().GetAttesterSlashings()
-				proposerSlashings = phase0Block.GetBody().GetProposerSlashings()
-				deposits = phase0Block.GetBody().GetDeposits()
-			case *ethpbv2.SignedBeaconBlockContainer_AltairBlock:
-				altairBlock := signedBeaconBlockContainer.GetAltairBlock()
-				blockAttestations = altairBlock.GetBody().GetAttestations()
-				attesterSlashings = altairBlock.GetBody().GetAttesterSlashings()
-				proposerSlashings = altairBlock.GetBody().GetProposerSlashings()
-				deposits = altairBlock.GetBody().GetDeposits()
-			case *ethpbv2.SignedBeaconBlockContainer_BellatrixBlock:
-				bellatrixBlock := signedBeaconBlockContainer.GetBellatrixBlock()
-				blockAttestations = bellatrixBlock.GetBody().GetAttestations()
-				attesterSlashings = bellatrixBlock.GetBody().GetAttesterSlashings()
-				proposerSlashings = bellatrixBlock.GetBody().GetProposerSlashings()
-				deposits = bellatrixBlock.GetBody().GetDeposits()
-				marshalledTransactions = bellatrixBlock.GetBody().GetExecutionPayload().GetTransactions()
-			case *ethpbv2.SignedBeaconBlockContainer_CapellaBlock:
-				capellaBlock := signedBeaconBlockContainer.GetCapellaBlock()
-				blockAttestations = capellaBlock.GetBody().GetAttestations()
-				attesterSlashings = capellaBlock.GetBody().GetAttesterSlashings()
-				proposerSlashings = capellaBlock.GetBody().GetProposerSlashings()
+		var blockAttestations []*ethpbv1.Attestation
+		var attesterSlashings []*ethpbv1.AttesterSlashing
+		var proposerSlashings []*ethpbv1.ProposerSlashing
+		var marshalledTransactions [][]byte
+		var deposits []*ethpbv1.Deposit
+		switch signedBeaconBlockContainer.GetMessage().(type) {
+		case *ethpbv2.SignedBeaconBlockContainer_Phase0Block:
+			phase0Block := signedBeaconBlockContainer.GetPhase0Block()
+			blockAttestations = phase0Block.GetBody().GetAttestations()
+			attesterSlashings = phase0Block.GetBody().GetAttesterSlashings()
+			proposerSlashings = phase0Block.GetBody().GetProposerSlashings()
+			deposits = phase0Block.GetBody().GetDeposits()
+		case *ethpbv2.SignedBeaconBlockContainer_AltairBlock:
+			altairBlock := signedBeaconBlockContainer.GetAltairBlock()
+			blockAttestations = altairBlock.GetBody().GetAttestations()
+			attesterSlashings = altairBlock.GetBody().GetAttesterSlashings()
+			proposerSlashings = altairBlock.GetBody().GetProposerSlashings()
+			deposits = altairBlock.GetBody().GetDeposits()
+		case *ethpbv2.SignedBeaconBlockContainer_BellatrixBlock:
+			bellatrixBlock := signedBeaconBlockContainer.GetBellatrixBlock()
+			blockAttestations = bellatrixBlock.GetBody().GetAttestations()
+			attesterSlashings = bellatrixBlock.GetBody().GetAttesterSlashings()
+			proposerSlashings = bellatrixBlock.GetBody().GetProposerSlashings()
+			deposits = bellatrixBlock.GetBody().GetDeposits()
+			marshalledTransactions = bellatrixBlock.GetBody().GetExecutionPayload().GetTransactions()
+		case *ethpbv2.SignedBeaconBlockContainer_CapellaBlock:
+			capellaBlock := signedBeaconBlockContainer.GetCapellaBlock()
+			blockAttestations = capellaBlock.GetBody().GetAttestations()
+			attesterSlashings = capellaBlock.GetBody().GetAttesterSlashings()
+			proposerSlashings = capellaBlock.GetBody().GetProposerSlashings()
 
-				// https://github.com/ethereum/annotated-spec/blob/98c63ebcdfee6435e8b2a76e1fca8549722f6336/merge/beacon-chain.md#custom-types%C2%B6
-				//      [...] execution blocks are stored in SSZ form, but the
-				//      transactions inside them are encoded with RLP, and so
-				//      to software that only understands SSZ they are
-				//      presented as "opaque" byte arrays.
-				marshalledTransactions = capellaBlock.GetBody().GetExecutionPayload().GetTransactions()
-			default:
-				fmt.Println("Unknown Hardfork, exiting...")
-				log.Fatal()
-			}
+			// https://github.com/ethereum/annotated-spec/blob/98c63ebcdfee6435e8b2a76e1fca8549722f6336/merge/beacon-chain.md#custom-types%C2%B6
+			//      [...] execution blocks are stored in SSZ form, but the
+			//      transactions inside them are encoded with RLP, and so
+			//      to software that only understands SSZ they are
+			//      presented as "opaque" byte arrays.
+			marshalledTransactions = capellaBlock.GetBody().GetExecutionPayload().GetTransactions()
+		default:
+			fmt.Println("Unknown Hardfork, exiting...")
+			log.Fatal()
+		}
 
-			var chainAttestations []*ChainAttestation
-			for _, att := range blockAttestations {
-				chainAttestations = append(chainAttestations, &ChainAttestation{
-					AggregationBits: att.GetAggregationBits(),
-					CommitteeIndex:  spec.CommitteeIndex(att.GetData().GetIndex()),
-					Slot:            spec.Slot(att.GetData().GetSlot()),
-					InclusionSlot:   slot,
-				})
-			}
-
-			var unmarshalledTransactions []types.Transaction
-			if marshalledTransactions != nil {
-				txs, err := unmarshallTransactions(marshalledTransactions)
-				if err == nil {
-					unmarshalledTransactions = txs
-				}
-			}
-
-			result[slot] = append(result[slot], &ChainBlock{
-				IsCanonical:       blockHeaderContainer.GetCanonical(),
-				ProposerIndex:     proposerIndex,
-				Slot:              slot,
-				AttesterSlashings: attesterSlashings,
-				ProposerSlashings: proposerSlashings,
-				BlockContainer:    signedBeaconBlockContainer,
-				ChainAttestations: chainAttestations,
-				Deposits:          deposits,
-				Transactions:      unmarshalledTransactions,
+		var chainAttestations []*ChainAttestation
+		for _, att := range blockAttestations {
+			chainAttestations = append(chainAttestations, &ChainAttestation{
+				AggregationBits: att.GetAggregationBits(),
+				CommitteeIndex:  spec.CommitteeIndex(att.GetData().GetIndex()),
+				Slot:            spec.Slot(att.GetData().GetSlot()),
+				InclusionSlot:   slot,
 			})
 		}
+
+		var unmarshalledTransactions []types.Transaction
+		if marshalledTransactions != nil {
+			txs, err := unmarshallTransactions(marshalledTransactions)
+			if err == nil {
+				unmarshalledTransactions = txs
+			}
+		}
+
+		result[slot] = append(result[slot], &ChainBlock{
+			IsCanonical:       resp.Data.Canonical,
+			ProposerIndex:     proposerIndex,
+			Slot:              slot,
+			AttesterSlashings: attesterSlashings,
+			ProposerSlashings: proposerSlashings,
+			BlockContainer:    signedBeaconBlockContainer,
+			ChainAttestations: chainAttestations,
+			Deposits:          deposits,
+			Transactions:      unmarshalledTransactions,
+		})
 	}
 
 	return result, nil
@@ -451,7 +456,7 @@ func LoadKeys(pubkeysFiles []string) ([]string, error) {
 }
 
 // MonitorAttestationsAndProposals listens to the beacon chain head changes and checks new blocks and attestations.
-func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, plainKeys []string, wg *sync.WaitGroup) {
+func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, beacon *beaconchain.BeaconChain, plainKeys []string, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	hashedKeys := make(map[string]interface{})
@@ -674,7 +679,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 			Must(err)
 		}, "ListBeaconCommittees(epoch=%v)", epoch)
 		Measure(func() {
-			epochBlocks, err = ListBlocks(ctx, s, spec.Epoch(epoch))
+			epochBlocks, err = ListBlocks(ctx, s, beacon, spec.Epoch(epoch))
 			Must(err)
 		}, "ListBlocks(epoch=%v)", epoch)
 		Measure(func() {
@@ -860,7 +865,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 }
 
 // MonitorSlashings listens to the beacon chain head changes and checks for slashings.
-func MonitorSlashings(ctx context.Context, s *prysmgrpc.Service, wg *sync.WaitGroup) {
+func MonitorSlashings(ctx context.Context, s *prysmgrpc.Service, beacon *beaconchain.BeaconChain, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	for justifiedEpoch := range epochsChan {
@@ -871,7 +876,7 @@ func MonitorSlashings(ctx context.Context, s *prysmgrpc.Service, wg *sync.WaitGr
 
 		epoch := justifiedEpoch
 		Measure(func() {
-			blocks, err = ListBlocks(ctx, s, spec.Epoch(epoch))
+			blocks, err = ListBlocks(ctx, s, beacon, spec.Epoch(epoch))
 			Must(err)
 		}, "ListBlocks(epoch=%v)", epoch)
 

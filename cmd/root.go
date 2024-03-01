@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"eth2-monitor/beaconchain"
 	"eth2-monitor/cmd/opts"
 	"eth2-monitor/pkg"
 	"eth2-monitor/prysmgrpc"
@@ -59,13 +60,16 @@ var (
 				prysmgrpc.WithTimeout(time.Minute))
 			pkg.Must(err)
 
+			beacon, err := beaconchain.New(ctx, opts.BeaconChainAPI, time.Minute)
+			pkg.Must(err)
+
 			plainPubkeys, err := pkg.LoadKeys(args)
 			pkg.Must(err)
 
 			var wg sync.WaitGroup
 			wg.Add(2)
 			go pkg.SubscribeToEpochs(ctx, s, true, &wg)
-			go pkg.MonitorAttestationsAndProposals(ctx, s, plainPubkeys, &wg)
+			go pkg.MonitorAttestationsAndProposals(ctx, s, beacon, plainPubkeys, &wg)
 
 			//Create Prometheus Metrics Client
 			http.Handle("/metrics", promhttp.Handler())
@@ -87,10 +91,13 @@ var (
 				prysmgrpc.WithTimeout(time.Minute))
 			pkg.Must(err)
 
+			beacon, err := beaconchain.New(ctx, opts.BeaconChainAPI, time.Minute)
+			pkg.Must(err)
+
 			var wg sync.WaitGroup
 			wg.Add(2)
 			go pkg.SubscribeToEpochs(ctx, s, true, &wg)
-			go pkg.MonitorSlashings(ctx, s, &wg)
+			go pkg.MonitorSlashings(ctx, s, beacon, &wg)
 			defer wg.Wait()
 		},
 	}
@@ -140,6 +147,7 @@ func Execute() error {
 func init() {
 	rootCmd.PersistentFlags().StringVarP(&opts.LogLevel, "log-level", "l", "info", "log level (error, warn, info, debug, trace)")
 	rootCmd.PersistentFlags().StringVar(&opts.BeaconNode, "beacon-node", "localhost:4000", "Prysm beacon node GRPC address")
+	rootCmd.PersistentFlags().StringVar(&opts.BeaconChainAPI, "beacon-chain-api", "localhost:3500", "Beacon Chain API HTTP address")
 	rootCmd.PersistentFlags().StringVar(&opts.MetricsPort, "metrics-port", "1337", "Metrics port to expose metrics for Prometheus")
 	rootCmd.PersistentFlags().StringVar(&opts.SlackURL, "slack-url", "", "Slack Webhook URL")
 	rootCmd.PersistentFlags().StringVar(&opts.SlackUsername, "slack-username", "", "Slack username")
