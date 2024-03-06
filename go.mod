@@ -3,11 +3,11 @@ module eth2-monitor
 go 1.19
 
 require (
-	github.com/attestantio/go-eth2-client v0.19.5
+	github.com/attestantio/go-eth2-client v0.19.10
 	github.com/dghubble/go-twitter v0.0.0-20220716041154-837915ec2f79
 	github.com/dghubble/oauth1 v0.7.1
 	github.com/ethereum/go-ethereum v1.13.2
-	github.com/mattn/go-isatty v0.0.18
+	github.com/mattn/go-isatty v0.0.20
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.16.0
 	github.com/prysmaticlabs/go-bitfield v0.0.0-20210809151128-385d8c5e3fb7
@@ -31,7 +31,7 @@ require (
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.1.0 // indirect
 	github.com/dghubble/sling v1.4.0 // indirect
 	github.com/ethereum/c-kzg-4844 v0.3.1 // indirect
-	github.com/fatih/color v1.10.0 // indirect
+	github.com/fatih/color v1.16.0 // indirect
 	github.com/ferranbt/fastssz v0.1.3 // indirect
 	github.com/go-logr/logr v1.2.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
@@ -40,13 +40,13 @@ require (
 	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.11.2 // indirect
-	github.com/holiman/uint256 v1.2.3 // indirect
+	github.com/holiman/uint256 v1.2.4 // indirect
 	github.com/huandu/go-clone v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.0.1 // indirect
-	github.com/klauspost/cpuid/v2 v2.2.5 // indirect
+	github.com/klauspost/cpuid/v2 v2.2.6 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.4 // indirect
-	github.com/minio/sha256-simd v1.0.0 // indirect
+	github.com/minio/sha256-simd v1.0.1 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/mmcloughlin/addchain v0.4.0 // indirect
 	github.com/prometheus/client_model v0.3.0 // indirect
@@ -61,12 +61,12 @@ require (
 	go.opentelemetry.io/otel v1.16.0 // indirect
 	go.opentelemetry.io/otel/metric v1.16.0 // indirect
 	go.opentelemetry.io/otel/trace v1.16.0 // indirect
-	golang.org/x/crypto v0.12.0 // indirect
+	golang.org/x/crypto v0.18.0 // indirect
 	golang.org/x/net v0.10.0 // indirect
 	golang.org/x/sync v0.3.0 // indirect
-	golang.org/x/sys v0.13.0 // indirect
-	golang.org/x/text v0.12.0 // indirect
-	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
+	golang.org/x/sys v0.16.0 // indirect
+	golang.org/x/text v0.14.0 // indirect
+	golang.org/x/xerrors v0.0.0-20231012003039-104605ab7028 // indirect
 	google.golang.org/genproto v0.0.0-20230110181048-76db0878b65f // indirect
 	gopkg.in/cenkalti/backoff.v1 v1.1.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect

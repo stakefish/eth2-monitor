@@ -18,13 +18,13 @@ import (
 
 	eth2client "github.com/attestantio/go-eth2-client"
 	"github.com/attestantio/go-eth2-client/api"
+	eth2spec "github.com/attestantio/go-eth2-client/spec"
+	"github.com/attestantio/go-eth2-client/spec/bellatrix"
+	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/pkg/errors"
 	bitfield "github.com/prysmaticlabs/go-bitfield"
 	primitives "github.com/prysmaticlabs/prysm/v4/consensus-types/primitives"
-	ethpbservice "github.com/prysmaticlabs/prysm/v4/proto/eth/service"
-	ethpbv1 "github.com/prysmaticlabs/prysm/v4/proto/eth/v1"
-	ethpbv2 "github.com/prysmaticlabs/prysm/v4/proto/eth/v2"
 	ethpb "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/exp/maps"
@@ -86,12 +86,12 @@ func IndexPubkeys(ctx context.Context, s *prysmgrpc.Service, pubkeys []string) (
 	return result, reversed, nil
 }
 
-func processDeposits(ctx context.Context, s *prysmgrpc.Service, hashedKeys map[string]interface{}, deposits []*ethpbv1.Deposit) (map[string]spec.ValidatorIndex, map[spec.ValidatorIndex]string, error) {
+func processDeposits(ctx context.Context, s *prysmgrpc.Service, hashedKeys map[string]interface{}, deposits []*phase0.Deposit) (map[string]spec.ValidatorIndex, map[spec.ValidatorIndex]string, error) {
 	var pubkeys []string
 
 	for _, deposit := range deposits {
-		binPubkey := deposit.GetData().GetPubkey()
-		pubkey := hex.EncodeToString(binPubkey)
+		binPubKey := deposit.Data.PublicKey
+		pubkey := hex.EncodeToString(binPubKey[:])
 		pubkey = strings.ToLower(pubkey)
 
 		if _, ok := hashedKeys[pubkey]; !ok {
@@ -205,38 +205,24 @@ type ChainBlock struct {
 	Slot              spec.Slot
 	ProposerIndex     spec.ValidatorIndex
 	ChainAttestations []*ChainAttestation
-	BlockContainer    *ethpbv2.SignedBeaconBlockContainer
-	Attestations      []*ethpbv1.Attestation
-	Deposits          []*ethpbv1.Deposit
-	AttesterSlashings []*ethpbv1.AttesterSlashing
-	ProposerSlashings []*ethpbv1.ProposerSlashing
-	VoluntaryExits    []*ethpbv1.SignedVoluntaryExit
+
+	BlockContainer    *eth2spec.VersionedSignedBeaconBlock
+	Attestations      []*phase0.Attestation
+	Deposits          []*phase0.Deposit
+	AttesterSlashings []*phase0.AttesterSlashing
+	ProposerSlashings []*phase0.ProposerSlashing
+	VoluntaryExits    []*phase0.SignedVoluntaryExit
 	Transactions      []types.Transaction
 }
 
 type ChainAttestation struct {
+	AggregationBits []byte
 	Slot            spec.Slot
 	InclusionSlot   spec.Slot
 	CommitteeIndex  spec.CommitteeIndex
-	AggregationBits []byte
 }
 
-// getBlock retrieves the block for a specific block root.
-func getBlock(ctx context.Context, s *prysmgrpc.Service, root []byte) (*ethpbv2.SignedBeaconBlockContainer, error) {
-	conn := ethpbservice.NewBeaconChainClient(s.Connection())
-	opCtx, cancel := context.WithTimeout(ctx, s.Timeout())
-	req := &ethpbv2.BlockRequestV2{
-		BlockId: root,
-	}
-	resp, err := conn.GetBlockV2(opCtx, req)
-	cancel()
-	if err != nil {
-		return nil, errors.Wrapf(err, "rpc call GetBlockV2 failed, root=%q", root)
-	}
-	return resp.GetData(), nil
-}
-
-func unmarshallTransactions(rlpEncodedTxs [][]byte) (txs []types.Transaction, err error) {
+func unmarshallTransactions(rlpEncodedTxs []bellatrix.Transaction) (txs []types.Transaction, err error) {
 	for _, rlpEncodedTx := range rlpEncodedTxs {
 		var tx types.Transaction
 		if err := tx.UnmarshalBinary(rlpEncodedTx); err != nil {
@@ -248,18 +234,15 @@ func unmarshallTransactions(rlpEncodedTxs [][]byte) (txs []types.Transaction, er
 }
 
 // ListBlocks lists blocks and attestations for a specific epoch.
-func ListBlocks(ctx context.Context, s *prysmgrpc.Service, beacon *beaconchain.BeaconChain, epoch spec.Epoch) (map[spec.Slot][]*ChainBlock, error) {
-	provider, isProvider := beacon.Service().(eth2client.BeaconBlockHeadersProvider)
-	if !isProvider {
-		log.Fatal().Msg("Unable to cast to BeaconBlockHeadersProvider")
-	}
+func ListBlocks(ctx context.Context, beacon *beaconchain.BeaconChain, epoch spec.Epoch) (map[spec.Slot][]*ChainBlock, error) {
+	blockHeadersProvider := beacon.Service().(eth2client.BeaconBlockHeadersProvider)
+	blockProvider := beacon.Service().(eth2client.SignedBeaconBlockProvider)
 
 	result := make(map[spec.Slot][]*ChainBlock)
 	lastSlot := (epoch + 1) * spec.SLOTS_PER_EPOCH
 	for slot := epoch * spec.SLOTS_PER_EPOCH; slot < lastSlot; slot++ {
 		opCtx, cancel := context.WithTimeout(ctx, beacon.Timeout())
-
-		resp, err := provider.BeaconBlockHeader(opCtx, &api.BeaconBlockHeaderOpts{
+		resp, err := blockHeadersProvider.BeaconBlockHeader(opCtx, &api.BeaconBlockHeaderOpts{
 			Common: api.CommonOpts{},
 			Block:  fmt.Sprint(slot),
 		})
@@ -276,63 +259,54 @@ func ListBlocks(ctx context.Context, s *prysmgrpc.Service, beacon *beaconchain.B
 
 		proposerIndex := spec.ValidatorIndex(resp.Data.Header.Message.ProposerIndex)
 
-		signedBeaconBlockContainer, err := getBlock(ctx, s, resp.Data.Root[:])
+		opCtx, cancel = context.WithTimeout(ctx, beacon.Timeout())
+		signedBeaconBlock, err := blockProvider.SignedBeaconBlock(opCtx, &api.SignedBeaconBlockOpts{
+			Common: api.CommonOpts{},
+			Block:  resp.Data.Root.String(),
+		})
+		cancel()
 		if err != nil {
 			return nil, err
 		}
 
-		var blockAttestations []*ethpbv1.Attestation
-		var attesterSlashings []*ethpbv1.AttesterSlashing
-		var proposerSlashings []*ethpbv1.ProposerSlashing
-		var marshalledTransactions [][]byte
-		var deposits []*ethpbv1.Deposit
-		switch signedBeaconBlockContainer.GetMessage().(type) {
-		case *ethpbv2.SignedBeaconBlockContainer_Phase0Block:
-			phase0Block := signedBeaconBlockContainer.GetPhase0Block()
-			blockAttestations = phase0Block.GetBody().GetAttestations()
-			attesterSlashings = phase0Block.GetBody().GetAttesterSlashings()
-			proposerSlashings = phase0Block.GetBody().GetProposerSlashings()
-			deposits = phase0Block.GetBody().GetDeposits()
-		case *ethpbv2.SignedBeaconBlockContainer_AltairBlock:
-			altairBlock := signedBeaconBlockContainer.GetAltairBlock()
-			blockAttestations = altairBlock.GetBody().GetAttestations()
-			attesterSlashings = altairBlock.GetBody().GetAttesterSlashings()
-			proposerSlashings = altairBlock.GetBody().GetProposerSlashings()
-			deposits = altairBlock.GetBody().GetDeposits()
-		case *ethpbv2.SignedBeaconBlockContainer_BellatrixBlock:
-			bellatrixBlock := signedBeaconBlockContainer.GetBellatrixBlock()
-			blockAttestations = bellatrixBlock.GetBody().GetAttestations()
-			attesterSlashings = bellatrixBlock.GetBody().GetAttesterSlashings()
-			proposerSlashings = bellatrixBlock.GetBody().GetProposerSlashings()
-			deposits = bellatrixBlock.GetBody().GetDeposits()
-			marshalledTransactions = bellatrixBlock.GetBody().GetExecutionPayload().GetTransactions()
-		case *ethpbv2.SignedBeaconBlockContainer_CapellaBlock:
-			capellaBlock := signedBeaconBlockContainer.GetCapellaBlock()
-			blockAttestations = capellaBlock.GetBody().GetAttestations()
-			attesterSlashings = capellaBlock.GetBody().GetAttesterSlashings()
-			proposerSlashings = capellaBlock.GetBody().GetProposerSlashings()
-
-			// https://github.com/ethereum/annotated-spec/blob/98c63ebcdfee6435e8b2a76e1fca8549722f6336/merge/beacon-chain.md#custom-types%C2%B6
-			//      [...] execution blocks are stored in SSZ form, but the
-			//      transactions inside them are encoded with RLP, and so
-			//      to software that only understands SSZ they are
-			//      presented as "opaque" byte arrays.
-			marshalledTransactions = capellaBlock.GetBody().GetExecutionPayload().GetTransactions()
-		default:
-			fmt.Println("Unknown Hardfork, exiting...")
-			log.Fatal()
+		blockAttestations, err := signedBeaconBlock.Data.Attestations()
+		if err != nil {
+			return nil, err
 		}
-
 		var chainAttestations []*ChainAttestation
 		for _, att := range blockAttestations {
 			chainAttestations = append(chainAttestations, &ChainAttestation{
-				AggregationBits: att.GetAggregationBits(),
-				CommitteeIndex:  spec.CommitteeIndex(att.GetData().GetIndex()),
-				Slot:            spec.Slot(att.GetData().GetSlot()),
+				AggregationBits: att.AggregationBits,
+				CommitteeIndex:  spec.CommitteeIndex(att.Data.Index),
+				Slot:            spec.Slot(att.Data.Slot),
 				InclusionSlot:   slot,
 			})
 		}
 
+		attesterSlashings, err := signedBeaconBlock.Data.AttesterSlashings()
+		if err != nil {
+			return nil, err
+		}
+
+		proposerSlashings, err := signedBeaconBlock.Data.ProposerSlashings()
+		if err != nil {
+			return nil, err
+		}
+
+		deposits, err := signedBeaconBlock.Data.Deposits()
+		if err != nil {
+			return nil, err
+		}
+
+		// https://github.com/ethereum/annotated-spec/blob/98c63ebcdfee6435e8b2a76e1fca8549722f6336/merge/beacon-chain.md#custom-types%C2%B6
+		//      [...] execution blocks are stored in SSZ form, but the
+		//      transactions inside them are encoded with RLP, and so
+		//      to software that only understands SSZ they are
+		//      presented as "opaque" byte arrays.
+		marshalledTransactions, err := signedBeaconBlock.Data.ExecutionTransactions()
+		if err != nil {
+			return nil, err
+		}
 		var unmarshalledTransactions []types.Transaction
 		if marshalledTransactions != nil {
 			txs, err := unmarshallTransactions(marshalledTransactions)
@@ -347,7 +321,7 @@ func ListBlocks(ctx context.Context, s *prysmgrpc.Service, beacon *beaconchain.B
 			Slot:              slot,
 			AttesterSlashings: attesterSlashings,
 			ProposerSlashings: proposerSlashings,
-			BlockContainer:    signedBeaconBlockContainer,
+			BlockContainer:    signedBeaconBlock.Data,
 			ChainAttestations: chainAttestations,
 			Deposits:          deposits,
 			Transactions:      unmarshalledTransactions,
@@ -679,7 +653,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 			Must(err)
 		}, "ListBeaconCommittees(epoch=%v)", epoch)
 		Measure(func() {
-			epochBlocks, err = ListBlocks(ctx, s, beacon, spec.Epoch(epoch))
+			epochBlocks, err = ListBlocks(ctx, beacon, spec.Epoch(epoch))
 			Must(err)
 		}, "ListBlocks(epoch=%v)", epoch)
 		Measure(func() {
@@ -865,7 +839,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 }
 
 // MonitorSlashings listens to the beacon chain head changes and checks for slashings.
-func MonitorSlashings(ctx context.Context, s *prysmgrpc.Service, beacon *beaconchain.BeaconChain, wg *sync.WaitGroup) {
+func MonitorSlashings(ctx context.Context, beacon *beaconchain.BeaconChain, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	for justifiedEpoch := range epochsChan {
@@ -876,7 +850,7 @@ func MonitorSlashings(ctx context.Context, s *prysmgrpc.Service, beacon *beaconc
 
 		epoch := justifiedEpoch
 		Measure(func() {
-			blocks, err = ListBlocks(ctx, s, beacon, spec.Epoch(epoch))
+			blocks, err = ListBlocks(ctx, beacon, spec.Epoch(epoch))
 			Must(err)
 		}, "ListBlocks(epoch=%v)", epoch)
 
