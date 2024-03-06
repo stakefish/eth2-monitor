@@ -49,7 +49,7 @@ func ProcessSlashings(ctx context.Context, blocks map[spec.Slot][]*ChainBlock) (
 			attesterSlashings := chainBlock.AttesterSlashings
 
 			for _, proposerSlashing := range proposerSlashings {
-				slashee := spec.ValidatorIndex(proposerSlashing.GetSignedHeader_1().GetMessage().GetProposerIndex())
+				slashee := spec.ValidatorIndex(proposerSlashing.SignedHeader1.Message.ProposerIndex)
 
 				ReportSlashing(ctx, "🚫 🧱", "proposed two conflicting blocks",
 					slot, slasher, slashee)
@@ -58,11 +58,11 @@ func ProcessSlashings(ctx context.Context, blocks map[spec.Slot][]*ChainBlock) (
 			for _, attesterSlashing := range attesterSlashings {
 				var slashee spec.ValidatorIndex
 				attestation1Validators := make(map[spec.ValidatorIndex]interface{})
-				for _, index := range attesterSlashing.GetAttestation_1().GetAttestingIndices() {
+				for _, index := range attesterSlashing.Attestation1.AttestingIndices {
 					attestation1Validators[index] = nil
 				}
 
-				for _, index := range attesterSlashing.GetAttestation_2().GetAttestingIndices() {
+				for _, index := range attesterSlashing.Attestation2.AttestingIndices {
 					if _, ok := attestation1Validators[index]; ok {
 						slashee = index
 						break
