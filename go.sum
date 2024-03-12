@@ -382,6 +382,8 @@ github.com/prysmaticlabs/prysm/v4 v4.1.1 h1:sbBkgfPzo/SGTJ5IimtsZSGECoRlhbowR1rE
 github.com/prysmaticlabs/prysm/v4 v4.1.1/go.mod h1:+o907dc4mwEE0wJkQ8RrzCroC+q2WCzdCLtikwonw8c=
 github.com/prysmaticlabs/prysm/v5 v5.0.1 h1:GCFxthIfOOLq0y6UVklNfntZypGWLbQqCCrVvhmH8T0=
 github.com/prysmaticlabs/prysm/v5 v5.0.1/go.mod h1:RKq4hdSHNLPC6s56KCTDnZEKsxj6/lwsm1xW8SmCbj4=
+github.com/r3labs/sse v0.0.0-20210224172625-26fe804710bc h1:zAsgcP8MhzAbhMnB1QQ2O7ZhWYVGYSR2iVcjzQuPV+o=
+github.com/r3labs/sse v0.0.0-20210224172625-26fe804710bc/go.mod h1:S8xSOnV3CgpNrWd0GQ/OoQfMtlg2uPRSuTzcSGrzwK8=
 github.com/r3labs/sse/v2 v2.10.0 h1:hFEkLLFY4LDifoHdiCN/LlGBAdVJYsANaLqNYa1l/v0=
 github.com/r3labs/sse/v2 v2.10.0/go.mod h1:Igau6Whc+F17QUgML1fYe1VPZzTV6EMCnYktEmkNJ7I=
 github.com/rivo/uniseg v0.4.4 h1:8TfxU8dW6PdqD27gjM8MVNuicgxIjxpm4K7x4jp8sis=

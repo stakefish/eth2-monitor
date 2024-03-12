@@ -5,8 +5,8 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"io"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -18,13 +18,14 @@ import (
 
 	eth2client "github.com/attestantio/go-eth2-client"
 	"github.com/attestantio/go-eth2-client/api"
+	v1 "github.com/attestantio/go-eth2-client/api/v1"
 	eth2spec "github.com/attestantio/go-eth2-client/spec"
 	"github.com/attestantio/go-eth2-client/spec/bellatrix"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/pkg/errors"
 	bitfield "github.com/prysmaticlabs/go-bitfield"
-	primitives "github.com/prysmaticlabs/prysm/v4/consensus-types/primitives"
+	primitives "github.com/prysmaticlabs/prysm/v5/consensus-types/primitives"
 	ethpb "github.com/prysmaticlabs/prysm/v5/proto/prysm/v1alpha1"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/exp/maps"
@@ -241,17 +242,16 @@ func ListBlocks(ctx context.Context, beacon *beaconchain.BeaconChain, epoch spec
 	result := make(map[spec.Slot][]*ChainBlock)
 	lastSlot := (epoch + 1) * spec.SLOTS_PER_EPOCH
 	for slot := epoch * spec.SLOTS_PER_EPOCH; slot < lastSlot; slot++ {
-		opCtx, cancel := context.WithTimeout(ctx, beacon.Timeout())
-		resp, err := blockHeadersProvider.BeaconBlockHeader(opCtx, &api.BeaconBlockHeaderOpts{
+		resp, err := blockHeadersProvider.BeaconBlockHeader(ctx, &api.BeaconBlockHeaderOpts{
 			Common: api.CommonOpts{},
-			Block:  fmt.Sprint(slot),
+			Block:  fmt.Sprintf("%v", slot),
 		})
-		cancel()
 
 		if resp == nil {
+			// Missed slot
 			continue
 		}
-		log.Trace().Msgf("Block at slot=%v %v", slot, strings.TrimSuffix(resp.Data.Header.Message.String(), "\n"))
+		log.Trace().Msgf("Block at slot %v root=%v", slot, hex.EncodeToString(resp.Data.Root[:]))
 		if err != nil {
 			log.Error().Err(err).Msg("BeaconBlockHeader")
 			continue
@@ -259,14 +259,12 @@ func ListBlocks(ctx context.Context, beacon *beaconchain.BeaconChain, epoch spec
 
 		proposerIndex := spec.ValidatorIndex(resp.Data.Header.Message.ProposerIndex)
 
-		opCtx, cancel = context.WithTimeout(ctx, beacon.Timeout())
-		signedBeaconBlock, err := blockProvider.SignedBeaconBlock(opCtx, &api.SignedBeaconBlockOpts{
-			Common: api.CommonOpts{},
-			Block:  resp.Data.Root.String(),
+		signedBeaconBlock, err := blockProvider.SignedBeaconBlock(ctx, &api.SignedBeaconBlockOpts{
+			Block: strconv.FormatUint(uint64(resp.Data.Header.Message.Slot), 10),
 		})
-		cancel()
 		if err != nil {
-			return nil, err
+			log.Error().Err(err).Msg("SignedBeaconBlock")
+			continue
 		}
 
 		blockAttestations, err := signedBeaconBlock.Data.Attestations()
@@ -334,15 +332,13 @@ func ListBlocks(ctx context.Context, beacon *beaconchain.BeaconChain, epoch spec
 // SubscribeToEpochs subscribes to changings of the beacon chain head.
 // Note, if --replay-epoch or --since-epoch options passed, SubscribeToEpochs will not
 // listen to real-time changes.
-func SubscribeToEpochs(ctx context.Context, s *prysmgrpc.Service, wg *sync.WaitGroup) {
+func SubscribeToEpochs(ctx context.Context, s *prysmgrpc.Service, beacon *beaconchain.BeaconChain, wg *sync.WaitGroup) {
 	defer wg.Done()
 
-	getEpoch := func(chainHead *ethpb.ChainHead) spec.Epoch {
-        return spec.Epoch(chainHead.JustifiedEpoch)
-	}
-
-	lastChainHead, err := s.GetChainHead()
+	chainHead, err := s.GetChainHead()
 	Must(err)
+
+	lastEpoch := uint64(chainHead.JustifiedEpoch)
 
 	if len(opts.Monitor.ReplayEpoch) > 0 {
 		for _, epoch := range opts.Monitor.ReplayEpoch {
@@ -352,43 +348,27 @@ func SubscribeToEpochs(ctx context.Context, s *prysmgrpc.Service, wg *sync.WaitG
 		return
 	}
 	if opts.Monitor.SinceEpoch != ^uint64(0) {
-		for epoch := opts.Monitor.SinceEpoch; epoch < getEpoch(lastChainHead); epoch++ {
+		for epoch := opts.Monitor.SinceEpoch; epoch < lastEpoch; epoch++ {
 			epochsChan <- epoch
 		}
 		close(epochsChan)
 		return
 	}
 
-	stream, err := s.StreamChainHead()
-	if err != nil {
-		log.Error().Err(err).Msg("StreamChainHead failed")
-		return
-	}
-	defer stream.CloseSend()
-
-	waitc := make(chan struct{})
-	go func() {
-		epochsChan <- getEpoch(lastChainHead)
-
-		for {
-			chainHead, err := stream.Recv()
-			if err == io.EOF {
-				waitc <- struct{}{}
-				return
-			}
-			if err != nil {
-				close(epochsChan)
-				Must(err)
-			}
-
-			if getEpoch(chainHead) > getEpoch(lastChainHead) {
-				lastChainHead = chainHead
-
-				epochsChan <- getEpoch(lastChainHead)
-			}
+	eventsHandlerFunc := func(event *v1.Event) {
+		headEvent := event.Data.(*v1.HeadEvent)
+		log.Trace().Msgf("New head slot %v block %v", headEvent.Slot, headEvent.Block.String())
+		thisEpoch := uint64(headEvent.Slot / spec.SLOTS_PER_EPOCH)
+		if thisEpoch > lastEpoch {
+			log.Trace().Msgf("New epoch %v at slot %v", thisEpoch, headEvent.Slot)
+			epochsChan <- lastEpoch // send the epoch that has just ended
+			lastEpoch = thisEpoch
 		}
-	}()
-	<-waitc
+	}
+
+	eventsProvider := beacon.Service().(eth2client.EventsProvider)
+	err = eventsProvider.Events(ctx, []string{"head"}, eventsHandlerFunc)
+	Must(err)
 }
 
 type AttestationLoggingStatus struct {

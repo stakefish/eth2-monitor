@@ -68,7 +68,7 @@ var (
 
 			var wg sync.WaitGroup
 			wg.Add(2)
-			go pkg.SubscribeToEpochs(ctx, s, &wg)
+			go pkg.SubscribeToEpochs(ctx, s, beacon, &wg)
 			go pkg.MonitorAttestationsAndProposals(ctx, s, beacon, plainPubkeys, &wg)
 
 			//Create Prometheus Metrics Client
@@ -96,7 +96,7 @@ var (
 
 			var wg sync.WaitGroup
 			wg.Add(2)
-			go pkg.SubscribeToEpochs(ctx, s, &wg)
+			go pkg.SubscribeToEpochs(ctx, s, beacon, &wg)
 			go pkg.MonitorSlashings(ctx, beacon, &wg)
 			defer wg.Wait()
 		},
