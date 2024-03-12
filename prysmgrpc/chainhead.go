@@ -21,17 +21,6 @@ func (s *Service) GetChainHead() (*ethpb.ChainHead, error) {
 	return resp, nil
 }
 
-func (s *Service) StreamChainHead() (ethpb.BeaconChain_StreamChainHeadClient, error) {
-	conn := ethpb.NewBeaconChainClient(s.conn)
-
-	stream, err := conn.StreamChainHead(s.ctx, &empty.Empty{})
-	if err != nil {
-		return nil, err
-	}
-
-	return stream, nil
-}
-
 func (s *Service) GetGenesis() (*ethpb.Genesis, error) {
 	conn := ethpb.NewNodeClient(s.Connection())
 
