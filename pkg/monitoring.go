@@ -334,14 +334,11 @@ func ListBlocks(ctx context.Context, beacon *beaconchain.BeaconChain, epoch spec
 // SubscribeToEpochs subscribes to changings of the beacon chain head.
 // Note, if --replay-epoch or --since-epoch options passed, SubscribeToEpochs will not
 // listen to real-time changes.
-func SubscribeToEpochs(ctx context.Context, s *prysmgrpc.Service, useJustified bool, wg *sync.WaitGroup) {
+func SubscribeToEpochs(ctx context.Context, s *prysmgrpc.Service, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	getEpoch := func(chainHead *ethpb.ChainHead) spec.Epoch {
-		if useJustified {
-			return spec.Epoch(chainHead.JustifiedEpoch)
-		}
-		return spec.Epoch(chainHead.HeadEpoch)
+        return spec.Epoch(chainHead.JustifiedEpoch)
 	}
 
 	lastChainHead, err := s.GetChainHead()

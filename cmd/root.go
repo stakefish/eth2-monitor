@@ -68,7 +68,7 @@ var (
 
 			var wg sync.WaitGroup
 			wg.Add(2)
-			go pkg.SubscribeToEpochs(ctx, s, true, &wg)
+			go pkg.SubscribeToEpochs(ctx, s, &wg)
 			go pkg.MonitorAttestationsAndProposals(ctx, s, beacon, plainPubkeys, &wg)
 
 			//Create Prometheus Metrics Client
@@ -96,37 +96,8 @@ var (
 
 			var wg sync.WaitGroup
 			wg.Add(2)
-			go pkg.SubscribeToEpochs(ctx, s, true, &wg)
+			go pkg.SubscribeToEpochs(ctx, s, &wg)
 			go pkg.MonitorSlashings(ctx, beacon, &wg)
-			defer wg.Wait()
-		},
-	}
-
-	maintenanceCmd = &cobra.Command{
-		Use:   "maintenance [-k PUBKEY] [PUBKEY_FILES...]",
-		Short: "Shows a possible window for maintenance",
-		Args:  cobra.ArbitraryArgs,
-		PreRunE: func(cmd *cobra.Command, args []string) error {
-			if len(args)+len(opts.Monitor.Pubkeys) < 1 {
-				return errors.New("provide validator public keys using -k or by specifying files with public keys")
-			}
-			return nil
-		},
-		Run: func(cmd *cobra.Command, args []string) {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			s, err := prysmgrpc.New(ctx,
-				prysmgrpc.WithAddress(opts.BeaconNode),
-				prysmgrpc.WithTimeout(time.Minute))
-			pkg.Must(err)
-
-			plainPubkeys, err := pkg.LoadKeys(args)
-			pkg.Must(err)
-
-			var wg sync.WaitGroup
-			wg.Add(2)
-			go pkg.SubscribeToEpochs(ctx, s, false, &wg)
-			go pkg.MonitorMaintenanceWindows(ctx, s, plainPubkeys, &wg)
 			defer wg.Wait()
 		},
 	}
@@ -175,11 +146,4 @@ func init() {
 	slashingsCmd.PersistentFlags().StringVar(&opts.Slashings.TwitterAccessSecret, "twitter-access-secret", "", "Twitter consumer secret")
 	slashingsCmd.PersistentFlags().SortFlags = false
 	rootCmd.AddCommand(slashingsCmd)
-
-	maintenanceCmd.PersistentFlags().StringSliceVarP(&opts.Monitor.Pubkeys, "pubkey", "k", nil, "validator public key")
-	maintenanceCmd.PersistentFlags().UintSliceVar(&opts.Monitor.ReplayEpoch, "replay-epoch", nil, "replay epoch for debug purposes")
-	maintenanceCmd.PersistentFlags().Uint64Var(&opts.Monitor.SinceEpoch, "since-epoch", ^uint64(0), "replay epochs from the specified one")
-	maintenanceCmd.PersistentFlags().Lookup("since-epoch").DefValue = "follows head epoch"
-	maintenanceCmd.PersistentFlags().SortFlags = false
-	rootCmd.AddCommand(maintenanceCmd)
 }
