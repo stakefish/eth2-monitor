@@ -27,8 +27,4 @@ var (
 		TwitterAccessToken    string
 		TwitterAccessSecret   string
 	}
-
-	Maintenance struct {
-		Epoch uint64
-	}
 )
