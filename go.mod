@@ -13,11 +13,11 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.16.0
 	github.com/prysmaticlabs/go-bitfield v0.0.0-20210809151128-385d8c5e3fb7
-	github.com/prysmaticlabs/prysm/v4 v4.1.1
 	github.com/prysmaticlabs/prysm/v5 v5.0.1
 	github.com/rs/zerolog v1.29.1
 	github.com/spf13/cobra v1.5.0
 	golang.org/x/exp v0.0.0-20231214170342-aacd6d4b4611
+	golang.org/x/text v0.14.0
 	google.golang.org/grpc v1.56.3
 	google.golang.org/protobuf v1.30.0
 )
@@ -57,7 +57,6 @@ require (
 	github.com/prometheus/procfs v0.10.1 // indirect
 	github.com/prysmaticlabs/fastssz v0.0.0-20221107182844-78142813af44 // indirect
 	github.com/prysmaticlabs/gohashtree v0.0.4-beta // indirect
-	github.com/r3labs/sse v0.0.0-20210224172625-26fe804710bc // indirect
 	github.com/r3labs/sse/v2 v2.10.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/supranational/blst v0.3.11 // indirect
@@ -69,7 +68,6 @@ require (
 	golang.org/x/net v0.19.0 // indirect
 	golang.org/x/sync v0.5.0 // indirect
 	golang.org/x/sys v0.16.0 // indirect
-	golang.org/x/text v0.14.0 // indirect
 	golang.org/x/xerrors v0.0.0-20231012003039-104605ab7028 // indirect
 	google.golang.org/genproto v0.0.0-20230410155749-daa745c078e1 // indirect
 	gopkg.in/cenkalti/backoff.v1 v1.1.0 // indirect
