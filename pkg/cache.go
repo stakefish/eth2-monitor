@@ -3,7 +3,6 @@ package pkg
 import (
 	"encoding/json"
 	"io"
-	"io/ioutil"
 	"os"
 	"path"
 	"time"
@@ -38,12 +37,15 @@ func LoadCache() *LocalCache {
 	}
 	defer fd.Close()
 
-	rawCache, err := ioutil.ReadAll(fd)
+	rawCache, err := io.ReadAll(fd)
 	if err != nil {
-		log.Debug().Err(err).Msg("LoadCache: ioutil.ReadAll failed; skip")
+		log.Debug().Err(err).Msg("LoadCache: io.ReadAll failed; skip")
 		return cache
 	}
-	json.Unmarshal(rawCache, cache)
+	err = json.Unmarshal(rawCache, cache)
+	if err != nil {
+		log.Error().Err(err).Msg("LoadCache: json.Unmarshal failed; returning empty cache")
+	}
 
 	return cache
 }
@@ -62,7 +64,7 @@ func SaveCache(newCache *LocalCache) {
 		return
 	}
 
-	tmpfile, err := ioutil.TempFile("", "stakefish-eth2-monitor-cache.*.json")
+	tmpfile, err := os.CreateTemp("", "stakefish-eth2-monitor-cache.*.json")
 	if err != nil {
 		log.Debug().Err(err).Msg("SaveCache: os.Open failed; skip")
 		return
@@ -77,5 +79,8 @@ func SaveCache(newCache *LocalCache) {
 		}
 		bytesWritten += nWritten
 	}
-	os.Rename(tmpfile.Name(), cacheFilePath)
+	err = os.Rename(tmpfile.Name(), cacheFilePath)
+	if err != nil {
+		log.Error().Err(err).Msg("SaveCache: os.Rename failed; skip")
+	}
 }

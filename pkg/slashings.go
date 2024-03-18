@@ -41,7 +41,7 @@ func ReportSlashing(ctx context.Context, prefix string, reason string, slot spec
 	TweetSlashing(reason, slot, slasher, slashee)
 }
 
-func ProcessSlashings(ctx context.Context, blocks map[spec.Slot][]*ChainBlock) (err error) {
+func ProcessSlashings(ctx context.Context, blocks map[spec.Slot][]*ChainBlock) {
 	for slot, chainBlocks := range blocks {
 		for _, chainBlock := range chainBlocks {
 			slasher := chainBlock.ProposerIndex
@@ -74,6 +74,4 @@ func ProcessSlashings(ctx context.Context, blocks map[spec.Slot][]*ChainBlock) (
 			}
 		}
 	}
-
-	return nil
 }

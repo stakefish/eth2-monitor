@@ -7,11 +7,12 @@ import (
 	"eth2-monitor/spec"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/dghubble/go-twitter/twitter"
 	"github.com/dghubble/oauth1"
 	"github.com/rs/zerolog/log"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 func Report(format string, args ...interface{}) {
@@ -61,7 +62,7 @@ func TweetSlashing(reason string, slot spec.Slot, slasher spec.ValidatorIndex, s
 👁️ Validator %v
 🧐 %s
 🔪 Slashed by Validator %v
-📊 Occurred at Slot %v`, slashee, strings.Title(reason), slasher, slot)
+📊 Occurred at Slot %v`, slashee, cases.Title(language.English).String(reason), slasher, slot)
 	reportToTwitter(message)
 }
 

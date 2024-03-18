@@ -73,7 +73,8 @@ var (
 
 			//Create Prometheus Metrics Client
 			http.Handle("/metrics", promhttp.Handler())
-			http.ListenAndServe(":"+opts.MetricsPort, nil)
+			err = http.ListenAndServe(":"+opts.MetricsPort, nil)
+			pkg.Must(err)
 
 			defer wg.Wait()
 		},
