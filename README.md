@@ -7,7 +7,6 @@ Eth2 Monitor serves a few purposes:
 
 * monitors the attestation inclusion distance,
 * monitors and alerts slashing events,
-* checks an upcoming epoch for a maintenance window,
 * exports rewards history and other data (TBD).
 
 ## Installation ##
@@ -115,16 +114,6 @@ eth2-monitor slashings --slack-url https://hooks.slack.com/services/YOUR_TOKEN
 ```
 
 At stakefish, we use it for [our Twitter bot](https://twitter.com/Eth2SlashBot).
-
-### Wait for a maintenance window ###
-
-If you don’t want to miss a _block_ while conducting maintenance, you can monitor every new epoch and see if you have a maintenance window of 6.4 minutes (the duration of an epoch).
-
-``` shell
-eth2-monitor maintenance keys.txt
-```
-
-Note, this command does not monitor for scheduled _attestations_ slots.
 
 ### Export rewards history and other data (TBD) ###
 
