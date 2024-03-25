@@ -332,13 +332,14 @@ func ListBlocks(ctx context.Context, beacon *beaconchain.BeaconChain, epoch spec
 // SubscribeToEpochs subscribes to changings of the beacon chain head.
 // Note, if --replay-epoch or --since-epoch options passed, SubscribeToEpochs will not
 // listen to real-time changes.
-func SubscribeToEpochs(ctx context.Context, s *prysmgrpc.Service, beacon *beaconchain.BeaconChain, wg *sync.WaitGroup) {
+func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg *sync.WaitGroup) {
 	defer wg.Done()
 
-	chainHead, err := s.GetChainHead()
+	finalityProvider := beacon.Service().(eth2client.FinalityProvider)
+	resp, err := finalityProvider.Finality(ctx, &api.FinalityOpts{State: "head"})
 	Must(err)
 
-	lastEpoch := uint64(chainHead.JustifiedEpoch)
+	lastEpoch := uint64(resp.Data.Justified.Epoch)
 
 	if len(opts.Monitor.ReplayEpoch) > 0 {
 		for _, epoch := range opts.Monitor.ReplayEpoch {
