@@ -68,7 +68,7 @@ var (
 
 			var wg sync.WaitGroup
 			wg.Add(2)
-			go pkg.SubscribeToEpochs(ctx, s, beacon, &wg)
+			go pkg.SubscribeToEpochs(ctx, beacon, &wg)
 			go pkg.MonitorAttestationsAndProposals(ctx, s, beacon, plainPubkeys, &wg)
 
 			//Create Prometheus Metrics Client
@@ -87,17 +87,13 @@ var (
 		Run: func(cmd *cobra.Command, args []string) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			s, err := prysmgrpc.New(ctx,
-				prysmgrpc.WithAddress(opts.BeaconNode),
-				prysmgrpc.WithTimeout(time.Minute))
-			pkg.Must(err)
 
 			beacon, err := beaconchain.New(ctx, opts.BeaconChainAPI, time.Minute)
 			pkg.Must(err)
 
 			var wg sync.WaitGroup
 			wg.Add(2)
-			go pkg.SubscribeToEpochs(ctx, s, beacon, &wg)
+			go pkg.SubscribeToEpochs(ctx, beacon, &wg)
 			go pkg.MonitorSlashings(ctx, beacon, &wg)
 			defer wg.Wait()
 		},

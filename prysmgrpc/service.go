@@ -8,6 +8,7 @@ import (
 	ethpb "github.com/prysmaticlabs/prysm/v5/proto/prysm/v1alpha1"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	empty "google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -33,7 +34,7 @@ func New(ctx context.Context, params ...Parameter) (*Service, error) {
 	grpcOpts := []grpc.DialOption{
 		// Maximum receive value 128 MB
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(128 * 1024 * 1024)),
-		grpc.WithInsecure(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	}
 
 	dialCtx, cancel := context.WithTimeout(ctx, parameters.timeout)
