@@ -717,7 +717,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 					continue
 				}
 				if epoch <= justifiedEpoch-missedAttestationDistance && !attStatus.IsAttested && !attStatus.IsPrinted {
-					Report("❌ 🧾 Validator %v did not attest epoch %v slot %v", index, epoch, attStatus.Slot)
+					Report("❌ 🧾 Validator %v (%v) did not attest slot %v (epoch %v)", index, reversedIndexes[index], attStatus.Slot, epoch)
 					epochMissedAttestationsTracker += 1
 					epochMissedAttestationsGauge.Add(1)
 					totalMissedAttestationsCounter.Inc()
@@ -735,13 +735,13 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 						distanceToCompare = absDistance
 					}
 					if distanceToCompare > opts.Monitor.DistanceTolerance {
-						Report("⚠️ 🧾 Validator %v attested epoch %v slot %v at slot %v, opt distance is %v, abs distance is %v",
-							index, epoch, att.Slot, att.InclusionSlot, optimalDistance, absDistance)
+						Report("⚠️ 🧾 Validator %v (%v) attested slot %v at slot %v, epoch %v, opt distance is %v, abs distance is %v",
+							index, reversedIndexes[index], att.Slot, att.InclusionSlot, epoch, optimalDistance, absDistance)
 						epochDelayedAttestationsOverToleranceGauge.Add(1)
 						totalDelayedAttestationsOverToleranceCounter.Inc()
 					} else if opts.Monitor.PrintSuccessful {
-						Info("✅ 🧾 Validator %v attested epoch %v slot %v at slot %v, opt distance is %v, abs distance is %v",
-							index, epoch, att.Slot, att.InclusionSlot, optimalDistance, absDistance)
+						Info("✅ 🧾 Validator %v (%v) attested slot %v at slot %v, epoch %v, opt distance is %v, abs distance is %v",
+							index, reversedIndexes[index], att.Slot, att.InclusionSlot, epoch, optimalDistance, absDistance)
 					}
 					attStatus.IsPrinted = true
 
