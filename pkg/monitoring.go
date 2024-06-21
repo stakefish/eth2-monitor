@@ -517,6 +517,16 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 		})
 	prometheus.MustRegister(totalMissedProposalsCounter)
 
+	totalMissedProposalsPerValidatorCounter := prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "ETH2",
+			Name:      "totalMissedProposalsPerValidator",
+			Help:      "",
+		},
+		[]string{"validatorIndex"},
+	)
+	prometheus.MustRegister(totalMissedProposalsPerValidatorCounter)
+
 	totalCanonicalProposalsCounter := prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Namespace: "ETH2",
@@ -540,6 +550,16 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 			Help:      "Attestations missed since monitoring started",
 		})
 	prometheus.MustRegister(totalMissedAttestationsCounter)
+
+	totalMissedAttestationsPerValidatorCounter := prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "ETH2",
+			Name:      "totalMissedAttestationsPerValidator",
+			Help:      "Attestations missed since monitoring started with validator index label",
+		},
+		[]string{"validatorIndex"},
+	)
+	prometheus.MustRegister(totalMissedAttestationsPerValidatorCounter)
 
 	totalProposedEmptyBlocksCounter := prometheus.NewCounter(
 		prometheus.CounterOpts{
@@ -596,8 +616,8 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 			epochOrphanedProposalsGauge, epochMissedAttestationsGauge, lastEpochMissedAttestationsGauge,
 			epochCanonicalAttestationsGauge, epochOrphanedAttestationsGauge, epochDelayedAttestationsOverToleranceGauge,
 			lastProposedEmptyBlockSlotGauge,
-			totalMissedProposalsCounter, totalCanonicalProposalsCounter, totalOrphanedProposalsCounter,
-			totalMissedAttestationsCounter, totalCanonicalAttestationsCounter, totalOrphanedAttestationsCounter,
+			totalMissedProposalsCounter, totalCanonicalProposalsCounter, totalOrphanedProposalsCounter, totalMissedProposalsPerValidatorCounter,
+			totalMissedAttestationsCounter, totalCanonicalAttestationsCounter, totalOrphanedAttestationsCounter, totalMissedAttestationsPerValidatorCounter,
 			totalDelayedAttestationsOverToleranceCounter, canonicalAttestationDistances, orphanedAttestationDistances)
 		pusher = push.New(opts.PushGatewayUrl, opts.PushGatewayJob).Gatherer(registry)
 	}
@@ -721,6 +741,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 					epochMissedAttestationsTracker += 1
 					epochMissedAttestationsGauge.Add(1)
 					totalMissedAttestationsCounter.Inc()
+					totalMissedAttestationsPerValidatorCounter.With(prometheus.Labels{"validatorIndex": fmt.Sprintf("%v", index)}).Inc()
 					attStatus.IsPrinted = true
 				} else if att := includedAttestations[epoch][index]; att != nil && !attStatus.IsPrinted {
 					var absDistance spec.Slot = att.InclusionSlot - att.Slot
@@ -761,10 +782,11 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 		for slot, validatorIndex := range proposals {
 			slotBlocks, ok := blocks[slot]
 			if !ok {
-				Report("❌ 🧱 Validator %v missed block at epoch %v and slot %v",
+				Report("❌ 🧱 Validator %v missed proposing a block at epoch %v and slot %v",
 					validatorIndex, justifiedEpoch, slot)
 				epochMissedProposalsGauge.Add(1)
 				totalMissedProposalsCounter.Inc()
+				totalMissedProposalsPerValidatorCounter.With(prometheus.Labels{"validatorIndex": fmt.Sprintf("%v", validatorIndex)}).Inc()
 				break
 			}
 
