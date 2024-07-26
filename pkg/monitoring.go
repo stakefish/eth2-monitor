@@ -517,6 +517,22 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 		})
 	prometheus.MustRegister(totalMissedProposalsCounter)
 
+	lastMissedProposalSlotGauge := prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "ETH2",
+			Name:      "lastMissedProposalSlot",
+			Help:      "Slot of the last missed proposal",
+		})
+	prometheus.MustRegister(lastMissedProposalSlotGauge)
+
+	lastMissedProposalValidatorIndexGauge := prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "ETH2",
+			Name:      "lastMissedProposalValidatorIndex",
+			Help:      "Validator index of the last missed proposal",
+		})
+	prometheus.MustRegister(lastMissedProposalValidatorIndexGauge)
+
 	totalCanonicalProposalsCounter := prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Namespace: "ETH2",
@@ -592,13 +608,35 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 	var pusher *push.Pusher
 	if opts.PushGatewayUrl != "" && opts.PushGatewayJob != "" {
 		registry := prometheus.NewRegistry()
-		registry.MustRegister(epochGauge, epochMissedProposalsGauge, epochCanonicalProposalsGauge,
-			epochOrphanedProposalsGauge, epochMissedAttestationsGauge, lastEpochMissedAttestationsGauge,
-			epochCanonicalAttestationsGauge, epochOrphanedAttestationsGauge, epochDelayedAttestationsOverToleranceGauge,
+		registry.MustRegister(
+			epochGauge,
+
+			// Attestations
+			epochMissedAttestationsGauge,
+			lastEpochMissedAttestationsGauge,
+			epochCanonicalAttestationsGauge,
+			epochOrphanedAttestationsGauge,
+			epochDelayedAttestationsOverToleranceGauge,
+			totalMissedAttestationsCounter,
+			totalCanonicalAttestationsCounter,
+			totalOrphanedAttestationsCounter,
+			totalDelayedAttestationsOverToleranceCounter,
+			canonicalAttestationDistances,
+			orphanedAttestationDistances,
+
+			// Proposals
+			epochMissedProposalsGauge,
+			epochCanonicalProposalsGauge,
+			epochOrphanedProposalsGauge,
+			totalMissedProposalsCounter,
+			totalCanonicalProposalsCounter,
+			totalOrphanedProposalsCounter,
+			lastMissedProposalSlotGauge,
+			lastMissedProposalValidatorIndexGauge,
+
+			// Misc
 			lastProposedEmptyBlockSlotGauge,
-			totalMissedProposalsCounter, totalCanonicalProposalsCounter, totalOrphanedProposalsCounter,
-			totalMissedAttestationsCounter, totalCanonicalAttestationsCounter, totalOrphanedAttestationsCounter,
-			totalDelayedAttestationsOverToleranceCounter, canonicalAttestationDistances, orphanedAttestationDistances)
+		)
 		pusher = push.New(opts.PushGatewayUrl, opts.PushGatewayJob).Gatherer(registry)
 	}
 
@@ -765,6 +803,8 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 					validatorIndex, justifiedEpoch, slot)
 				epochMissedProposalsGauge.Add(1)
 				totalMissedProposalsCounter.Inc()
+				lastMissedProposalSlotGauge.Set(float64(slot))
+				lastMissedProposalValidatorIndexGauge.Set(float64(validatorIndex))
 				break
 			}
 
