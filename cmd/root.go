@@ -10,7 +10,6 @@ import (
 	"eth2-monitor/beaconchain"
 	"eth2-monitor/cmd/opts"
 	"eth2-monitor/pkg"
-	"eth2-monitor/prysmgrpc"
 
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
@@ -55,10 +54,6 @@ var (
 		Run: func(cmd *cobra.Command, args []string) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			s, err := prysmgrpc.New(ctx,
-				prysmgrpc.WithAddress(opts.BeaconNode),
-				prysmgrpc.WithTimeout(time.Minute))
-			pkg.Must(err)
 
 			beacon, err := beaconchain.New(ctx, opts.BeaconChainAPI, time.Minute)
 			pkg.Must(err)
@@ -69,7 +64,7 @@ var (
 			var wg sync.WaitGroup
 			wg.Add(2)
 			go pkg.SubscribeToEpochs(ctx, beacon, &wg)
-			go pkg.MonitorAttestationsAndProposals(ctx, s, beacon, plainPubkeys, &wg)
+			go pkg.MonitorAttestationsAndProposals(ctx, beacon, plainPubkeys, &wg)
 
 			//Create Prometheus Metrics Client
 			http.Handle("/metrics", promhttp.Handler())
