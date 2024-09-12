@@ -799,8 +799,8 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 		for slot, validatorIndex := range proposals {
 			slotBlocks, ok := blocks[slot]
 			if !ok {
-				Report("❌ 🧱 Validator %v missed block at epoch %v and slot %v",
-					validatorIndex, justifiedEpoch, slot)
+				Report("❌ 🧱 Validator %v missed proposal at slot %v",
+					validatorIndex, slot)
 				epochMissedProposalsGauge.Add(1)
 				totalMissedProposalsCounter.Inc()
 				lastMissedProposalSlotGauge.Set(float64(slot))
