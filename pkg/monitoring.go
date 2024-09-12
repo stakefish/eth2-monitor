@@ -13,7 +13,6 @@ import (
 
 	"eth2-monitor/beaconchain"
 	"eth2-monitor/cmd/opts"
-	"eth2-monitor/prysmgrpc"
 	"eth2-monitor/spec"
 
 	eth2client "github.com/attestantio/go-eth2-client"
@@ -25,8 +24,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/pkg/errors"
 	bitfield "github.com/prysmaticlabs/go-bitfield"
-	primitives "github.com/prysmaticlabs/prysm/v5/consensus-types/primitives"
-	ethpb "github.com/prysmaticlabs/prysm/v5/proto/prysm/v1alpha1"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/exp/maps"
 
@@ -153,34 +150,24 @@ func ListProposers(ctx context.Context, beacon *beaconchain.BeaconChain, epoch p
 type BeaconCommittees map[spec.CommitteeIndex][]spec.ValidatorIndex
 
 // ListBeaconCommittees lists committees for a specific epoch.
-func ListBeaconCommittees(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch) (map[spec.Slot]BeaconCommittees, error) {
-	req := &ethpb.ListCommitteesRequest{
-		QueryFilter: &ethpb.ListCommitteesRequest_Epoch{Epoch: primitives.Epoch(epoch)},
-	}
-
-	conn := ethpb.NewBeaconChainClient(s.Connection())
-
-	opCtx, cancel := context.WithTimeout(ctx, s.Timeout())
-	resp, err := conn.ListBeaconCommittees(opCtx, req)
-	cancel()
+func ListBeaconCommittees(ctx context.Context, beacon *beaconchain.BeaconChain, epoch spec.Epoch) (map[spec.Slot]BeaconCommittees, error) {
+	committees, err := beacon.GetBeaconCommitees(ctx, phase0.Epoch(epoch))
 	if err != nil {
-		return nil, errors.Wrap(err, "rpc call ListBeaconCommittees failed")
+		return nil, err
 	}
 
 	result := make(map[spec.Slot]BeaconCommittees)
 
-	for slot, committees := range resp.Committees {
+	for _, committee := range committees {
+		slot := uint64(committee.Slot)
 		if _, ok := result[slot]; !ok {
 			result[slot] = make(BeaconCommittees)
 		}
-
-		for committeeIndex, items := range committees.Committees {
-			var indexes []spec.ValidatorIndex
-			for _, index := range items.ValidatorIndices {
-				indexes = append(indexes, spec.ValidatorIndex(index))
-			}
-			result[slot][spec.CommitteeIndex(committeeIndex)] = indexes
+		var indexes []spec.ValidatorIndex
+		for _, index := range committee.Validators {
+			indexes = append(indexes, spec.ValidatorIndex(index))
 		}
+		result[slot][spec.CommitteeIndex(committee.Index)] = indexes
 	}
 
 	return result, nil
@@ -393,7 +380,7 @@ func LoadKeys(pubkeysFiles []string) ([]string, error) {
 }
 
 // MonitorAttestationsAndProposals listens to the beacon chain head changes and checks new blocks and attestations.
-func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, beacon *beaconchain.BeaconChain, plainKeys []string, wg *sync.WaitGroup) {
+func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.BeaconChain, plainKeys []string, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	hashedKeys := make(map[string]interface{})
@@ -650,7 +637,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 
 		epoch := justifiedEpoch
 		Measure(func() {
-			epochCommittees, err = ListBeaconCommittees(ctx, s, spec.Epoch(epoch))
+			epochCommittees, err = ListBeaconCommittees(ctx, beacon, spec.Epoch(epoch))
 			Must(err)
 		}, "ListBeaconCommittees(epoch=%v)", epoch)
 		Measure(func() {
