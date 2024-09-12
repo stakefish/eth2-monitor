@@ -8,6 +8,7 @@ import (
 
 	eth2client "github.com/attestantio/go-eth2-client"
 	"github.com/attestantio/go-eth2-client/api"
+	apiv1 "github.com/attestantio/go-eth2-client/api/v1"
 	eth2http "github.com/attestantio/go-eth2-client/http"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/rs/zerolog/log"
@@ -67,4 +68,16 @@ func (beacon *BeaconChain) GetValidatorIndex(ctx context.Context, pubkey []byte)
 		return &i, nil
 	}
 	panic("unreachable")
+}
+
+func (beacon *BeaconChain) GetProposerDuties(ctx context.Context, epoch phase0.Epoch, indices []phase0.ValidatorIndex) ([]*apiv1.ProposerDuty, error) {
+	provider := beacon.service.(eth2client.ProposerDutiesProvider)
+	resp, err := provider.ProposerDuties(ctx, &api.ProposerDutiesOpts{
+		Epoch:   epoch,
+		Indices: indices,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return resp.Data, err
 }
