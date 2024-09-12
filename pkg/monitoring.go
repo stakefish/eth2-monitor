@@ -36,7 +36,7 @@ import (
 
 // IndexPubkeys transforms validator public keys into their indexes.
 // It returns direct and reversed mapping.
-func IndexPubkeys(ctx context.Context, s *prysmgrpc.Service, pubkeys []string) (map[string]spec.ValidatorIndex, map[spec.ValidatorIndex]string, error) {
+func IndexPubkeys(ctx context.Context, beacon *beaconchain.BeaconChain, pubkeys []string) (map[string]spec.ValidatorIndex, map[spec.ValidatorIndex]string, error) {
 	cache := LoadCache()
 
 	result := make(map[string]spec.ValidatorIndex)
@@ -61,16 +61,20 @@ func IndexPubkeys(ctx context.Context, s *prysmgrpc.Service, pubkeys []string) (
 		if err != nil {
 			return nil, nil, errors.Wrap(err, "call ValidatorIndexhex.DecodeString failed")
 		}
-		index, err := s.GetValidatorIndex(binPubKey)
+		validatorIndex, err := beacon.GetValidatorIndex(ctx, binPubKey) // TODO Better to make a one big call rather than calling GetValidatorIndex() in a loop
 		if err != nil {
-			// Cache and skip validators with pending indexes.
+			log.Err(err).Msgf("Could not retrieve validator index: %v", pubkey)
+			continue
+		}
+		if validatorIndex == nil {
+			log.Warn().Msgf("Validator not found: %v", pubkey)
 			cache.Validators[pubkey] = CachedIndex{
 				Index: ^spec.ValidatorIndex(0),
 				At:    time.Now(),
 			}
-			// Ignore pending indexes.
 			continue
 		}
+		index := *validatorIndex
 
 		result[pubkey] = index
 		reversed[index] = pubkey
@@ -87,7 +91,7 @@ func IndexPubkeys(ctx context.Context, s *prysmgrpc.Service, pubkeys []string) (
 	return result, reversed, nil
 }
 
-func processDeposits(ctx context.Context, s *prysmgrpc.Service, hashedKeys map[string]interface{}, deposits []*phase0.Deposit) (map[string]spec.ValidatorIndex, map[spec.ValidatorIndex]string, error) {
+func processDeposits(ctx context.Context, beacon *beaconchain.BeaconChain, hashedKeys map[string]interface{}, deposits []*phase0.Deposit) (map[string]spec.ValidatorIndex, map[spec.ValidatorIndex]string, error) {
 	var pubkeys []string
 
 	for _, deposit := range deposits {
@@ -104,7 +108,7 @@ func processDeposits(ctx context.Context, s *prysmgrpc.Service, hashedKeys map[s
 		pubkeys = append(pubkeys, pubkey)
 	}
 
-	return IndexPubkeys(ctx, s, pubkeys)
+	return IndexPubkeys(ctx, beacon, pubkeys)
 }
 
 // ListProposers returns block proposers scheduled for epoch.
@@ -417,7 +421,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 		pubkey = strings.ToLower(pubkey)
 		hashedKeys[pubkey] = nil
 	}
-	directIndexes, reversedIndexes, err := IndexPubkeys(ctx, s, plainKeys)
+	directIndexes, reversedIndexes, err := IndexPubkeys(ctx, beacon, plainKeys)
 	Must(err)
 
 	committees := make(map[spec.Slot]BeaconCommittees)
@@ -710,7 +714,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 
 		for _, slotBlocks := range blocks {
 			for _, chainBlock := range slotBlocks {
-				newDirectIndexes, newReversedIndexes, err := processDeposits(ctx, s, hashedKeys, chainBlock.Deposits)
+				newDirectIndexes, newReversedIndexes, err := processDeposits(ctx, beacon, hashedKeys, chainBlock.Deposits)
 				Must(err)
 				maps.Copy(directIndexes, newDirectIndexes)
 				maps.Copy(reversedIndexes, newReversedIndexes)

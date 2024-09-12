@@ -9,23 +9,6 @@ import (
 	ethpb "github.com/prysmaticlabs/prysm/v5/proto/prysm/v1alpha1"
 )
 
-func (s *Service) GetValidatorIndex(pubkey []byte) (spec.ValidatorIndex, error) {
-	conn := ethpb.NewBeaconNodeValidatorClient(s.conn)
-
-	req := &ethpb.ValidatorIndexRequest{
-		PublicKey: pubkey,
-	}
-
-	opCtx, cancel := context.WithTimeout(s.ctx, s.timeout)
-	resp, err := conn.ValidatorIndex(opCtx, req)
-	cancel()
-	if err != nil {
-		return ^spec.ValidatorIndex(0), err
-	}
-
-	return spec.ValidatorIndex(resp.Index), nil
-}
-
 func (s *Service) GetValidatorBalances(index spec.ValidatorIndex, epochs []spec.Epoch) (map[spec.Epoch]spec.Gwei, error) {
 	conn := ethpb.NewBeaconChainClient(s.Connection())
 	result := make(map[spec.Epoch]spec.Gwei)

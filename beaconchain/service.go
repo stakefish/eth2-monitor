@@ -2,10 +2,15 @@ package beaconchain
 
 import (
 	"context"
+	"encoding/hex"
+	"fmt"
 	"time"
 
 	eth2client "github.com/attestantio/go-eth2-client"
+	"github.com/attestantio/go-eth2-client/api"
 	eth2http "github.com/attestantio/go-eth2-client/http"
+	"github.com/attestantio/go-eth2-client/spec/phase0"
+	"github.com/rs/zerolog/log"
 )
 
 type BeaconChain struct {
@@ -34,4 +39,32 @@ func (beacon *BeaconChain) Service() eth2client.Service {
 
 func (beacon *BeaconChain) Timeout() time.Duration {
 	return beacon.timeout
+}
+
+func (beacon *BeaconChain) GetValidatorIndex(ctx context.Context, pubkey []byte) (*uint64, error) {
+	provider := beacon.service.(eth2client.ValidatorsProvider)
+	log.Info().Msgf("pubkey: %v", hex.EncodeToString(pubkey))
+	resp, err := provider.Validators(ctx, &api.ValidatorsOpts{
+		State:   "justified",
+		PubKeys: []phase0.BLSPubKey{phase0.BLSPubKey(pubkey)},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(resp.Data) == 0 {
+		return nil, nil
+	}
+	if len(resp.Data) > 1 {
+		panic(fmt.Sprintf("Expected at most 1 validator in Beacon API response, got %v", len(resp.Data)))
+	}
+	for index, validator := range resp.Data {
+		expected := fmt.Sprintf("0x%s", hex.EncodeToString(pubkey))
+		got := validator.Validator.PublicKey.String()
+		if got != expected {
+			panic(fmt.Sprintf("Expected validator key %v in Beacon API response got %v", expected, got))
+		}
+		i := uint64(index)
+		return &i, nil
+	}
+	panic("unreachable")
 }
