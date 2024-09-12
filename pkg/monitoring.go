@@ -113,9 +113,9 @@ func processDeposits(ctx context.Context, beacon *beaconchain.BeaconChain, hashe
 
 // ListProposers returns block proposers scheduled for epoch.
 // To improve performance, it has to narrow the set of validators for which it checks duties.
-func ListProposers(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch, validators map[string]spec.ValidatorIndex, epochCommittees map[spec.Slot]BeaconCommittees) (map[spec.Slot]spec.ValidatorIndex, error) {
+func ListProposers(ctx context.Context, beacon *beaconchain.BeaconChain, epoch phase0.Epoch, validators map[string]spec.ValidatorIndex, epochCommittees map[spec.Slot]BeaconCommittees) (map[spec.Slot]spec.ValidatorIndex, error) {
 	// Filter out non-activated validator indexes and use only active ones.
-	var indexes []primitives.ValidatorIndex
+	var indexes []phase0.ValidatorIndex
 	activeIndexes := make(map[spec.ValidatorIndex]interface{})
 	for _, committees := range epochCommittees {
 		for _, indexes := range committees {
@@ -126,43 +126,24 @@ func ListProposers(ctx context.Context, s *prysmgrpc.Service, epoch spec.Epoch, 
 	}
 	for _, index := range validators {
 		if _, ok := activeIndexes[index]; ok {
-			indexes = append(indexes, primitives.ValidatorIndex(index))
+			indexes = append(indexes, phase0.ValidatorIndex(index))
 		}
 	}
 
-	// Make ListValidatorAssignments RPC calls to iterate through assignments and aggregate
-	// block proposers into result map.
 	chunkSize := 250
 	result := make(map[spec.Slot]spec.ValidatorIndex)
-	conn := ethpb.NewBeaconChainClient(s.Connection())
 	for i := 0; i < len(indexes); i += chunkSize {
 		end := i + chunkSize
 		if end > len(indexes) {
 			end = len(indexes)
 		}
-		req := &ethpb.ListValidatorAssignmentsRequest{
-			QueryFilter: &ethpb.ListValidatorAssignmentsRequest_Epoch{Epoch: primitives.Epoch(epoch)},
-			Indices:     indexes[i:end],
+		proposerDuties, err := beacon.GetProposerDuties(ctx, epoch, indexes[i:end])
+		if err != nil {
+			return nil, err
 		}
 
-		for {
-			opCtx, cancel := context.WithTimeout(ctx, s.Timeout())
-			resp, err := conn.ListValidatorAssignments(opCtx, req)
-			cancel()
-			if err != nil {
-				return nil, errors.Wrap(err, "rpc call ListValidatorAssignments failed")
-			}
-
-			for _, assignment := range resp.Assignments {
-				for _, proposerSlot := range assignment.ProposerSlots {
-					result[spec.Slot(proposerSlot)] = spec.ValidatorIndex(assignment.ValidatorIndex)
-				}
-			}
-
-			req.PageToken = resp.NextPageToken
-			if req.PageToken == "" {
-				break
-			}
+		for _, duty := range proposerDuties {
+			result[spec.Slot(duty.Slot)] = spec.ValidatorIndex(duty.ValidatorIndex)
 		}
 	}
 
@@ -677,7 +658,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 			Must(err)
 		}, "ListBlocks(epoch=%v)", epoch)
 		Measure(func() {
-			proposals, err = ListProposers(ctx, s, spec.Epoch(epoch), directIndexes, epochCommittees)
+			proposals, err = ListProposers(ctx, beacon, phase0.Epoch(epoch), directIndexes, epochCommittees)
 			Must(err)
 		}, "ListProposers(epoch=%v)", epoch)
 
