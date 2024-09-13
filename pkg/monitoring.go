@@ -58,7 +58,7 @@ func IndexPubkeys(ctx context.Context, beacon *beaconchain.BeaconChain, pubkeys 
 		if err != nil {
 			return nil, nil, errors.Wrap(err, "call ValidatorIndexhex.DecodeString failed")
 		}
-		validatorIndex, err := beacon.GetValidatorIndex(ctx, binPubKey) // TODO Better to make a one big call rather than calling GetValidatorIndex() in a loop
+		validatorIndex, err := beacon.GetValidatorIndex(ctx, binPubKey) // TODO Better to make one big call rather than calling GetValidatorIndex() in a loop
 		if err != nil {
 			log.Err(err).Msgf("Could not retrieve validator index: %v", pubkey)
 			continue
@@ -844,6 +844,6 @@ func MonitorSlashings(ctx context.Context, beacon *beaconchain.BeaconChain, wg *
 			Must(err)
 		}, "ListBlocks(epoch=%v)", epoch)
 
-		ProcessSlashings(ctx, blocks)
+		ProcessSlashings(ctx, beacon, blocks)
 	}
 }
