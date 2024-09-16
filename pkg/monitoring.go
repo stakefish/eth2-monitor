@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -31,56 +32,54 @@ import (
 	"github.com/prometheus/client_golang/prometheus/push"
 )
 
+const VALIDATOR_INDEX_INVALID = ^spec.ValidatorIndex(0)
+
 // IndexPubkeys transforms validator public keys into their indexes.
 // It returns direct and reversed mapping.
-func IndexPubkeys(ctx context.Context, beacon *beaconchain.BeaconChain, pubkeys []string) (map[string]spec.ValidatorIndex, map[spec.ValidatorIndex]string, error) {
+func IndexPubkeys(ctx context.Context, beacon *beaconchain.BeaconChain, plainPubKeys []string) (map[string]phase0.ValidatorIndex, map[phase0.ValidatorIndex]string, error) {
+	normalized := make([]string, len(plainPubKeys))
+	for i, key := range plainPubKeys {
+		normalized[i] = beaconchain.NormalizedPublicKey(key)
+	}
+
+	result := make(map[string]phase0.ValidatorIndex)
+	reversed := make(map[phase0.ValidatorIndex]string)
+
+	// Resolve cached validators to indexes
 	cache := LoadCache()
-
-	result := make(map[string]spec.ValidatorIndex)
-	reversed := make(map[spec.ValidatorIndex]string)
-
-	for _, pubkey := range pubkeys {
-		pubkey := strings.TrimPrefix(pubkey, "0x")
-		pubkey = strings.ToLower(pubkey)
-
-		if cachedIndex, ok := cache.Validators[pubkey]; ok {
-			if cachedIndex.Index != ^spec.ValidatorIndex(0) {
-				result[pubkey] = cachedIndex.Index
-				reversed[cachedIndex.Index] = pubkey
-				continue
+	uncached := []string{}
+	for _, pubkey := range normalized {
+		if cachedIndex, ok := cache.Validators[pubkey]; ok && time.Until(cachedIndex.At) < 8*time.Hour {
+			if cachedIndex.Index != VALIDATOR_INDEX_INVALID {
+				result[pubkey] = phase0.ValidatorIndex(cachedIndex.Index)
+				reversed[phase0.ValidatorIndex(cachedIndex.Index)] = pubkey
 			}
-			if time.Until(cachedIndex.At) < 8*time.Hour {
-				continue
-			}
+		} else {
+			uncached = append(uncached, pubkey)
 		}
+	}
 
-		binPubKey, err := hex.DecodeString(pubkey)
+	// Resolve validators not in cache
+	for chunk := range slices.Chunk(uncached, 100) {
+		partial, err := beacon.GetValidatorIndexes(ctx, chunk)
 		if err != nil {
-			return nil, nil, errors.Wrap(err, "call ValidatorIndexhex.DecodeString failed")
+			return nil, nil, errors.Wrap(err, "Could not retrieve validator indexes")
 		}
-		validatorIndex, err := beacon.GetValidatorIndex(ctx, binPubKey) // TODO Better to make one big call rather than calling GetValidatorIndex() in a loop
-		if err != nil {
-			log.Err(err).Msgf("Could not retrieve validator index: %v", pubkey)
-			continue
-		}
-		if validatorIndex == nil {
-			log.Warn().Msgf("Validator not found: %v", pubkey)
-			cache.Validators[pubkey] = CachedIndex{
-				Index: ^spec.ValidatorIndex(0),
-				At:    time.Now(),
+		for _, pubkey := range chunk {
+			if index, ok := partial[pubkey]; ok {
+				result[pubkey] = index
+				reversed[index] = pubkey
+				cache.Validators[pubkey] = CachedIndex{
+					Index: uint64(index),
+					At:    time.Now(),
+				}
+			} else {
+				cache.Validators[pubkey] = CachedIndex{
+					Index: VALIDATOR_INDEX_INVALID,
+					At:    time.Now(),
+				}
 			}
-			continue
 		}
-		index := *validatorIndex
-
-		result[pubkey] = index
-		reversed[index] = pubkey
-		cache.Validators[pubkey] = CachedIndex{
-			Index: index,
-			At:    time.Now(),
-		}
-
-		log.Debug().Msgf("Retrieved index %v for pubkey %s", index, pubkey)
 	}
 
 	SaveCache(cache)
@@ -88,7 +87,7 @@ func IndexPubkeys(ctx context.Context, beacon *beaconchain.BeaconChain, pubkeys 
 	return result, reversed, nil
 }
 
-func processDeposits(ctx context.Context, beacon *beaconchain.BeaconChain, hashedKeys map[string]interface{}, deposits []*phase0.Deposit) (map[string]spec.ValidatorIndex, map[spec.ValidatorIndex]string, error) {
+func processDeposits(ctx context.Context, beacon *beaconchain.BeaconChain, hashedKeys map[string]interface{}, deposits []*phase0.Deposit) (map[string]phase0.ValidatorIndex, map[phase0.ValidatorIndex]string, error) {
 	var pubkeys []string
 
 	for _, deposit := range deposits {
@@ -110,14 +109,14 @@ func processDeposits(ctx context.Context, beacon *beaconchain.BeaconChain, hashe
 
 // ListProposers returns block proposers scheduled for epoch.
 // To improve performance, it has to narrow the set of validators for which it checks duties.
-func ListProposers(ctx context.Context, beacon *beaconchain.BeaconChain, epoch phase0.Epoch, validators map[string]spec.ValidatorIndex, epochCommittees map[spec.Slot]BeaconCommittees) (map[spec.Slot]spec.ValidatorIndex, error) {
+func ListProposers(ctx context.Context, beacon *beaconchain.BeaconChain, epoch phase0.Epoch, validators map[string]phase0.ValidatorIndex, epochCommittees map[spec.Slot]BeaconCommittees) (map[spec.Slot]phase0.ValidatorIndex, error) {
 	// Filter out non-activated validator indexes and use only active ones.
 	var indexes []phase0.ValidatorIndex
-	activeIndexes := make(map[spec.ValidatorIndex]interface{})
+	activeIndexes := make(map[phase0.ValidatorIndex]interface{})
 	for _, committees := range epochCommittees {
 		for _, indexes := range committees {
 			for _, index := range indexes {
-				activeIndexes[index] = nil
+				activeIndexes[phase0.ValidatorIndex(index)] = nil
 			}
 		}
 	}
@@ -128,7 +127,7 @@ func ListProposers(ctx context.Context, beacon *beaconchain.BeaconChain, epoch p
 	}
 
 	chunkSize := 250
-	result := make(map[spec.Slot]spec.ValidatorIndex)
+	result := make(map[spec.Slot]phase0.ValidatorIndex)
 	for i := 0; i < len(indexes); i += chunkSize {
 		end := i + chunkSize
 		if end > len(indexes) {
@@ -140,14 +139,14 @@ func ListProposers(ctx context.Context, beacon *beaconchain.BeaconChain, epoch p
 		}
 
 		for _, duty := range proposerDuties {
-			result[spec.Slot(duty.Slot)] = spec.ValidatorIndex(duty.ValidatorIndex)
+			result[spec.Slot(duty.Slot)] = phase0.ValidatorIndex(duty.ValidatorIndex)
 		}
 	}
 
 	return result, nil
 }
 
-type BeaconCommittees map[spec.CommitteeIndex][]spec.ValidatorIndex
+type BeaconCommittees map[spec.CommitteeIndex][]phase0.ValidatorIndex
 
 // ListBeaconCommittees lists committees for a specific epoch.
 func ListBeaconCommittees(ctx context.Context, beacon *beaconchain.BeaconChain, epoch spec.Epoch) (map[spec.Slot]BeaconCommittees, error) {
@@ -163,9 +162,9 @@ func ListBeaconCommittees(ctx context.Context, beacon *beaconchain.BeaconChain, 
 		if _, ok := result[slot]; !ok {
 			result[slot] = make(BeaconCommittees)
 		}
-		var indexes []spec.ValidatorIndex
+		var indexes []phase0.ValidatorIndex
 		for _, index := range committee.Validators {
-			indexes = append(indexes, spec.ValidatorIndex(index))
+			indexes = append(indexes, phase0.ValidatorIndex(index))
 		}
 		result[slot][spec.CommitteeIndex(committee.Index)] = indexes
 	}
@@ -176,7 +175,7 @@ func ListBeaconCommittees(ctx context.Context, beacon *beaconchain.BeaconChain, 
 type ChainBlock struct {
 	IsCanonical       bool
 	Slot              spec.Slot
-	ProposerIndex     spec.ValidatorIndex
+	ProposerIndex     phase0.ValidatorIndex
 	ChainAttestations []*ChainAttestation
 
 	BlockContainer    *eth2spec.VersionedSignedBeaconBlock
@@ -229,7 +228,7 @@ func ListBlocks(ctx context.Context, beacon *beaconchain.BeaconChain, epoch spec
 			continue
 		}
 
-		proposerIndex := spec.ValidatorIndex(resp.Data.Header.Message.ProposerIndex)
+		proposerIndex := phase0.ValidatorIndex(resp.Data.Header.Message.ProposerIndex)
 
 		signedBeaconBlock, err := blockProvider.SignedBeaconBlock(ctx, &api.SignedBeaconBlockOpts{
 			Block: strconv.FormatUint(uint64(resp.Data.Header.Message.Slot), 10),
@@ -385,9 +384,8 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 
 	hashedKeys := make(map[string]interface{})
 	for _, pubkey := range plainKeys {
-		pubkey := strings.TrimPrefix(pubkey, "0x")
-		pubkey = strings.ToLower(pubkey)
-		hashedKeys[pubkey] = nil
+		normalized := beaconchain.NormalizedPublicKey(pubkey)
+		hashedKeys[normalized] = nil
 	}
 	directIndexes, reversedIndexes, err := IndexPubkeys(ctx, beacon, plainKeys)
 	Must(err)
@@ -395,8 +393,8 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 	committees := make(map[spec.Slot]BeaconCommittees)
 	blocks := make(map[spec.Slot][]*ChainBlock)
 
-	includedAttestations := make(map[spec.Epoch]map[spec.ValidatorIndex]*ChainAttestation)
-	attestedEpoches := make(map[spec.Epoch]map[spec.ValidatorIndex]*AttestationLoggingStatus)
+	includedAttestations := make(map[spec.Epoch]map[phase0.ValidatorIndex]*ChainAttestation)
+	attestedEpoches := make(map[spec.Epoch]map[phase0.ValidatorIndex]*AttestationLoggingStatus)
 
 	epochGauge := prometheus.NewGauge(
 		prometheus.GaugeOpts{
@@ -633,7 +631,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 		var err error
 		var epochCommittees map[spec.Slot]BeaconCommittees
 		var epochBlocks map[spec.Slot][]*ChainBlock
-		var proposals map[spec.Slot]spec.ValidatorIndex
+		var proposals map[spec.Slot]phase0.ValidatorIndex
 
 		epoch := justifiedEpoch
 		Measure(func() {
@@ -660,12 +658,12 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 		for slot, slotCommittees := range epochCommittees {
 			var epoch spec.Epoch = slot / spec.SLOTS_PER_EPOCH
 			if _, ok := attestedEpoches[epoch]; !ok {
-				attestedEpoches[epoch] = make(map[spec.ValidatorIndex]*AttestationLoggingStatus)
+				attestedEpoches[epoch] = make(map[phase0.ValidatorIndex]*AttestationLoggingStatus)
 			}
 
 			for _, committee := range slotCommittees {
 				for _, index := range committee {
-					if _, ok := reversedIndexes[index]; ok {
+					if _, ok := reversedIndexes[phase0.ValidatorIndex(index)]; ok {
 						attestingValidatorsCount++
 					}
 
@@ -699,7 +697,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 					committee := committees[attestation.Slot][attestation.CommitteeIndex]
 					for i, index := range committee {
 						if _, ok := includedAttestations[epoch]; !ok {
-							includedAttestations[epoch] = make(map[spec.ValidatorIndex]*ChainAttestation)
+							includedAttestations[epoch] = make(map[phase0.ValidatorIndex]*ChainAttestation)
 						}
 						if bits.BitAt(uint64(i)) {
 							attestedEpoch := attestedEpoches[epoch][index]

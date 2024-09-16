@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 
 	eth2client "github.com/attestantio/go-eth2-client"
@@ -11,7 +12,6 @@ import (
 	apiv1 "github.com/attestantio/go-eth2-client/api/v1"
 	eth2http "github.com/attestantio/go-eth2-client/http"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
-	"github.com/rs/zerolog/log"
 )
 
 type BeaconChain struct {
@@ -38,36 +38,46 @@ func (beacon *BeaconChain) Service() eth2client.Service {
 	return beacon.service
 }
 
-func (beacon *BeaconChain) Timeout() time.Duration {
-	return beacon.timeout
+func NormalizedPublicKey(pubkey string) string {
+	if !strings.HasPrefix(pubkey, "0x") {
+		panic(fmt.Sprintf("Public key did not have the expected 0x prefix: %v", pubkey))
+	}
+	pubkey = strings.TrimPrefix(pubkey, "0x")
+	pubkey = strings.ToLower(pubkey)
+	return pubkey
 }
 
-func (beacon *BeaconChain) GetValidatorIndex(ctx context.Context, pubkey []byte) (*uint64, error) {
+func (beacon *BeaconChain) GetValidatorIndexes(ctx context.Context, pubkeys []string) (map[string]phase0.ValidatorIndex, error) {
 	provider := beacon.service.(eth2client.ValidatorsProvider)
-	log.Info().Msgf("pubkey: %v", hex.EncodeToString(pubkey))
+
+	blspubkeys := make([]phase0.BLSPubKey, len(pubkeys))
+	for i, strkey := range pubkeys {
+		binkey, err := hex.DecodeString(strkey)
+		if err != nil {
+			return nil, err
+		}
+		blspubkeys[i] = phase0.BLSPubKey(binkey)
+	}
+
 	resp, err := provider.Validators(ctx, &api.ValidatorsOpts{
 		State:   "justified",
-		PubKeys: []phase0.BLSPubKey{phase0.BLSPubKey(pubkey)},
+		PubKeys: blspubkeys,
 	})
 	if err != nil {
 		return nil, err
 	}
-	if len(resp.Data) == 0 {
-		return nil, nil
+	if len(resp.Data) > len(pubkeys) {
+		panic(fmt.Sprintf("Expected at most %v validator in Beacon API response, got %v", len(pubkeys), len(resp.Data)))
 	}
-	if len(resp.Data) > 1 {
-		panic(fmt.Sprintf("Expected at most 1 validator in Beacon API response, got %v", len(resp.Data)))
-	}
+
+	result := map[string]phase0.ValidatorIndex{}
 	for index, validator := range resp.Data {
-		expected := fmt.Sprintf("0x%s", hex.EncodeToString(pubkey))
-		got := validator.Validator.PublicKey.String()
-		if got != expected {
-			panic(fmt.Sprintf("Expected validator key %v in Beacon API response got %v", expected, got))
-		}
-		i := uint64(index)
-		return &i, nil
+		// Includes the leading 0x
+		key := validator.Validator.PublicKey.String()
+		key = NormalizedPublicKey(key)
+		result[key] = index
 	}
-	panic("unreachable")
+	return result, nil
 }
 
 func (beacon *BeaconChain) GetProposerDuties(ctx context.Context, epoch phase0.Epoch, indices []phase0.ValidatorIndex) ([]*apiv1.ProposerDuty, error) {

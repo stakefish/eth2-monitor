@@ -12,6 +12,7 @@ import (
 	"eth2-monitor/pkg"
 
 	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 
 	"net/http"
@@ -60,6 +61,7 @@ var (
 
 			plainPubkeys, err := pkg.LoadKeys(args)
 			pkg.Must(err)
+			log.Info().Msgf("Validator keys loaded from file(s): %v", len(plainPubkeys))
 
 			var wg sync.WaitGroup
 			wg.Add(2)

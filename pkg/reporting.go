@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/dghubble/go-twitter/twitter"
 	"github.com/dghubble/oauth1"
 	"github.com/rs/zerolog/log"
@@ -57,7 +58,7 @@ func reportToSlack(message string) {
 	defer resp.Body.Close()
 }
 
-func TweetSlashing(reason string, slot spec.Slot, slasher spec.ValidatorIndex, slashee spec.ValidatorIndex) {
+func TweetSlashing(reason string, slot spec.Slot, slasher phase0.ValidatorIndex, slashee spec.ValidatorIndex) {
 	message := fmt.Sprintf(`📢🔪 Slashing Alert 🔪📢
 👁️ Validator %v
 🧐 %s

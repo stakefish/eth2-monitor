@@ -16,7 +16,7 @@ func ethFromGwei(gwei int64) float32 {
 	return float32(gwei) * float32(1e-9)
 }
 
-func ReportSlashing(ctx context.Context, beacon *beaconchain.BeaconChain, prefix string, reason string, slot spec.Slot, slasher spec.ValidatorIndex, slashee spec.ValidatorIndex) {
+func ReportSlashing(ctx context.Context, beacon *beaconchain.BeaconChain, prefix string, reason string, slot spec.Slot, slasher phase0.ValidatorIndex, slashee spec.ValidatorIndex) {
 	var epoch = slot / spec.SLOTS_PER_EPOCH
 	var balanceDiff *int64
 	var err error
