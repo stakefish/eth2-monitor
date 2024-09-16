@@ -1,8 +1,6 @@
 module eth2-monitor
 
-go 1.21
-
-toolchain go1.22.0
+go 1.23
 
 require (
 	github.com/attestantio/go-eth2-client v0.19.10
