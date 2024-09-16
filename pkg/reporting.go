@@ -19,7 +19,7 @@ import (
 func Report(format string, args ...interface{}) {
 	message := fmt.Sprintf(format, args...)
 
-	log.Warn().Msgf(message)
+	log.Warn().Msg(message)
 
 	reportToSlack(message)
 }
@@ -27,7 +27,7 @@ func Report(format string, args ...interface{}) {
 func Info(format string, args ...interface{}) {
 	message := fmt.Sprintf(format, args...)
 
-	log.Info().Msgf(message)
+	log.Info().Msg(message)
 
 	reportToSlack(message)
 }
