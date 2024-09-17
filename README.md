@@ -7,7 +7,6 @@ Eth2 Monitor serves a few purposes:
 
 * monitors the attestation inclusion distance,
 * monitors and alerts slashing events,
-* exports rewards history and other data (TBD).
 
 ## Installation ##
 
@@ -39,32 +38,8 @@ It's recommended to use the latest Go version.
 
 ## Install Prysm beacon node ##
 
-`eth2-monitor` uses Prysm's GRPC API in order to query the Beacon Chain.
-You can re-use your existing Prysm beacon node or set up another one.
-
-Here is an example of how you can sync a Prysm beacon node:
-
-``` shell
-docker run                                                                              \
-  -v "${HOME}/prysm":/data                                                              \
-  -p 0.0.0.0:4000:4000/tcp                                                              \
-  -p 0.0.0.0:13000:13000                                                                \
-  -p 0.0.0.0:12000:12000/udp                                                            \
-  --rm                                                                                  \
-  --name prysm                                                                          \
-  gcr.io/prysmaticlabs/prysm/beacon-chain:stable                                        \
-    --accept-terms-of-use                                                               \
-    --mainnet                                                                           \
-    --datadir /data                                                                     \
-    --http-web3provider https://mainnet.infura.io/v3/YOUR_TOKEN                         \
-    --rpc-host 0.0.0.0
-```
-
-If you want to export a large amount of data involving all validators, add `--grpc-max-msg-size 419430400 --rpc-max-page-size 100000` to achieve adequate performance.
-
-Note, GRPC uses port 4000/tcp by default.
-
-Use `--beacon-node` to work with a remote Prysm. By default, the monitor connects to `localhost:4000`.
+`eth2-monitor` relies on [Beacon Node API](https://ethereum.github.io/beacon-APIs/#/) to query the Beacon
+Chain.  You can re-use your existing Prysm beacon node or set up another one.
 
 ## Usage ##
 
@@ -84,6 +59,12 @@ eth2-monitor cmd keys.txt
 ```
 
 All public keys are hex-encoded and case-insensitive. On the first run, the monitor will convert the keys into indexes: it takes some time if you have many keys. On the second run, the indexes are loaded from a cache.
+
+Here's a more involved example invocation:
+
+```
+./bin/eth2-monitor monitor --beacon-chain-api <PRYSM_NODE_IP_ADDRESS>:3500 --print-successful --log-level trace <VALIDATOR_PUBLIC_KEYS_FILE_PATH>
+```
 
 Don't hesitate to run commands with `--help` to learn more about CLI. 😉
 
@@ -114,15 +95,3 @@ eth2-monitor slashings --slack-url https://hooks.slack.com/services/YOUR_TOKEN
 ```
 
 At stakefish, we use it for [our Twitter bot](https://twitter.com/Eth2SlashBot).
-
-### Export rewards history and other data (TBD) ###
-
-In case you want to see your rewards history, you can export it as a CSV file or into a PostgreSQL database.
-
-``` shell
-eth2-monitor export -o my-validators-rewards keys.txt
-```
-
-If no keys are specified, all validators will be exported.
-
-The format of the exported data is subject to modifications, and the schema may change in future releases.
