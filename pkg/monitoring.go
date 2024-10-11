@@ -303,7 +303,7 @@ func ListBlocks(ctx context.Context, beacon *beaconchain.BeaconChain, epoch spec
 // SubscribeToEpochs subscribes to changings of the beacon chain head.
 // Note, if --replay-epoch or --since-epoch options passed, SubscribeToEpochs will not
 // listen to real-time changes.
-func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg *sync.WaitGroup) {
+func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg *sync.WaitGroup, epochsChan chan spec.Epoch) {
 	defer wg.Done()
 
 	finalityProvider := beacon.Service().(eth2client.FinalityProvider)
@@ -379,7 +379,7 @@ func LoadKeys(pubkeysFiles []string) ([]string, error) {
 }
 
 // MonitorAttestationsAndProposals listens to the beacon chain head changes and checks new blocks and attestations.
-func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.BeaconChain, plainKeys []string, wg *sync.WaitGroup) {
+func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.BeaconChain, plainKeys []string, wg *sync.WaitGroup, epochsChan chan spec.Epoch) {
 	defer wg.Done()
 
 	hashedKeys := make(map[string]interface{})
@@ -827,7 +827,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 }
 
 // MonitorSlashings listens to the beacon chain head changes and checks for slashings.
-func MonitorSlashings(ctx context.Context, beacon *beaconchain.BeaconChain, wg *sync.WaitGroup) {
+func MonitorSlashings(ctx context.Context, beacon *beaconchain.BeaconChain, wg *sync.WaitGroup, epochsChan chan spec.Epoch) {
 	defer wg.Done()
 
 	for justifiedEpoch := range epochsChan {

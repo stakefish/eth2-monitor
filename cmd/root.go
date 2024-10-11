@@ -10,6 +10,7 @@ import (
 	"eth2-monitor/beaconchain"
 	"eth2-monitor/cmd/opts"
 	"eth2-monitor/pkg"
+	"eth2-monitor/spec"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -63,10 +64,12 @@ var (
 			pkg.Must(err)
 			log.Info().Msgf("Validator keys loaded from file(s): %v", len(plainPubkeys))
 
+			epochsChan := make(chan spec.Epoch)
+
 			var wg sync.WaitGroup
 			wg.Add(2)
-			go pkg.SubscribeToEpochs(ctx, beacon, &wg)
-			go pkg.MonitorAttestationsAndProposals(ctx, beacon, plainPubkeys, &wg)
+			go pkg.SubscribeToEpochs(ctx, beacon, &wg, epochsChan)
+			go pkg.MonitorAttestationsAndProposals(ctx, beacon, plainPubkeys, &wg, epochsChan)
 
 			//Create Prometheus Metrics Client
 			http.Handle("/metrics", promhttp.Handler())
@@ -88,10 +91,12 @@ var (
 			beacon, err := beaconchain.New(ctx, opts.BeaconChainAPI, time.Minute)
 			pkg.Must(err)
 
+			epochsChan := make(chan spec.Epoch)
+
 			var wg sync.WaitGroup
 			wg.Add(2)
-			go pkg.SubscribeToEpochs(ctx, beacon, &wg)
-			go pkg.MonitorSlashings(ctx, beacon, &wg)
+			go pkg.SubscribeToEpochs(ctx, beacon, &wg, epochsChan)
+			go pkg.MonitorSlashings(ctx, beacon, &wg, epochsChan)
 			defer wg.Wait()
 		},
 	}
