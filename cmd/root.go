@@ -76,7 +76,7 @@ var (
 			err = http.ListenAndServe(":"+opts.MetricsPort, nil)
 			pkg.Must(err)
 
-			defer wg.Wait()
+			defer wg.Wait() // XXX unreachable -- ListenAndServe() call above blocks
 		},
 	}
 
