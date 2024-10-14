@@ -26,6 +26,8 @@ func ReportSlashing(ctx context.Context, beacon *beaconchain.BeaconChain, prefix
 	if opts.Slashings.ShowSlashingReward {
 		rewardStr = "; reward is unknown"
 
+		// TODO There's a "rewards" endpoint in Beacon API now: https://ethereum.github.io/beacon-APIs/#/
+		// It should be more adequate here than computing the account balance manually
 		Measure(func() {
 			nextEpochSlot := (epoch + 1) * spec.SLOTS_PER_EPOCH
 			balanceDiff, err = beacon.GetValidatorBalanceDiff(ctx, phase0.ValidatorIndex(slasher), phase0.Slot(slot), phase0.Slot(nextEpochSlot))
