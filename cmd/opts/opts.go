@@ -15,6 +15,7 @@ var (
 		PrintSuccessful     bool
 		DistanceTolerance   uint64
 		UseAbsoluteDistance bool
+		MEVRelaysFilePath   string
 
 		Pubkeys []string
 	}
