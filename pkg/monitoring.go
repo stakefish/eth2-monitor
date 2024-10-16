@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"slices"
@@ -378,8 +379,24 @@ func LoadKeys(pubkeysFiles []string) ([]string, error) {
 	return plainKeys, nil
 }
 
+func LoadMEVRelays(mevRelaysFilePath string) ([]string, error) {
+	relays := []string{}
+
+	contents, err := os.ReadFile(mevRelaysFilePath)
+	if err != nil {
+		return nil, err
+	}
+
+	err = json.Unmarshal(contents, &relays)
+	if err != nil {
+		return nil, err
+	}
+
+	return relays, nil
+}
+
 // MonitorAttestationsAndProposals listens to the beacon chain head changes and checks new blocks and attestations.
-func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.BeaconChain, plainKeys []string, wg *sync.WaitGroup, epochsChan chan spec.Epoch) {
+func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.BeaconChain, plainKeys []string, mevRelays []string, wg *sync.WaitGroup, epochsChan chan spec.Epoch) {
 	defer wg.Done()
 
 	hashedKeys := make(map[string]interface{})
@@ -671,28 +688,15 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 			proposals, err = ListProposers(ctx, beacon, phase0.Epoch(epoch), directIndexes, epochCommittees)
 			Must(err)
 		}, "ListProposers(epoch=%v)", epoch)
-		Measure(func() {
-			// TODO Hard-coded relays list for Holesky
-			bestBids, err = ListBestBids(2*time.Second, []string{
-				// Holesky
-				// "https://0xafa4c6985aa049fb79dd37010438cfebeb0f2bd42b115b89dd678dab0670c1de38da0c4e9138c9290a398ecd9a0b3110@boost-relay-holesky.flashbots.net",
-				// "https://0xaa58208899c6105603b74396734a6263cc7d947f444f396a90f7b7d3e65d102aec7e5e5291b27e08d02c50a050825c2f@holesky.titanrelay.xyz",
-
-				// Mainnet
-				"https://0x8b5d2e73e2a3a55c6c87b8b6eb92e0149a125c852751db1422fa951e42a09b82c142c3ea98d0d9930b056a3bc9896b8f@bloxroute.max-profit.blxrbdn.com",
-				"https://0x98650451ba02064f7b000f5768cf0cf4d4e492317d82871bdc87ef841a0743f69f0f1eea11168503240ac35d101c9135@mainnet-relay.securerpc.com",
-				"https://0xa1559ace749633b997cb3fdacffb890aeebdb0f5a3b6aaa7eeeaf1a38af0a8fe88b9e4b1f61f236d2e64d95733327a62@relay.ultrasound.money",
-				"https://0xa15b52576bcbf1072f4a011c0f99f9fb6c66f3e1ff321f11f461d15e31b1cb359caa092c71bbded0bae5b5ea401aab7e@aestus.live",
-				"https://0xa7ab7a996c8584251c8f925da3170bdfd6ebc75d50f5ddc4050a6fdc77f2a3b5fce2cc750d0865e05d7228af97d69561@agnostic-relay.net",
-				"https://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@boost-relay.flashbots.net",
-				"https://0xb0b07cd0abef743db4260b0ed50619cf6ad4d82064cb4fbec9d3ec530f7c5e6793d9f286c4e082c0244ffb9f2658fe88@bloxroute.regulated.blxrbdn.com",
-				"https://0xb3ee7afcf27f1f1259ac1787876318c6584ee353097a50ed84f51a1f21a323b3736f271a895c7ce918c038e4265918be@relay.edennetwork.io",
-			}, epoch, reversedIndexes, proposals)
-			if err != nil {
-				log.Error().Stack().Err(err)
-				// Even if RequestEpochBidTraces() returned an error, there may still be valuable partial results in bidtraces, so process them!
-			}
-		}, "RequestEpochBidTraces(epoch=%v)", epoch)
+		if len(mevRelays) > 0 {
+			Measure(func() {
+				bestBids, err = ListBestBids(2*time.Second, mevRelays, epoch, reversedIndexes, proposals)
+				if err != nil {
+					log.Error().Stack().Err(err)
+					// Even if RequestEpochBidTraces() returned an error, there may still be valuable partial results in bidtraces, so process them!
+				}
+			}, "RequestEpochBidTraces(epoch=%v)", epoch)
+		}
 
 		for slot, v := range epochCommittees {
 			committees[slot] = v
@@ -856,43 +860,45 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 			}
 		}
 
-		if len(proposals) > 0 {
-			log.Info().Msgf("Number of MEV boosts is %v", len(bestBids))
-		}
-		for slot, validatorIndex := range proposals {
-			trace, ok := bestBids[slot]
-			if !ok {
-				totalVanillaBlocksCounter.Inc()
-				lastVanillaBlockSlotGauge.Set(float64(slot))
-				lastVanillaBlockValidatorGauge.Set(float64(validatorIndex))
-				log.Error().Msgf("❌ Missing bid trace for proposal slot %v, validator %v (%v)", slot, validatorIndex, reversedIndexes[validatorIndex])
-				continue
+		if len(mevRelays) > 0 {
+			if len(proposals) > 0 {
+				log.Info().Msgf("Number of MEV boosts is %v", len(bestBids))
 			}
-			slotBlocks, ok := blocks[slot]
-			if !ok {
-				// Missed proposal reported earlier.  Don't report again
-				continue
-			}
-			for _, slotBlock := range slotBlocks {
-				if slotBlock.ProposerIndex != validatorIndex {
+			for slot, validatorIndex := range proposals {
+				trace, ok := bestBids[slot]
+				if !ok {
+					totalVanillaBlocksCounter.Inc()
+					lastVanillaBlockSlotGauge.Set(float64(slot))
+					lastVanillaBlockValidatorGauge.Set(float64(validatorIndex))
+					log.Error().Msgf("❌ Missing bid trace for proposal slot %v, validator %v (%v)", slot, validatorIndex, reversedIndexes[validatorIndex])
 					continue
 				}
-				execution_block_hash, err := slotBlock.BlockContainer.ExecutionBlockHash()
-				if err != nil {
-					log.Error().Msgf("❌ Failed to obtain execution block hash at slot %v", slot)
+				slotBlocks, ok := blocks[slot]
+				if !ok {
+					// Missed proposal reported earlier.  Don't report again
 					continue
 				}
-				if execution_block_hash.String() == trace.BlockHash {
-					// Our validator proposed the best block -- all good
-					if opts.Monitor.PrintSuccessful {
-						Info("✅ 🧾 Validator %v (%v) proposed optimal MEV execution block %v at slot %v, epoch %v", validatorIndex, reversedIndexes[validatorIndex], trace.BlockHash, slot, epoch)
+				for _, slotBlock := range slotBlocks {
+					if slotBlock.ProposerIndex != validatorIndex {
+						continue
 					}
-					continue
+					execution_block_hash, err := slotBlock.BlockContainer.ExecutionBlockHash()
+					if err != nil {
+						log.Error().Msgf("❌ Failed to obtain execution block hash at slot %v", slot)
+						continue
+					}
+					if execution_block_hash.String() == trace.BlockHash {
+						// Our validator proposed the best block -- all good
+						if opts.Monitor.PrintSuccessful {
+							Info("✅ 🧾 Validator %v (%v) proposed optimal MEV execution block %v at slot %v, epoch %v", validatorIndex, reversedIndexes[validatorIndex], trace.BlockHash, slot, epoch)
+						}
+						continue
+					}
+					totalVanillaBlocksCounter.Inc()
+					lastVanillaBlockSlotGauge.Set(float64(slot))
+					lastVanillaBlockValidatorGauge.Set(float64(validatorIndex))
+					log.Error().Msgf("❌ Validator %v (%v) proposed a vanilla block %v at slot %v", validatorIndex, reversedIndexes[validatorIndex], execution_block_hash, slot)
 				}
-				totalVanillaBlocksCounter.Inc()
-				lastVanillaBlockSlotGauge.Set(float64(slot))
-				lastVanillaBlockValidatorGauge.Set(float64(validatorIndex))
-				log.Error().Msgf("❌ Validator %v (%v) proposed a vanilla block %v at slot %v", validatorIndex, reversedIndexes[validatorIndex], execution_block_hash, slot)
 			}
 		}
 
