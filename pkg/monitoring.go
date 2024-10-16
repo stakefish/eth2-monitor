@@ -690,7 +690,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 		}, "ListProposers(epoch=%v)", epoch)
 		if len(mevRelays) > 0 {
 			Measure(func() {
-				bestBids, err = ListBestBids(2*time.Second, mevRelays, epoch, reversedIndexes, proposals)
+				bestBids, err = ListBestBids(ctx, 4*time.Second, mevRelays, epoch, reversedIndexes, proposals)
 				if err != nil {
 					log.Error().Stack().Err(err)
 					// Even if RequestEpochBidTraces() returned an error, there may still be valuable partial results in bidtraces, so process them!

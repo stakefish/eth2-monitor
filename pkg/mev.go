@@ -1,9 +1,12 @@
 package pkg
 
 import (
+	"context"
 	"encoding/json"
 	"eth2-monitor/spec"
 	"fmt"
+	"iter"
+	"math/rand/v2"
 	"net/http"
 	"sync"
 	"time"
@@ -117,43 +120,55 @@ func requestRelayEpochBidTraces(timeout time.Duration, baseurl string, epoch spe
 	return bidtraces, nil
 }
 
-func withTimeout[T any](timeout time.Duration, f func() (T, error)) (*T, error) {
-	type retval struct {
-		val T
-		err error
-	}
-	c := make(chan retval, 1)
-	go func() {
-		val, err := f()
-		c <- retval{val, err}
-	}()
-	select {
-	case res := <-c:
-		return &res.val, res.err
-	case <-time.After(timeout):
-		return nil, fmt.Errorf("timeout")
+func exptBackoff(base time.Duration, maxExponent uint) iter.Seq[time.Duration] {
+	baseMillis := uint(base / time.Millisecond)
+	return func(yield func(time.Duration) bool) {
+		step := base
+		for {
+			for _ = range maxExponent + 1 {
+				jitter := time.Duration(rand.Uint()%baseMillis) * time.Millisecond
+				delay := step + jitter
+				if !yield(delay) {
+					return
+				}
+				step *= 2
+			}
+			step = base
+		}
 	}
 }
 
-func requestEpochBidTraces(timeout time.Duration, relays []string, epoch uint64) (map[string][]BidTrace, error) {
+func requestEpochBidTraces(ctx context.Context, timeout time.Duration, relays []string, epoch uint64) (map[string][]BidTrace, error) {
 	var mu sync.Mutex
 	result := make(map[string][]BidTrace)
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 
 	var g errgroup.Group
 	for _, baseurl := range relays {
 		g.Go(func() error {
-			traces, err := withTimeout(timeout, func() ([]BidTrace, error) {
-				return requestRelayEpochBidTraces(timeout, baseurl, epoch)
-			})
-			if err != nil {
-				return err
+			var traces []BidTrace
+			for delay := range exptBackoff(time.Duration(500)*time.Millisecond, 4) {
+				var err error
+				traces, err = requestRelayEpochBidTraces(timeout, baseurl, epoch)
+				if err == nil {
+					break
+				}
+				log.Error().Msgf("MEV relay request failed: %v", err)
+				select {
+				case <-ctx.Done():
+					return fmt.Errorf("timeout")
+				default:
+					time.Sleep(delay)
+				}
 			}
 			mu.Lock()
 			defer mu.Unlock()
 			if _, ok := result[baseurl]; ok {
 				log.Warn().Msgf("⚠️  Processing the same relay more than once.  Check for duplicates on the relays list")
 			}
-			result[baseurl] = *traces
+			result[baseurl] = traces
 			return nil
 		})
 	}
@@ -161,10 +176,10 @@ func requestEpochBidTraces(timeout time.Duration, relays []string, epoch uint64)
 	return result, g.Wait()
 }
 
-func ListBestBids(timeout time.Duration, relays []string, epoch uint64, validatorPubkeyFromIndex map[phase0.ValidatorIndex]string, proposals map[spec.Slot]phase0.ValidatorIndex) (map[spec.Slot]BidTrace, error) {
+func ListBestBids(ctx context.Context, timeout time.Duration, relays []string, epoch uint64, validatorPubkeyFromIndex map[phase0.ValidatorIndex]string, proposals map[spec.Slot]phase0.ValidatorIndex) (map[spec.Slot]BidTrace, error) {
 	bestBids := make(map[spec.Slot]BidTrace)
 
-	perRelayBidTraces, err := requestEpochBidTraces(timeout, relays, epoch)
+	perRelayBidTraces, err := requestEpochBidTraces(ctx, timeout, relays, epoch)
 
 	// Only keep bid traces whose proposer_pubkey matches any of the tracked validators
 	for _, traces := range perRelayBidTraces {
