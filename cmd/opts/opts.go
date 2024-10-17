@@ -2,6 +2,7 @@ package opts
 
 var (
 	LogLevel       string
+	BeaconNode     string
 	BeaconChainAPI string
 	MetricsPort    string
 	SlackURL       string
@@ -15,6 +16,7 @@ var (
 		PrintSuccessful     bool
 		DistanceTolerance   uint64
 		UseAbsoluteDistance bool
+		MEVRelaysFilePath   string
 
 		Pubkeys []string
 	}

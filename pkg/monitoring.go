@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"slices"
@@ -303,7 +304,7 @@ func ListBlocks(ctx context.Context, beacon *beaconchain.BeaconChain, epoch spec
 // SubscribeToEpochs subscribes to changings of the beacon chain head.
 // Note, if --replay-epoch or --since-epoch options passed, SubscribeToEpochs will not
 // listen to real-time changes.
-func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg *sync.WaitGroup) {
+func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg *sync.WaitGroup, epochsChan chan spec.Epoch) {
 	defer wg.Done()
 
 	finalityProvider := beacon.Service().(eth2client.FinalityProvider)
@@ -378,8 +379,24 @@ func LoadKeys(pubkeysFiles []string) ([]string, error) {
 	return plainKeys, nil
 }
 
+func LoadMEVRelays(mevRelaysFilePath string) ([]string, error) {
+	relays := []string{}
+
+	contents, err := os.ReadFile(mevRelaysFilePath)
+	if err != nil {
+		return nil, err
+	}
+
+	err = json.Unmarshal(contents, &relays)
+	if err != nil {
+		return nil, err
+	}
+
+	return relays, nil
+}
+
 // MonitorAttestationsAndProposals listens to the beacon chain head changes and checks new blocks and attestations.
-func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.BeaconChain, plainKeys []string, wg *sync.WaitGroup) {
+func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.BeaconChain, plainKeys []string, mevRelays []string, wg *sync.WaitGroup, epochsChan chan spec.Epoch) {
 	defer wg.Done()
 
 	hashedKeys := make(map[string]interface{})
@@ -535,6 +552,30 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 		})
 	prometheus.MustRegister(totalProposedEmptyBlocksCounter)
 
+	totalVanillaBlocksCounter := prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Namespace: "ETH2",
+			Name:      "totalVanillaBlocks",
+			Help:      "Proposed blocks not matching those built by MEV relays",
+		})
+	prometheus.MustRegister(totalVanillaBlocksCounter)
+
+	lastVanillaBlockSlotGauge := prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "ETH2",
+			Name:      "lastVanillaBlockSlot",
+			Help:      "Slot of the last proposed vanilla block",
+		})
+	prometheus.MustRegister(lastVanillaBlockSlotGauge)
+
+	lastVanillaBlockValidatorGauge := prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "ETH2",
+			Name:      "lastVanillaBlockValidator",
+			Help:      "Index of the last validator that proposed a vanilla block",
+		})
+	prometheus.MustRegister(lastVanillaBlockValidatorGauge)
+
 	totalCanonicalAttestationsCounter := prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Namespace: "ETH2",
@@ -632,6 +673,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 		var epochCommittees map[spec.Slot]BeaconCommittees
 		var epochBlocks map[spec.Slot][]*ChainBlock
 		var proposals map[spec.Slot]phase0.ValidatorIndex
+		var bestBids map[spec.Slot]BidTrace
 
 		epoch := justifiedEpoch
 		Measure(func() {
@@ -646,6 +688,15 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 			proposals, err = ListProposers(ctx, beacon, phase0.Epoch(epoch), directIndexes, epochCommittees)
 			Must(err)
 		}, "ListProposers(epoch=%v)", epoch)
+		if len(mevRelays) > 0 {
+			Measure(func() {
+				bestBids, err = ListBestBids(ctx, 4*time.Second, mevRelays, epoch, reversedIndexes, proposals)
+				if err != nil {
+					log.Error().Stack().Err(err)
+					// Even if RequestEpochBidTraces() returned an error, there may still be valuable partial results in bidtraces, so process them!
+				}
+			}, "RequestEpochBidTraces(epoch=%v)", epoch)
+		}
 
 		for slot, v := range epochCommittees {
 			committees[slot] = v
@@ -766,6 +817,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 			}
 		}
 
+		log.Info().Msgf("Number of epoch %v tracked proposals is %v", epoch, len(proposals))
 		for slot, validatorIndex := range proposals {
 			slotBlocks, ok := blocks[slot]
 			if !ok {
@@ -808,6 +860,48 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 			}
 		}
 
+		if len(mevRelays) > 0 {
+			if len(proposals) > 0 {
+				log.Info().Msgf("Number of MEV boosts is %v", len(bestBids))
+			}
+			for slot, validatorIndex := range proposals {
+				trace, ok := bestBids[slot]
+				if !ok {
+					totalVanillaBlocksCounter.Inc()
+					lastVanillaBlockSlotGauge.Set(float64(slot))
+					lastVanillaBlockValidatorGauge.Set(float64(validatorIndex))
+					log.Error().Msgf("❌ Missing bid trace for proposal slot %v, validator %v (%v)", slot, validatorIndex, reversedIndexes[validatorIndex])
+					continue
+				}
+				slotBlocks, ok := blocks[slot]
+				if !ok {
+					// Missed proposal reported earlier.  Don't report again
+					continue
+				}
+				for _, slotBlock := range slotBlocks {
+					if slotBlock.ProposerIndex != validatorIndex {
+						continue
+					}
+					execution_block_hash, err := slotBlock.BlockContainer.ExecutionBlockHash()
+					if err != nil {
+						log.Error().Msgf("❌ Failed to obtain execution block hash at slot %v", slot)
+						continue
+					}
+					if execution_block_hash.String() == trace.BlockHash {
+						// Our validator proposed the best block -- all good
+						if opts.Monitor.PrintSuccessful {
+							Info("✅ 🧾 Validator %v (%v) proposed optimal MEV execution block %v at slot %v, epoch %v", validatorIndex, reversedIndexes[validatorIndex], trace.BlockHash, slot, epoch)
+						}
+						continue
+					}
+					totalVanillaBlocksCounter.Inc()
+					lastVanillaBlockSlotGauge.Set(float64(slot))
+					lastVanillaBlockValidatorGauge.Set(float64(validatorIndex))
+					log.Error().Msgf("❌ Validator %v (%v) proposed a vanilla block %v at slot %v", validatorIndex, reversedIndexes[validatorIndex], execution_block_hash, slot)
+				}
+			}
+		}
+
 		if pusher != nil {
 			if err := pusher.Add(); err != nil {
 				log.Error().Msgf("❌ Could not push to Pushgateway: %v", err)
@@ -827,7 +921,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 }
 
 // MonitorSlashings listens to the beacon chain head changes and checks for slashings.
-func MonitorSlashings(ctx context.Context, beacon *beaconchain.BeaconChain, wg *sync.WaitGroup) {
+func MonitorSlashings(ctx context.Context, beacon *beaconchain.BeaconChain, wg *sync.WaitGroup, epochsChan chan spec.Epoch) {
 	defer wg.Done()
 
 	for justifiedEpoch := range epochsChan {

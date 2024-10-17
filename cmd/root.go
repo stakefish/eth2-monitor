@@ -10,6 +10,7 @@ import (
 	"eth2-monitor/beaconchain"
 	"eth2-monitor/cmd/opts"
 	"eth2-monitor/pkg"
+	"eth2-monitor/spec"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -61,19 +62,28 @@ var (
 
 			plainPubkeys, err := pkg.LoadKeys(args)
 			pkg.Must(err)
-			log.Info().Msgf("Validator keys loaded from file(s): %v", len(plainPubkeys))
+			log.Info().Msgf("Loaded validator keys: %v", len(plainPubkeys))
+
+			mevRelays := []string{}
+			if opts.Monitor.MEVRelaysFilePath != "" {
+				mevRelays, err = pkg.LoadMEVRelays(opts.Monitor.MEVRelaysFilePath)
+				pkg.Must(err)
+				log.Info().Msgf("Loaded MEV relays: %v", len(mevRelays))
+			}
+
+			epochsChan := make(chan spec.Epoch)
 
 			var wg sync.WaitGroup
 			wg.Add(2)
-			go pkg.SubscribeToEpochs(ctx, beacon, &wg)
-			go pkg.MonitorAttestationsAndProposals(ctx, beacon, plainPubkeys, &wg)
+			go pkg.SubscribeToEpochs(ctx, beacon, &wg, epochsChan)
+			go pkg.MonitorAttestationsAndProposals(ctx, beacon, plainPubkeys, mevRelays, &wg, epochsChan)
 
 			//Create Prometheus Metrics Client
 			http.Handle("/metrics", promhttp.Handler())
 			err = http.ListenAndServe(":"+opts.MetricsPort, nil)
 			pkg.Must(err)
 
-			defer wg.Wait()
+			defer wg.Wait() // XXX unreachable -- ListenAndServe() call above blocks
 		},
 	}
 
@@ -88,10 +98,12 @@ var (
 			beacon, err := beaconchain.New(ctx, opts.BeaconChainAPI, time.Minute)
 			pkg.Must(err)
 
+			epochsChan := make(chan spec.Epoch)
+
 			var wg sync.WaitGroup
 			wg.Add(2)
-			go pkg.SubscribeToEpochs(ctx, beacon, &wg)
-			go pkg.MonitorSlashings(ctx, beacon, &wg)
+			go pkg.SubscribeToEpochs(ctx, beacon, &wg, epochsChan)
+			go pkg.MonitorSlashings(ctx, beacon, &wg, epochsChan)
 			defer wg.Wait()
 		},
 	}
@@ -111,6 +123,7 @@ func Execute() error {
 
 func init() {
 	rootCmd.PersistentFlags().StringVarP(&opts.LogLevel, "log-level", "l", "info", "log level (error, warn, info, debug, trace)")
+	rootCmd.PersistentFlags().StringVar(&opts.BeaconNode, "beacon-node", "localhost:4000", "Prysm beacon node GRPC address")
 	rootCmd.PersistentFlags().StringVar(&opts.BeaconChainAPI, "beacon-chain-api", "localhost:3500", "Beacon Chain API HTTP address")
 	rootCmd.PersistentFlags().StringVar(&opts.MetricsPort, "metrics-port", "1337", "Metrics port to expose metrics for Prometheus")
 	rootCmd.PersistentFlags().StringVar(&opts.SlackURL, "slack-url", "", "Slack Webhook URL")
@@ -126,6 +139,7 @@ func init() {
 	monitorCmd.PersistentFlags().Uint64VarP(&opts.Monitor.DistanceTolerance, "distance-tolerance", "d", 2, "longest tolerated inclusion slot distance")
 	monitorCmd.PersistentFlags().BoolVar(&opts.Monitor.UseAbsoluteDistance, "use-absolute-distance", false, "use the absolute distance to compare against the tolerance")
 	monitorCmd.PersistentFlags().StringSliceVarP(&opts.Monitor.Pubkeys, "pubkey", "k", nil, "validator public key")
+	monitorCmd.PersistentFlags().StringVar(&opts.Monitor.MEVRelaysFilePath, "mev-relays", "", "file path containing a one-per-line list of MEV relays to use in monitoring vanilla blocks")
 	monitorCmd.PersistentFlags().Lookup("since-epoch").DefValue = "follows justified epoch"
 	monitorCmd.PersistentFlags().SortFlags = false
 	rootCmd.AddCommand(monitorCmd)
