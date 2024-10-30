@@ -88,7 +88,7 @@ func IndexPubkeys(ctx context.Context, beacon *beaconchain.BeaconChain, plainPub
 	return result, reversed, nil
 }
 
-func processDeposits(ctx context.Context, beacon *beaconchain.BeaconChain, hashedKeys map[string]interface{}, deposits []*phase0.Deposit) (map[string]phase0.ValidatorIndex, map[phase0.ValidatorIndex]string, error) {
+func processDeposits(ctx context.Context, beacon *beaconchain.BeaconChain, hashedKeys map[string]phase0.ValidatorIndex, deposits []*phase0.Deposit) (map[string]phase0.ValidatorIndex, map[phase0.ValidatorIndex]string, error) {
 	var pubkeys []string
 
 	for _, deposit := range deposits {
@@ -399,11 +399,6 @@ func LoadMEVRelays(mevRelaysFilePath string) ([]string, error) {
 func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.BeaconChain, plainKeys []string, mevRelays []string, wg *sync.WaitGroup, epochsChan chan spec.Epoch) {
 	defer wg.Done()
 
-	hashedKeys := make(map[string]interface{})
-	for _, pubkey := range plainKeys {
-		normalized := beaconchain.NormalizedPublicKey(pubkey)
-		hashedKeys[normalized] = nil
-	}
 	directIndexes, reversedIndexes, err := IndexPubkeys(ctx, beacon, plainKeys)
 	Must(err)
 
@@ -731,7 +726,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 
 		for _, slotBlocks := range blocks {
 			for _, chainBlock := range slotBlocks {
-				newDirectIndexes, newReversedIndexes, err := processDeposits(ctx, beacon, hashedKeys, chainBlock.Deposits)
+				newDirectIndexes, newReversedIndexes, err := processDeposits(ctx, beacon, directIndexes, chainBlock.Deposits)
 				Must(err)
 				maps.Copy(directIndexes, newDirectIndexes)
 				maps.Copy(reversedIndexes, newReversedIndexes)
