@@ -30,6 +30,8 @@ func LoadCache() *LocalCache {
 		Validators: make(map[string]CachedIndex),
 	}
 
+	log.Trace().Msgf("Validator Index Cache Path %v", cacheFilePath)
+
 	fd, err := os.Open(cacheFilePath)
 	if err != nil {
 		log.Debug().Err(err).Msg("LoadCache: os.Open failed; skip")
