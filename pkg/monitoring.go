@@ -286,7 +286,7 @@ func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg 
 	eventsHandlerFunc := func(event *v1.Event) {
 		headEvent := event.Data.(*v1.HeadEvent)
 		log.Trace().Msgf("New head slot %v block %v", headEvent.Slot, headEvent.Block.String())
-		thisEpoch := uint64(headEvent.Slot / spec.SLOTS_PER_EPOCH)
+		thisEpoch := spec.EpochFromSlot(uint64(headEvent.Slot))
 		if thisEpoch > lastEpoch {
 			log.Trace().Msgf("New epoch %v at slot %v", thisEpoch, headEvent.Slot)
 			epochsChan <- lastEpoch // send the epoch that has just ended
