@@ -98,7 +98,7 @@ func (beacon *BeaconChain) GetProposerDuties(ctx context.Context, epoch phase0.E
 func (beacon *BeaconChain) GetBeaconCommitees(ctx context.Context, epoch phase0.Epoch) ([]*apiv1.BeaconCommittee, error) {
 	provider := beacon.service.(eth2client.BeaconCommitteesProvider)
 	resp, err := provider.BeaconCommittees(ctx, &api.BeaconCommitteesOpts{
-		State: "justified",
+		State: fmt.Sprintf("%d", spec.EpochLowestSlot(uint64(epoch))),
 		Epoch: &epoch,
 	})
 	if err != nil {
