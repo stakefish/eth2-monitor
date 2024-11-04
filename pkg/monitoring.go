@@ -35,9 +35,9 @@ import (
 
 const VALIDATOR_INDEX_INVALID = ^spec.ValidatorIndex(0)
 
-// IndexPubkeys transforms validator public keys into their indexes.
+// ResolveValidatorKeys transforms validator public keys into their indexes.
 // It returns direct and reversed mapping.
-func IndexPubkeys(ctx context.Context, beacon *beaconchain.BeaconChain, plainPubKeys []string, epoch spec.Epoch) (map[string]phase0.ValidatorIndex, map[phase0.ValidatorIndex]string, error) {
+func ResolveValidatorKeys(ctx context.Context, beacon *beaconchain.BeaconChain, plainPubKeys []string, epoch spec.Epoch) (map[string]phase0.ValidatorIndex, map[phase0.ValidatorIndex]string, error) {
 	normalized := make([]string, len(plainPubKeys))
 	for i, key := range plainPubKeys {
 		normalized[i] = beaconchain.NormalizedPublicKey(key)
@@ -105,7 +105,7 @@ func processDeposits(ctx context.Context, beacon *beaconchain.BeaconChain, hashe
 		pubkeys = append(pubkeys, pubkey)
 	}
 
-	return IndexPubkeys(ctx, beacon, pubkeys, epoch)
+	return ResolveValidatorKeys(ctx, beacon, pubkeys, epoch)
 }
 
 // ListProposers returns block proposers scheduled for epoch.
