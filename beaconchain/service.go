@@ -3,6 +3,7 @@ package beaconchain
 import (
 	"context"
 	"encoding/hex"
+	"eth2-monitor/spec"
 	"fmt"
 	"strings"
 	"time"
@@ -47,7 +48,8 @@ func NormalizedPublicKey(pubkey string) string {
 	return pubkey
 }
 
-func (beacon *BeaconChain) GetValidatorIndexes(ctx context.Context, pubkeys []string) (map[string]phase0.ValidatorIndex, error) {
+// The result includes validators awaiting to be activated (i.e. in the activation queue) (!)
+func (beacon *BeaconChain) GetValidatorIndexes(ctx context.Context, pubkeys []string, epoch spec.Epoch) (map[string]phase0.ValidatorIndex, error) {
 	provider := beacon.service.(eth2client.ValidatorsProvider)
 
 	blspubkeys := make([]phase0.BLSPubKey, len(pubkeys))
@@ -60,7 +62,7 @@ func (beacon *BeaconChain) GetValidatorIndexes(ctx context.Context, pubkeys []st
 	}
 
 	resp, err := provider.Validators(ctx, &api.ValidatorsOpts{
-		State:   "justified",
+		State:   fmt.Sprintf("%d", spec.EpochLowestSlot(epoch)),
 		PubKeys: blspubkeys,
 	})
 	if err != nil {

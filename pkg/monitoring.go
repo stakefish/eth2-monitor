@@ -37,7 +37,7 @@ const VALIDATOR_INDEX_INVALID = ^spec.ValidatorIndex(0)
 
 // IndexPubkeys transforms validator public keys into their indexes.
 // It returns direct and reversed mapping.
-func IndexPubkeys(ctx context.Context, beacon *beaconchain.BeaconChain, plainPubKeys []string) (map[string]phase0.ValidatorIndex, map[phase0.ValidatorIndex]string, error) {
+func IndexPubkeys(ctx context.Context, beacon *beaconchain.BeaconChain, plainPubKeys []string, epoch spec.Epoch) (map[string]phase0.ValidatorIndex, map[phase0.ValidatorIndex]string, error) {
 	normalized := make([]string, len(plainPubKeys))
 	for i, key := range plainPubKeys {
 		normalized[i] = beaconchain.NormalizedPublicKey(key)
@@ -62,7 +62,7 @@ func IndexPubkeys(ctx context.Context, beacon *beaconchain.BeaconChain, plainPub
 
 	// Resolve validators not in cache
 	for chunk := range slices.Chunk(uncached, 100) {
-		partial, err := beacon.GetValidatorIndexes(ctx, chunk)
+		partial, err := beacon.GetValidatorIndexes(ctx, chunk, epoch)
 		if err != nil {
 			return nil, nil, errors.Wrap(err, "Could not retrieve validator indexes")
 		}
@@ -88,7 +88,7 @@ func IndexPubkeys(ctx context.Context, beacon *beaconchain.BeaconChain, plainPub
 	return result, reversed, nil
 }
 
-func processDeposits(ctx context.Context, beacon *beaconchain.BeaconChain, hashedKeys map[string]phase0.ValidatorIndex, deposits []*phase0.Deposit) (map[string]phase0.ValidatorIndex, map[phase0.ValidatorIndex]string, error) {
+func processDeposits(ctx context.Context, beacon *beaconchain.BeaconChain, hashedKeys map[string]phase0.ValidatorIndex, deposits []*phase0.Deposit, epoch spec.Epoch) (map[string]phase0.ValidatorIndex, map[phase0.ValidatorIndex]string, error) {
 	var pubkeys []string
 
 	for _, deposit := range deposits {
@@ -105,7 +105,7 @@ func processDeposits(ctx context.Context, beacon *beaconchain.BeaconChain, hashe
 		pubkeys = append(pubkeys, pubkey)
 	}
 
-	return IndexPubkeys(ctx, beacon, pubkeys)
+	return IndexPubkeys(ctx, beacon, pubkeys, epoch)
 }
 
 // ListProposers returns block proposers scheduled for epoch.
@@ -399,9 +399,6 @@ func LoadMEVRelays(mevRelaysFilePath string) ([]string, error) {
 func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.BeaconChain, plainKeys []string, mevRelays []string, wg *sync.WaitGroup, epochsChan chan spec.Epoch) {
 	defer wg.Done()
 
-	directIndexes, reversedIndexes, err := IndexPubkeys(ctx, beacon, plainKeys)
-	Must(err)
-
 	committees := make(map[spec.Slot]BeaconCommittees)
 	blocks := make(map[spec.Slot][]*ChainBlock)
 
@@ -671,6 +668,10 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 		var bestBids map[spec.Slot]BidTrace
 
 		epoch := justifiedEpoch
+
+		directIndexes, reversedIndexes, err := ResolveValidatorKeys(ctx, beacon, plainKeys, epoch)
+		Must(err)
+
 		Measure(func() {
 			epochCommittees, err = ListBeaconCommittees(ctx, beacon, spec.Epoch(epoch))
 			Must(err)
@@ -726,7 +727,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 
 		for _, slotBlocks := range blocks {
 			for _, chainBlock := range slotBlocks {
-				newDirectIndexes, newReversedIndexes, err := processDeposits(ctx, beacon, directIndexes, chainBlock.Deposits)
+				newDirectIndexes, newReversedIndexes, err := processDeposits(ctx, beacon, directIndexes, chainBlock.Deposits, epoch)
 				Must(err)
 				maps.Copy(directIndexes, newDirectIndexes)
 				maps.Copy(reversedIndexes, newReversedIndexes)
