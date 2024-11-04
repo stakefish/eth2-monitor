@@ -9,7 +9,6 @@ import (
 	"os"
 	"slices"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -27,7 +26,6 @@ import (
 	"github.com/pkg/errors"
 	bitfield "github.com/prysmaticlabs/go-bitfield"
 	"github.com/rs/zerolog/log"
-	"golang.org/x/exp/maps"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/push"
@@ -86,26 +84,6 @@ func ResolveValidatorKeys(ctx context.Context, beacon *beaconchain.BeaconChain, 
 	SaveCache(cache)
 
 	return result, reversed, nil
-}
-
-func processDeposits(ctx context.Context, beacon *beaconchain.BeaconChain, hashedKeys map[string]phase0.ValidatorIndex, deposits []*phase0.Deposit, epoch spec.Epoch) (map[string]phase0.ValidatorIndex, map[phase0.ValidatorIndex]string, error) {
-	var pubkeys []string
-
-	for _, deposit := range deposits {
-		binPubKey := deposit.Data.PublicKey
-		pubkey := hex.EncodeToString(binPubKey[:])
-		pubkey = strings.ToLower(pubkey)
-
-		if _, ok := hashedKeys[pubkey]; !ok {
-			continue
-		}
-
-		Info("Validator %v has been deposited", pubkey)
-
-		pubkeys = append(pubkeys, pubkey)
-	}
-
-	return ResolveValidatorKeys(ctx, beacon, pubkeys, epoch)
 }
 
 // ListProposers returns block proposers scheduled for epoch.
@@ -727,10 +705,6 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 
 		for _, slotBlocks := range blocks {
 			for _, chainBlock := range slotBlocks {
-				newDirectIndexes, newReversedIndexes, err := processDeposits(ctx, beacon, directIndexes, chainBlock.Deposits, epoch)
-				Must(err)
-				maps.Copy(directIndexes, newDirectIndexes)
-				maps.Copy(reversedIndexes, newReversedIndexes)
 				for _, attestation := range chainBlock.ChainAttestations {
 					isCanonical := chainBlock.IsCanonical
 					// Every included attestation contains aggregation bits, i.e. a list of validators
