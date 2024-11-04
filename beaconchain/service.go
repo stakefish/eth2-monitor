@@ -48,7 +48,6 @@ func NormalizedPublicKey(pubkey string) string {
 	return pubkey
 }
 
-// The result includes validators awaiting to be activated (i.e. in the activation queue) (!)
 func (beacon *BeaconChain) GetValidatorIndexes(ctx context.Context, pubkeys []string, epoch spec.Epoch) (map[string]phase0.ValidatorIndex, error) {
 	provider := beacon.service.(eth2client.ValidatorsProvider)
 
@@ -74,10 +73,12 @@ func (beacon *BeaconChain) GetValidatorIndexes(ctx context.Context, pubkeys []st
 
 	result := map[string]phase0.ValidatorIndex{}
 	for index, validator := range resp.Data {
-		// Includes the leading 0x
-		key := validator.Validator.PublicKey.String()
-		key = NormalizedPublicKey(key)
-		result[key] = index
+		if validator.Status == apiv1.ValidatorStateActiveOngoing || validator.Status == apiv1.ValidatorStateActiveExiting || validator.Status == apiv1.ValidatorStateActiveSlashed {
+			// Includes the leading 0x
+			key := validator.Validator.PublicKey.String()
+			key = NormalizedPublicKey(key)
+			result[key] = index
+		}
 	}
 	return result, nil
 }
