@@ -104,21 +104,19 @@ func ListProposers(ctx context.Context, beacon *beaconchain.BeaconChain, epoch p
 	return result, nil
 }
 
-type BeaconCommittees map[spec.CommitteeIndex][]phase0.ValidatorIndex
-
 // ListBeaconCommittees lists committees for a specific epoch.
-func ListBeaconCommittees(ctx context.Context, beacon *beaconchain.BeaconChain, epoch spec.Epoch) (map[spec.Slot]BeaconCommittees, error) {
+func ListBeaconCommittees(ctx context.Context, beacon *beaconchain.BeaconChain, epoch spec.Epoch) (map[spec.Slot]map[spec.CommitteeIndex][]phase0.ValidatorIndex, error) {
 	committees, err := beacon.GetBeaconCommitees(ctx, phase0.Epoch(epoch))
 	if err != nil {
 		return nil, err
 	}
 
-	result := make(map[spec.Slot]BeaconCommittees)
+	result := make(map[spec.Slot]map[spec.CommitteeIndex][]phase0.ValidatorIndex)
 
 	for _, committee := range committees {
 		slot := uint64(committee.Slot)
 		if _, ok := result[slot]; !ok {
-			result[slot] = make(BeaconCommittees)
+			result[slot] = make(map[spec.CommitteeIndex][]phase0.ValidatorIndex)
 		}
 		var indexes []phase0.ValidatorIndex
 		for _, index := range committee.Validators {
@@ -356,7 +354,7 @@ func LoadMEVRelays(mevRelaysFilePath string) ([]string, error) {
 func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.BeaconChain, plainKeys []string, mevRelays []string, wg *sync.WaitGroup, epochsChan chan spec.Epoch) {
 	defer wg.Done()
 
-	committees := make(map[spec.Slot]BeaconCommittees)
+	committees := make(map[spec.Slot]map[spec.CommitteeIndex][]phase0.ValidatorIndex)
 	blocks := make(map[spec.Slot][]*ChainBlock)
 
 	includedAttestations := make(map[spec.Epoch]map[phase0.ValidatorIndex]*ChainAttestation)
@@ -619,8 +617,9 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 		epochDelayedAttestationsOverToleranceGauge.Set(float64(0))
 
 		var err error
-		var epochCommittees map[spec.Slot]BeaconCommittees
+		var epochCommittees map[spec.Slot]map[spec.CommitteeIndex][]phase0.ValidatorIndex
 		var epochBlocks map[spec.Slot][]*ChainBlock
+		// var attesterDuties []*v1.AttesterDuty
 		var proposals map[spec.Slot]phase0.ValidatorIndex
 		var bestBids map[spec.Slot]BidTrace
 
