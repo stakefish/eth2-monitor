@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 	"strconv"
@@ -88,40 +89,18 @@ func ResolveValidatorKeys(ctx context.Context, beacon *beaconchain.BeaconChain, 
 
 // ListProposers returns block proposers scheduled for epoch.
 // To improve performance, it has to narrow the set of validators for which it checks duties.
-func ListProposers(ctx context.Context, beacon *beaconchain.BeaconChain, epoch phase0.Epoch, validators map[string]phase0.ValidatorIndex, epochCommittees map[spec.Slot]BeaconCommittees) (map[spec.Slot]phase0.ValidatorIndex, error) {
-	// Filter out non-activated validator indexes and use only active ones.
-	var indexes []phase0.ValidatorIndex
-	activeIndexes := make(map[phase0.ValidatorIndex]interface{})
-	for _, committees := range epochCommittees {
-		for _, indexes := range committees {
-			for _, index := range indexes {
-				activeIndexes[phase0.ValidatorIndex(index)] = nil
-			}
-		}
-	}
-	for _, index := range validators {
-		if _, ok := activeIndexes[index]; ok {
-			indexes = append(indexes, phase0.ValidatorIndex(index))
-		}
-	}
-
-	chunkSize := 250
+func ListProposers(ctx context.Context, beacon *beaconchain.BeaconChain, epoch phase0.Epoch, validators []phase0.ValidatorIndex) (map[spec.Slot]phase0.ValidatorIndex, error) {
 	result := make(map[spec.Slot]phase0.ValidatorIndex)
-	for i := 0; i < len(indexes); i += chunkSize {
-		end := i + chunkSize
-		if end > len(indexes) {
-			end = len(indexes)
-		}
-		proposerDuties, err := beacon.GetProposerDuties(ctx, epoch, indexes[i:end])
+	for chunk := range slices.Chunk(validators, 250) {
+		duties, err := beacon.GetProposerDuties(ctx, epoch, chunk)
 		if err != nil {
 			return nil, err
 		}
 
-		for _, duty := range proposerDuties {
+		for _, duty := range duties {
 			result[spec.Slot(duty.Slot)] = phase0.ValidatorIndex(duty.ValidatorIndex)
 		}
 	}
-
 	return result, nil
 }
 
@@ -647,7 +626,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 
 		epoch := justifiedEpoch
 
-		directIndexes, reversedIndexes, err := ResolveValidatorKeys(ctx, beacon, plainKeys, epoch)
+		_, reversedIndexes, err := ResolveValidatorKeys(ctx, beacon, plainKeys, epoch)
 		Must(err)
 
 		Measure(func() {
@@ -659,7 +638,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 			Must(err)
 		}, "ListBlocks(epoch=%v)", epoch)
 		Measure(func() {
-			proposals, err = ListProposers(ctx, beacon, phase0.Epoch(epoch), directIndexes, epochCommittees)
+			proposals, err = ListProposers(ctx, beacon, phase0.Epoch(epoch), slices.Collect(maps.Keys(reversedIndexes)))
 			Must(err)
 		}, "ListProposers(epoch=%v)", epoch)
 		if len(mevRelays) > 0 {
