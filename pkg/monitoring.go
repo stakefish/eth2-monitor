@@ -358,7 +358,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 	blocks := make(map[spec.Slot][]*ChainBlock)
 
 	includedAttestations := make(map[spec.Epoch]map[phase0.ValidatorIndex]*ChainAttestation)
-	attestedEpoches := make(map[spec.Epoch]map[phase0.ValidatorIndex]*AttestationLoggingStatus)
+	attestedEpochs := make(map[spec.Epoch]map[phase0.ValidatorIndex]*AttestationLoggingStatus)
 
 	epochGauge := prometheus.NewGauge(
 		prometheus.GaugeOpts{
@@ -660,8 +660,8 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 		attestingValidatorsCount := 0
 		for slot, slotCommittees := range epochCommittees {
 			var epoch spec.Epoch = slot / spec.SLOTS_PER_EPOCH
-			if _, ok := attestedEpoches[epoch]; !ok {
-				attestedEpoches[epoch] = make(map[phase0.ValidatorIndex]*AttestationLoggingStatus)
+			if _, ok := attestedEpochs[epoch]; !ok {
+				attestedEpochs[epoch] = make(map[phase0.ValidatorIndex]*AttestationLoggingStatus)
 			}
 
 			for _, committee := range slotCommittees {
@@ -670,8 +670,8 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 						attestingValidatorsCount++
 					}
 
-					if _, ok := attestedEpoches[epoch][index]; !ok {
-						attestedEpoches[epoch][index] = &AttestationLoggingStatus{
+					if _, ok := attestedEpochs[epoch][index]; !ok {
+						attestedEpochs[epoch][index] = &AttestationLoggingStatus{
 							Slot: slot,
 						}
 					}
@@ -699,12 +699,12 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 							includedAttestations[epoch] = make(map[phase0.ValidatorIndex]*ChainAttestation)
 						}
 						if bits.BitAt(uint64(i)) {
-							attestedEpoch := attestedEpoches[epoch][index]
+							attestedEpoch := attestedEpochs[epoch][index]
 							att := includedAttestations[epoch][index]
 							if att == nil || att.InclusionSlot > attestation.InclusionSlot || !attestedEpoch.IsCanonical {
 								includedAttestations[epoch][index] = attestation
-								attestedEpoches[epoch][index].IsAttested = true
-								attestedEpoches[epoch][index].IsCanonical = isCanonical
+								attestedEpochs[epoch][index].IsAttested = true
+								attestedEpochs[epoch][index].IsCanonical = isCanonical
 							}
 						}
 					}
@@ -714,7 +714,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 
 		// Find timed-out attestations and missed blocks. Then, report it.
 		var epochsToGarbage []spec.Epoch
-		for epoch, validators := range attestedEpoches {
+		for epoch, validators := range attestedEpochs {
 			if epoch <= justifiedEpoch-missedAttestationDistance {
 				epochsToGarbage = append(epochsToGarbage, epoch)
 			}
@@ -858,7 +858,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 
 		// Garbage collect unnessary epochs and blocks.
 		for _, epoch := range epochsToGarbage {
-			delete(attestedEpoches, epoch)
+			delete(attestedEpochs, epoch)
 			delete(includedAttestations, epoch)
 			for slot := epoch * spec.SLOTS_PER_EPOCH; slot < (epoch+1)*spec.SLOTS_PER_EPOCH; slot++ {
 				delete(blocks, slot)
