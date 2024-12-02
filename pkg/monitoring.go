@@ -19,9 +19,7 @@ import (
 	"github.com/attestantio/go-eth2-client/api"
 	v1 "github.com/attestantio/go-eth2-client/api/v1"
 	eth2spec "github.com/attestantio/go-eth2-client/spec"
-	"github.com/attestantio/go-eth2-client/spec/bellatrix"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
-	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
 
@@ -146,39 +144,6 @@ func ListAttesterDuties(ctx context.Context, beacon *beaconchain.BeaconChain, ep
 	return result, nil
 }
 
-type ChainBlock struct {
-	IsCanonical       bool
-	Slot              spec.Slot
-	ProposerIndex     phase0.ValidatorIndex
-	ChainAttestations []*ChainAttestation
-
-	BlockContainer    *eth2spec.VersionedSignedBeaconBlock
-	Attestations      []*phase0.Attestation
-	Deposits          []*phase0.Deposit
-	AttesterSlashings []*phase0.AttesterSlashing
-	ProposerSlashings []*phase0.ProposerSlashing
-	VoluntaryExits    []*phase0.SignedVoluntaryExit
-	Transactions      []types.Transaction
-}
-
-type ChainAttestation struct {
-	AggregationBits []byte
-	Slot            spec.Slot
-	InclusionSlot   spec.Slot
-	CommitteeIndex  spec.CommitteeIndex
-}
-
-func unmarshallTransactions(rlpEncodedTxs []bellatrix.Transaction) (txs []types.Transaction, err error) {
-	for _, rlpEncodedTx := range rlpEncodedTxs {
-		var tx types.Transaction
-		if err := tx.UnmarshalBinary(rlpEncodedTx); err != nil {
-			return nil, err
-		}
-		txs = append(txs, tx)
-	}
-	return txs, nil
-}
-
 func ListEpochBlocks(ctx context.Context, beacon *beaconchain.BeaconChain, epoch spec.Epoch) (map[spec.Slot]*eth2spec.VersionedSignedBeaconBlock, error) {
 	result := make(map[spec.Slot]*eth2spec.VersionedSignedBeaconBlock, spec.SLOTS_PER_EPOCH)
 	low := spec.EpochLowestSlot(epoch)
@@ -292,8 +257,6 @@ func LoadMEVRelays(mevRelaysFilePath string) ([]string, error) {
 func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.BeaconChain, plainKeys []string, mevRelays []string, wg *sync.WaitGroup, epochsChan chan spec.Epoch) {
 	defer wg.Done()
 
-	blocks := make(map[spec.Slot][]*ChainBlock)
-
 	epochGauge := prometheus.NewGauge(
 		prometheus.GaugeOpts{
 			Namespace: "ETH2",
@@ -319,14 +282,6 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 			Help:      "Canonical proposals in current justified epoch",
 		})
 	prometheus.MustRegister(epochCanonicalProposalsGauge)
-
-	epochOrphanedProposalsGauge := prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Namespace: "ETH2",
-			Name:      "epochOrphanedProposals",
-			Help:      "Orphaned proposals in current justified epoch",
-		})
-	prometheus.MustRegister(epochOrphanedProposalsGauge)
 
 	epochMissedAttestationsGauge := prometheus.NewGauge(
 		prometheus.GaugeOpts{
@@ -408,14 +363,6 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 			Help:      "Canonical proposals since monitoring started",
 		})
 	prometheus.MustRegister(totalCanonicalProposalsCounter)
-
-	totalOrphanedProposalsCounter := prometheus.NewCounter(
-		prometheus.CounterOpts{
-			Namespace: "ETH2",
-			Name:      "totalOrphanedProposals",
-			Help:      "Proposals orphaned since monitoring started",
-		})
-	prometheus.MustRegister(totalOrphanedProposalsCounter)
 
 	totalMissedAttestationsCounter := prometheus.NewCounter(
 		prometheus.CounterOpts{
@@ -519,10 +466,8 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 			// Proposals
 			epochMissedProposalsGauge,
 			epochCanonicalProposalsGauge,
-			epochOrphanedProposalsGauge,
 			totalMissedProposalsCounter,
 			totalCanonicalProposalsCounter,
-			totalOrphanedProposalsCounter,
 			lastMissedProposalSlotGauge,
 			lastMissedProposalValidatorIndexGauge,
 
@@ -544,7 +489,6 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 		// Reset all metrics for new epoch.
 		epochMissedProposalsGauge.Set(float64(0))
 		epochCanonicalProposalsGauge.Set(float64(0))
-		epochOrphanedProposalsGauge.Set(float64(0))
 		lastEpochMissedAttestationsGauge.Set(epochMissedAttestationsTracker)
 		epochMissedAttestationsTracker = 0
 		epochMissedAttestationsGauge.Set(float64(0))
@@ -624,10 +568,9 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 		// TODO Check what's left in unfulFilledAttesterDuties.  If it's older than missedAttestationDistance, increment missed attestation counters
 		fmt.Printf("unfulfilledAttesterDuties: %v\n", unfulfilledAttesterDuties)
 
-		// TODO Make proposals tracking use epochBlocks instead of blocks
 		log.Info().Msgf("Number of epoch %v tracked proposals is %v", epoch, len(proposals))
 		for slot, validatorIndex := range proposals {
-			slotBlocks, ok := blocks[slot]
+			block, ok := epochBlocks[slot]
 			if !ok {
 				Report("❌ 🧱 Validator %v missed proposal at slot %v",
 					validatorIndex, slot)
@@ -638,34 +581,28 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 				break
 			}
 
-			for _, slotBlock := range slotBlocks {
-				if len(slotBlock.Transactions) != 0 {
-					continue
-				}
-				if slotBlock.ProposerIndex == validatorIndex {
-					validatorPublicKey := reversedIndexes[validatorIndex]
-					Report("⚠️ 🧱 Validator %v (%v) proposed a block containing no transactions at epoch %v and slot %v", validatorPublicKey, validatorIndex, justifiedEpoch, slot)
-					lastProposedEmptyBlockSlotGauge.Set(float64(slot))
-					totalProposedEmptyBlocksCounter.Inc()
-				}
+			txns, err := block.ExecutionTransactions()
+			if err != nil {
+				log.Error().Msgf("Error obtaining execution layer transaction for block")
+				continue
+			}
+			if len(txns) != 0 {
+				continue
+			}
+			proposerIndex, err := block.ProposerIndex()
+			if err != nil {
+				log.Error().Msgf("Error obtaining proposer index for block")
+				continue
+			}
+			if proposerIndex == validatorIndex {
+				validatorPublicKey := reversedIndexes[validatorIndex]
+				Report("⚠️ 🧱 Validator %v (%v) proposed a block containing no transactions at epoch %v and slot %v", validatorPublicKey, validatorIndex, justifiedEpoch, slot)
+				lastProposedEmptyBlockSlotGauge.Set(float64(slot))
+				totalProposedEmptyBlocksCounter.Inc()
 			}
 
-			isCanonical := false
-			for _, slotBlock := range slotBlocks {
-				if slotBlock.ProposerIndex == validatorIndex && slotBlock.IsCanonical {
-					isCanonical = true
-					break
-				}
-			}
-			if isCanonical {
-				epochCanonicalProposalsGauge.Add(1)
-				totalCanonicalProposalsCounter.Inc()
-			} else {
-				Report("⚠️ 🧱 Validator %v has got block orphaned at epoch %v and slot %v",
-					validatorIndex, justifiedEpoch, slot)
-				epochOrphanedProposalsGauge.Add(1)
-				totalOrphanedProposalsCounter.Inc()
-			}
+			epochCanonicalProposalsGauge.Add(1)
+			totalCanonicalProposalsCounter.Inc()
 		}
 
 		if len(mevRelays) > 0 {
@@ -681,32 +618,35 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 					log.Error().Msgf("❌ Missing bid trace for proposal slot %v, validator %v (%v)", slot, validatorIndex, reversedIndexes[validatorIndex])
 					continue
 				}
-				slotBlocks, ok := blocks[slot]
+				block, ok := epochBlocks[slot]
 				if !ok {
 					// Missed proposal reported earlier.  Don't report again
 					continue
 				}
-				for _, slotBlock := range slotBlocks {
-					if slotBlock.ProposerIndex != validatorIndex {
-						continue
-					}
-					execution_block_hash, err := slotBlock.BlockContainer.ExecutionBlockHash()
-					if err != nil {
-						log.Error().Msgf("❌ Failed to obtain execution block hash at slot %v", slot)
-						continue
-					}
-					if execution_block_hash.String() == trace.BlockHash {
-						// Our validator proposed the best block -- all good
-						if opts.Monitor.PrintSuccessful {
-							Info("✅ 🧾 Validator %v (%v) proposed optimal MEV execution block %v at slot %v, epoch %v", validatorIndex, reversedIndexes[validatorIndex], trace.BlockHash, slot, epoch)
-						}
-						continue
-					}
-					totalVanillaBlocksCounter.Inc()
-					lastVanillaBlockSlotGauge.Set(float64(slot))
-					lastVanillaBlockValidatorGauge.Set(float64(validatorIndex))
-					log.Error().Msgf("❌ Validator %v (%v) proposed a vanilla block %v at slot %v", validatorIndex, reversedIndexes[validatorIndex], execution_block_hash, slot)
+				proposerIndex, err := block.ProposerIndex()
+				if err != nil {
+					log.Error().Msgf("Error obtaining proposer index for block")
+					continue
 				}
+				if proposerIndex != validatorIndex {
+					continue
+				}
+				execution_block_hash, err := block.ExecutionBlockHash()
+				if err != nil {
+					log.Error().Msgf("❌ Failed to obtain execution block hash at slot %v", slot)
+					continue
+				}
+				if execution_block_hash.String() == trace.BlockHash {
+					// Our validator proposed the best block -- all good
+					if opts.Monitor.PrintSuccessful {
+						Info("✅ 🧾 Validator %v (%v) proposed optimal MEV execution block %v at slot %v, epoch %v", validatorIndex, reversedIndexes[validatorIndex], trace.BlockHash, slot, epoch)
+					}
+					continue
+				}
+				totalVanillaBlocksCounter.Inc()
+				lastVanillaBlockSlotGauge.Set(float64(slot))
+				lastVanillaBlockValidatorGauge.Set(float64(validatorIndex))
+				log.Error().Msgf("❌ Validator %v (%v) proposed a vanilla block %v at slot %v", validatorIndex, reversedIndexes[validatorIndex], execution_block_hash, slot)
 			}
 		}
 
