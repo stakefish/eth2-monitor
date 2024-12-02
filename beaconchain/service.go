@@ -12,6 +12,7 @@ import (
 	"github.com/attestantio/go-eth2-client/api"
 	apiv1 "github.com/attestantio/go-eth2-client/api/v1"
 	eth2http "github.com/attestantio/go-eth2-client/http"
+	eth2spec "github.com/attestantio/go-eth2-client/spec"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 )
 
@@ -81,6 +82,46 @@ func (beacon *BeaconChain) GetValidatorIndexes(ctx context.Context, pubkeys []st
 		}
 	}
 	return result, nil
+}
+
+// Resolve slot number to a block
+func (beacon *BeaconChain) GetBlockHeader(ctx context.Context, slot phase0.Slot) (*apiv1.BeaconBlockHeader, error) {
+	provider := beacon.Service().(eth2client.BeaconBlockHeadersProvider)
+
+	resp, err := provider.BeaconBlockHeader(ctx, &api.BeaconBlockHeaderOpts{
+		Block: fmt.Sprintf("%v", slot),
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	if resp == nil {
+		// Missed slot
+		return nil, nil
+	}
+
+	return resp.Data, err
+}
+
+// Get block payload
+func (beacon *BeaconChain) GetBlock(ctx context.Context, slot phase0.Slot) (*eth2spec.VersionedSignedBeaconBlock, error) {
+	provider := beacon.Service().(eth2client.SignedBeaconBlockProvider)
+
+	resp, err := provider.SignedBeaconBlock(ctx, &api.SignedBeaconBlockOpts{
+		Block: fmt.Sprintf("%v", slot),
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	if resp == nil {
+		// Missed slot
+		return nil, nil
+	}
+
+	return resp.Data, err
 }
 
 func (beacon *BeaconChain) GetProposerDuties(ctx context.Context, epoch phase0.Epoch, indices []phase0.ValidatorIndex) ([]*apiv1.ProposerDuty, error) {
