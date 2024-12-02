@@ -27,6 +27,7 @@ import (
 	"github.com/pkg/errors"
 	bitfield "github.com/prysmaticlabs/go-bitfield"
 	"github.com/rs/zerolog/log"
+	orderedmap "github.com/wk8/go-ordered-map/v2"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/push"
@@ -615,6 +616,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 		pusher = push.New(opts.PushGatewayUrl, opts.PushGatewayJob).Gatherer(registry)
 	}
 
+	attesterDuties := orderedmap.New[phase0.Epoch, map[spec.Slot]Set[phase0.ValidatorIndex]]()
 	for justifiedEpoch := range epochsChan {
 		// On every chain head update we:
 		// * Retrieve new committees for the new epoch,
@@ -636,7 +638,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 		var err error
 		var epochCommittees map[spec.Slot]map[spec.CommitteeIndex][]phase0.ValidatorIndex
 		var epochBlocks map[spec.Slot][]*ChainBlock
-		var attesterDuties map[spec.Slot]Set[phase0.ValidatorIndex]
+		var epochAttesterDuties map[spec.Slot]Set[phase0.ValidatorIndex]
 		var proposals map[spec.Slot]phase0.ValidatorIndex
 		var bestBids map[spec.Slot]BidTrace
 
@@ -646,7 +648,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 		Must(err)
 
 		Measure(func() {
-			attesterDuties, err = ListAttesterDuties(ctx, beacon, phase0.Epoch(epoch), slices.Collect(maps.Keys(reversedIndexes)))
+			epochAttesterDuties, err = ListAttesterDuties(ctx, beacon, phase0.Epoch(epoch), slices.Collect(maps.Keys(reversedIndexes)))
 			Must(err)
 		}, "ListAttesterDuties(epoch=%v)", epoch)
 		Measure(func() {
@@ -671,7 +673,8 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 			}, "RequestEpochBidTraces(epoch=%v)", epoch)
 		}
 
-		fmt.Printf("attesterDuties: %v\n", attesterDuties)
+		attesterDuties.Set(phase0.Epoch(epoch), epochAttesterDuties)
+		fmt.Printf("attesterDuties: %v\n", epochAttesterDuties)
 
 		for slot, v := range epochCommittees {
 			committees[slot] = v
