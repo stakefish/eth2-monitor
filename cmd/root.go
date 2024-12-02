@@ -87,27 +87,6 @@ var (
 		},
 	}
 
-	slashingsCmd = &cobra.Command{
-		Use:   "slashings",
-		Short: "Monitor slashings",
-		Args:  cobra.NoArgs,
-		Run: func(cmd *cobra.Command, args []string) {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-
-			beacon, err := beaconchain.New(ctx, opts.BeaconChainAPI, time.Minute)
-			pkg.Must(err)
-
-			epochsChan := make(chan spec.Epoch)
-
-			var wg sync.WaitGroup
-			wg.Add(2)
-			go pkg.SubscribeToEpochs(ctx, beacon, &wg, epochsChan)
-			go pkg.MonitorSlashings(ctx, beacon, &wg, epochsChan)
-			defer wg.Wait()
-		},
-	}
-
 	version = ""
 )
 
@@ -143,14 +122,4 @@ func init() {
 	monitorCmd.PersistentFlags().Lookup("since-epoch").DefValue = "follows justified epoch"
 	monitorCmd.PersistentFlags().SortFlags = false
 	rootCmd.AddCommand(monitorCmd)
-
-	slashingsCmd.PersistentFlags().UintSliceVar(&opts.Monitor.ReplayEpoch, "replay-epoch", nil, "replay epoch for debug purposes")
-	slashingsCmd.PersistentFlags().Uint64Var(&opts.Monitor.SinceEpoch, "since-epoch", ^uint64(0), "replay epochs from the specified one")
-	slashingsCmd.PersistentFlags().BoolVar(&opts.Slashings.ShowSlashingReward, "show-reward", false, "replay epochs from the specified one")
-	slashingsCmd.PersistentFlags().StringVar(&opts.Slashings.TwitterConsumerKey, "twitter-consumer-key", "", "Twitter consumer key")
-	slashingsCmd.PersistentFlags().StringVar(&opts.Slashings.TwitterConsumerSecret, "twitter-consumer-secret", "", "Twitter consumer secret")
-	slashingsCmd.PersistentFlags().StringVar(&opts.Slashings.TwitterAccessToken, "twitter-access-token", "", "Twitter consumer key")
-	slashingsCmd.PersistentFlags().StringVar(&opts.Slashings.TwitterAccessSecret, "twitter-access-secret", "", "Twitter consumer secret")
-	slashingsCmd.PersistentFlags().SortFlags = false
-	rootCmd.AddCommand(slashingsCmd)
 }

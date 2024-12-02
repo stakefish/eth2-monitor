@@ -893,23 +893,3 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 		}
 	}
 }
-
-// MonitorSlashings listens to the beacon chain head changes and checks for slashings.
-func MonitorSlashings(ctx context.Context, beacon *beaconchain.BeaconChain, wg *sync.WaitGroup, epochsChan chan spec.Epoch) {
-	defer wg.Done()
-
-	for justifiedEpoch := range epochsChan {
-		log.Info().Msgf("New justified epoch %v", justifiedEpoch)
-
-		var err error
-		var blocks map[spec.Slot][]*ChainBlock
-
-		epoch := justifiedEpoch
-		Measure(func() {
-			blocks, err = ListBlocks(ctx, beacon, spec.Epoch(epoch))
-			Must(err)
-		}, "ListBlocks(epoch=%v)", epoch)
-
-		ProcessSlashings(ctx, beacon, blocks)
-	}
-}
