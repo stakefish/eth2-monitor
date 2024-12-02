@@ -95,6 +95,18 @@ func (beacon *BeaconChain) GetProposerDuties(ctx context.Context, epoch phase0.E
 	return resp.Data, err
 }
 
+func (beacon *BeaconChain) GetAttesterDuties(ctx context.Context, epoch phase0.Epoch, indices []phase0.ValidatorIndex) ([]*apiv1.AttesterDuty, error) {
+	provider := beacon.service.(eth2client.AttesterDutiesProvider)
+	resp, err := provider.AttesterDuties(ctx, &api.AttesterDutiesOpts{
+		Epoch:   epoch,
+		Indices: indices,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return resp.Data, err
+}
+
 func (beacon *BeaconChain) GetBeaconCommitees(ctx context.Context, epoch phase0.Epoch) ([]*apiv1.BeaconCommittee, error) {
 	provider := beacon.service.(eth2client.BeaconCommitteesProvider)
 	resp, err := provider.BeaconCommittees(ctx, &api.BeaconCommitteesOpts{

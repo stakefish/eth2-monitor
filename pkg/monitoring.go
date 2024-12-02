@@ -128,6 +128,23 @@ func ListBeaconCommittees(ctx context.Context, beacon *beaconchain.BeaconChain, 
 	return result, nil
 }
 
+func ListAttesterDuties(ctx context.Context, beacon *beaconchain.BeaconChain, epoch phase0.Epoch, validators []phase0.ValidatorIndex) (map[spec.Slot]Set[phase0.ValidatorIndex], error) {
+	duties, err := beacon.GetAttesterDuties(ctx, epoch, validators)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make(map[spec.Slot]Set[phase0.ValidatorIndex])
+	for _, duty := range duties {
+		slot := uint64(duty.Slot)
+		if _, ok := result[slot]; !ok {
+			result[slot] = NewSet[phase0.ValidatorIndex]()
+		}
+		result[slot].Add(duty.ValidatorIndex)
+	}
+	return result, nil
+}
+
 type ChainBlock struct {
 	IsCanonical       bool
 	Slot              spec.Slot
@@ -619,7 +636,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 		var err error
 		var epochCommittees map[spec.Slot]map[spec.CommitteeIndex][]phase0.ValidatorIndex
 		var epochBlocks map[spec.Slot][]*ChainBlock
-		// var attesterDuties []*v1.AttesterDuty
+		var attesterDuties map[spec.Slot]Set[phase0.ValidatorIndex]
 		var proposals map[spec.Slot]phase0.ValidatorIndex
 		var bestBids map[spec.Slot]BidTrace
 
@@ -628,6 +645,10 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 		_, reversedIndexes, err := ResolveValidatorKeys(ctx, beacon, plainKeys, epoch)
 		Must(err)
 
+		Measure(func() {
+			attesterDuties, err = ListAttesterDuties(ctx, beacon, phase0.Epoch(epoch), slices.Collect(maps.Keys(reversedIndexes)))
+			Must(err)
+		}, "ListAttesterDuties(epoch=%v)", epoch)
 		Measure(func() {
 			epochCommittees, err = ListBeaconCommittees(ctx, beacon, spec.Epoch(epoch))
 			Must(err)
@@ -649,6 +670,8 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 				}
 			}, "RequestEpochBidTraces(epoch=%v)", epoch)
 		}
+
+		fmt.Printf("attesterDuties: %v\n", attesterDuties)
 
 		for slot, v := range epochCommittees {
 			committees[slot] = v
