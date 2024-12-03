@@ -512,37 +512,41 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 		}
 
 		log.Info().Msgf("Epoch %v proposer duties: %v", epoch, proposerDuties)
-		for slot, validatorIndex := range proposerDuties {
-			block, ok := epochBlocks[slot]
+		for slot, block := range epochBlocks {
+			validatorIndex, ok := proposerDuties[slot]
 			if !ok {
-				Report("❌ 🧱 Validator %v missed proposal at slot %v", validatorIndex, slot)
-				totalMissedProposalsCounter.Inc()
-				lastMissedProposalSlotGauge.Set(float64(slot))
-				lastMissedProposalValidatorIndexGauge.Set(float64(validatorIndex))
-				break
-			}
-
-			txns, err := block.ExecutionTransactions()
-			if err != nil {
-				log.Error().Msgf("Error obtaining execution layer transaction for block")
-				continue
-			}
-			if len(txns) != 0 {
 				continue
 			}
 			proposerIndex, err := block.ProposerIndex()
 			if err != nil {
-				log.Error().Msgf("Error obtaining proposer index for block")
+				log.Error().Msgf("Unable to obtain proposer index for block")
 				continue
 			}
-			if proposerIndex == validatorIndex {
+			if proposerIndex != validatorIndex {
+				log.Error().Msgf("Block proposed by an unexpected validator")
+				continue
+			}
+
+			totalCanonicalProposalsCounter.Inc()
+			delete(proposerDuties, slot)
+
+			txns, err := block.ExecutionTransactions()
+			if err != nil {
+				log.Error().Msgf("Unable to obtain execution layer transactions for block")
+				continue
+			}
+			if len(txns) == 0 {
 				validatorPublicKey := validatorPubkeyFromIndex[validatorIndex]
 				Report("⚠️ 🧱 Validator %v (%v) proposed a block containing no transactions at epoch %v and slot %v", validatorPublicKey, validatorIndex, epoch, slot)
 				lastProposedEmptyBlockSlotGauge.Set(float64(slot))
 				totalProposedEmptyBlocksCounter.Inc()
 			}
-
-			totalCanonicalProposalsCounter.Inc()
+		}
+		for slot, validatorIndex := range proposerDuties {
+			Report("❌ 🧱 Validator %v missed proposal at slot %v", validatorIndex, slot)
+			totalMissedProposalsCounter.Inc()
+			lastMissedProposalSlotGauge.Set(float64(slot))
+			lastMissedProposalValidatorIndexGauge.Set(float64(validatorIndex))
 		}
 
 		if len(mevRelays) > 0 {
