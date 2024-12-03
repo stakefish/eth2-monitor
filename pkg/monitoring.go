@@ -471,7 +471,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 						continue
 					}
 
-					attestationDistance := blockSlot - phase0.Slot(attestedSlot) - 1
+					attestationDistance := blockSlot - phase0.Slot(attestedSlot)
 					// Take skipped slots into account
 					for s := attestedSlot; s < uint64(blockSlot); s++ {
 						if _, ok := epochBlocks[s]; !ok {
@@ -498,7 +498,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 		// land in 1-2 *slots* after the attested one.
 		missedAttestationEpoch := epoch - 1
 		missedAttestationSlotHigh := spec.EpochHighestSlot(missedAttestationEpoch)
-		log.Trace().Msgf("Unfulfilled attester duties: %v", unfulfilledAttesterDuties)
+		log.Info().Msgf("Unfulfilled attester duties: %v", unfulfilledAttesterDuties)
 		for _, slot := range slices.Sorted(maps.Keys(unfulfilledAttesterDuties)) {
 			if slot > missedAttestationSlotHigh {
 				break
@@ -511,7 +511,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 			delete(validatorFromIntraCommitteeValidator, slot)
 		}
 
-		log.Info().Msgf("Number of epoch %v tracked proposals is %v", epoch, len(proposerDuties))
+		log.Info().Msgf("Epoch %v proposer duties: %v", epoch, proposerDuties)
 		for slot, validatorIndex := range proposerDuties {
 			block, ok := epochBlocks[slot]
 			if !ok {
