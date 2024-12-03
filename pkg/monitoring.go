@@ -106,9 +106,9 @@ func ListCommittees(ctx context.Context, beacon *beaconchain.BeaconChain, epoch 
 	return result, nil
 }
 
-// ListProposers returns block proposers scheduled for epoch.
+// ListProposerDuties returns block proposers scheduled for epoch.
 // To improve performance, it has to narrow the set of validators for which it checks duties.
-func ListProposers(ctx context.Context, beacon *beaconchain.BeaconChain, epoch phase0.Epoch, validators []phase0.ValidatorIndex) (map[spec.Slot]phase0.ValidatorIndex, error) {
+func ListProposerDuties(ctx context.Context, beacon *beaconchain.BeaconChain, epoch phase0.Epoch, validators []phase0.ValidatorIndex) (map[spec.Slot]phase0.ValidatorIndex, error) {
 	result := make(map[spec.Slot]phase0.ValidatorIndex)
 	for chunk := range slices.Chunk(validators, 250) {
 		duties, err := beacon.GetProposerDuties(ctx, epoch, chunk)
@@ -388,20 +388,15 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 	unfulfilledAttesterDuties := make(map[spec.Slot]Set[phase0.ValidatorIndex])
 	validatorFromIntraCommitteeValidator := make(map[spec.Slot]map[phase0.CommitteeIndex]map[int]phase0.ValidatorIndex)
 	for epoch := range epochsChan {
-		// On every chain head update we:
-		// * Retrieve new committees for the new epoch,
-		// * Mark scheduled attestations as attested,
-		// * Check attestations if some of them too old.
-		log.Info().Msgf("New justified epoch %v", epoch)
+		log.Info().Msgf("New epoch %v", epoch)
 		epochGauge.Set(float64(epoch))
 
-		var err error
-		var epochBlocks map[spec.Slot]*eth2spec.VersionedSignedBeaconBlock
-		var proposals map[spec.Slot]phase0.ValidatorIndex
-		var bestBids map[spec.Slot]BidTrace
-
-		validatorPubkeyFromIndex, err := ResolveValidatorKeys(ctx, beacon, plainKeys, epoch)
-		Must(err)
+		var validatorPubkeyFromIndex map[phase0.ValidatorIndex]string
+		Measure(func() {
+			var err error
+			validatorPubkeyFromIndex, err = ResolveValidatorKeys(ctx, beacon, plainKeys, epoch)
+			Must(err)
+		}, "ResolveValidatorKeys(epoch=%v)", epoch)
 
 		Measure(func() {
 			epochCommittees, err := ListCommittees(ctx, beacon, spec.Epoch(epoch), NewSet(slices.Collect(maps.Keys(validatorPubkeyFromIndex))...))
@@ -417,20 +412,29 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 				unfulfilledAttesterDuties[slot] = attesters
 			}
 		}, "ListAttesterDuties(epoch=%v)", epoch)
+
+		var proposerDuties map[spec.Slot]phase0.ValidatorIndex
 		Measure(func() {
-			proposals, err = ListProposers(ctx, beacon, phase0.Epoch(epoch), slices.Collect(maps.Keys(validatorPubkeyFromIndex)))
+			var err error
+			proposerDuties, err = ListProposerDuties(ctx, beacon, phase0.Epoch(epoch), slices.Collect(maps.Keys(validatorPubkeyFromIndex)))
 			Must(err)
-		}, "ListProposers(epoch=%v)", epoch)
+		}, "ListProposerDuties(epoch=%v)", epoch)
+
+		var bestBids map[spec.Slot]BidTrace
 		if len(mevRelays) > 0 {
 			Measure(func() {
-				bestBids, err = ListBestBids(ctx, 4*time.Second, mevRelays, epoch, validatorPubkeyFromIndex, proposals)
+				var err error
+				bestBids, err = ListBestBids(ctx, 4*time.Second, mevRelays, epoch, validatorPubkeyFromIndex, proposerDuties)
 				if err != nil {
 					log.Error().Stack().Err(err)
 					// Even if RequestEpochBidTraces() returned an error, there may still be valuable partial results in bidtraces, so process them!
 				}
 			}, "ListBestBids(epoch=%v)", epoch)
 		}
+
+		var epochBlocks map[spec.Slot]*eth2spec.VersionedSignedBeaconBlock
 		Measure(func() {
+			var err error
 			epochBlocks, err = ListEpochBlocks(ctx, beacon, spec.Epoch(epoch))
 			Must(err)
 		}, "ListEpochBlocks(epoch=%v)", epoch)
@@ -494,6 +498,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 		// land in 1-2 *slots* after the attested one.
 		missedAttestationEpoch := epoch - 1
 		missedAttestationSlotHigh := spec.EpochHighestSlot(missedAttestationEpoch)
+		log.Trace().Msgf("Unfulfilled attester duties: %v", unfulfilledAttesterDuties)
 		for _, slot := range slices.Sorted(maps.Keys(unfulfilledAttesterDuties)) {
 			if slot > missedAttestationSlotHigh {
 				break
@@ -506,8 +511,8 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 			delete(validatorFromIntraCommitteeValidator, slot)
 		}
 
-		log.Info().Msgf("Number of epoch %v tracked proposals is %v", epoch, len(proposals))
-		for slot, validatorIndex := range proposals {
+		log.Info().Msgf("Number of epoch %v tracked proposals is %v", epoch, len(proposerDuties))
+		for slot, validatorIndex := range proposerDuties {
 			block, ok := epochBlocks[slot]
 			if !ok {
 				Report("❌ 🧱 Validator %v missed proposal at slot %v", validatorIndex, slot)
@@ -541,10 +546,10 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 		}
 
 		if len(mevRelays) > 0 {
-			if len(proposals) > 0 {
+			if len(proposerDuties) > 0 {
 				log.Info().Msgf("Number of MEV boosts is %v", len(bestBids))
 			}
-			for slot, validatorIndex := range proposals {
+			for slot, validatorIndex := range proposerDuties {
 				trace, ok := bestBids[slot]
 				if !ok {
 					totalVanillaBlocksCounter.Inc()
