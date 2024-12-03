@@ -30,14 +30,13 @@ const VALIDATOR_INDEX_INVALID = ^spec.ValidatorIndex(0)
 
 // ResolveValidatorKeys transforms validator public keys into their indexes.
 // It returns direct and reversed mapping.
-func ResolveValidatorKeys(ctx context.Context, beacon *beaconchain.BeaconChain, plainPubKeys []string, epoch spec.Epoch) (map[string]phase0.ValidatorIndex, map[phase0.ValidatorIndex]string, error) {
+func ResolveValidatorKeys(ctx context.Context, beacon *beaconchain.BeaconChain, plainPubKeys []string, epoch spec.Epoch) (map[phase0.ValidatorIndex]string, error) {
 	normalized := make([]string, len(plainPubKeys))
 	for i, key := range plainPubKeys {
 		normalized[i] = beaconchain.NormalizedPublicKey(key)
 	}
 
-	result := make(map[string]phase0.ValidatorIndex)
-	reversed := make(map[phase0.ValidatorIndex]string)
+	result := make(map[phase0.ValidatorIndex]string)
 
 	// Resolve cached validators to indexes
 	cache := LoadCache()
@@ -45,8 +44,7 @@ func ResolveValidatorKeys(ctx context.Context, beacon *beaconchain.BeaconChain, 
 	for _, pubkey := range normalized {
 		if cachedIndex, ok := cache.Validators[pubkey]; ok && time.Until(cachedIndex.At) < 8*time.Hour {
 			if cachedIndex.Index != VALIDATOR_INDEX_INVALID {
-				result[pubkey] = phase0.ValidatorIndex(cachedIndex.Index)
-				reversed[phase0.ValidatorIndex(cachedIndex.Index)] = pubkey
+				result[phase0.ValidatorIndex(cachedIndex.Index)] = pubkey
 			}
 		} else {
 			uncached = append(uncached, pubkey)
@@ -57,12 +55,11 @@ func ResolveValidatorKeys(ctx context.Context, beacon *beaconchain.BeaconChain, 
 	for chunk := range slices.Chunk(uncached, 100) {
 		partial, err := beacon.GetValidatorIndexes(ctx, chunk, epoch)
 		if err != nil {
-			return nil, nil, errors.Wrap(err, "Could not retrieve validator indexes")
+			return nil, errors.Wrap(err, "Could not retrieve validator indexes")
 		}
 		for _, pubkey := range chunk {
 			if index, ok := partial[pubkey]; ok {
-				result[pubkey] = index
-				reversed[index] = pubkey
+				result[index] = pubkey
 				cache.Validators[pubkey] = CachedIndex{
 					Index: uint64(index),
 					At:    time.Now(),
@@ -78,7 +75,7 @@ func ResolveValidatorKeys(ctx context.Context, beacon *beaconchain.BeaconChain, 
 
 	SaveCache(cache)
 
-	return result, reversed, nil
+	return result, nil
 }
 
 // Returns: per-slot mapping: validator index in the committee -> global validator index
@@ -403,30 +400,30 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 		var proposals map[spec.Slot]phase0.ValidatorIndex
 		var bestBids map[spec.Slot]BidTrace
 
-		_, reversedIndexes, err := ResolveValidatorKeys(ctx, beacon, plainKeys, epoch)
+		validatorPubkeyFromIndex, err := ResolveValidatorKeys(ctx, beacon, plainKeys, epoch)
 		Must(err)
 
 		Measure(func() {
-			epochCommittees, err := ListCommittees(ctx, beacon, spec.Epoch(epoch), NewSet(slices.Collect(maps.Keys(reversedIndexes))...))
+			epochCommittees, err := ListCommittees(ctx, beacon, spec.Epoch(epoch), NewSet(slices.Collect(maps.Keys(validatorPubkeyFromIndex))...))
 			Must(err)
 			for slot, slotGlobalFromIntra := range epochCommittees {
 				validatorFromIntraCommitteeValidator[slot] = slotGlobalFromIntra
 			}
 		}, "ListCommittees(epoch=%v)", epoch)
 		Measure(func() {
-			epochAttesterDuties, err := ListAttesterDuties(ctx, beacon, phase0.Epoch(epoch), slices.Collect(maps.Keys(reversedIndexes)))
+			epochAttesterDuties, err := ListAttesterDuties(ctx, beacon, phase0.Epoch(epoch), slices.Collect(maps.Keys(validatorPubkeyFromIndex)))
 			Must(err)
 			for slot, attesters := range epochAttesterDuties {
 				unfulfilledAttesterDuties[slot] = attesters
 			}
 		}, "ListAttesterDuties(epoch=%v)", epoch)
 		Measure(func() {
-			proposals, err = ListProposers(ctx, beacon, phase0.Epoch(epoch), slices.Collect(maps.Keys(reversedIndexes)))
+			proposals, err = ListProposers(ctx, beacon, phase0.Epoch(epoch), slices.Collect(maps.Keys(validatorPubkeyFromIndex)))
 			Must(err)
 		}, "ListProposers(epoch=%v)", epoch)
 		if len(mevRelays) > 0 {
 			Measure(func() {
-				bestBids, err = ListBestBids(ctx, 4*time.Second, mevRelays, epoch, reversedIndexes, proposals)
+				bestBids, err = ListBestBids(ctx, 4*time.Second, mevRelays, epoch, validatorPubkeyFromIndex, proposals)
 				if err != nil {
 					log.Error().Stack().Err(err)
 					// Even if RequestEpochBidTraces() returned an error, there may still be valuable partial results in bidtraces, so process them!
@@ -480,10 +477,10 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 
 					if attestationDistance > 2 {
 						Report("⚠️ 🧾 Validator %v (%v) attested slot %v at slot %v, epoch %v, attestation distance is %v",
-							validatorIndex, reversedIndexes[validatorIndex], attestedSlot, blockSlot, epoch, attestationDistance)
+							validatorIndex, validatorPubkeyFromIndex[validatorIndex], attestedSlot, blockSlot, epoch, attestationDistance)
 						totalDelayedAttestationsOverToleranceCounter.Inc()
 					} else if opts.Monitor.PrintSuccessful {
-						Info("✅ 🧾 Validator %v (%v) attested slot %v at slot %v, epoch %v", validatorIndex, reversedIndexes[validatorIndex], attestedSlot, blockSlot, epoch)
+						Info("✅ 🧾 Validator %v (%v) attested slot %v at slot %v, epoch %v", validatorIndex, validatorPubkeyFromIndex[validatorIndex], attestedSlot, blockSlot, epoch)
 					}
 
 					totalCanonicalAttestationsCounter.Inc()
@@ -502,7 +499,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 				break
 			}
 			for validatorIndex := range unfulfilledAttesterDuties[slot].Elems() {
-				Report("❌ 🧾 Validator %v (%v) did not attest slot %v (epoch %v)", validatorIndex, reversedIndexes[validatorIndex], slot, epoch)
+				Report("❌ 🧾 Validator %v (%v) did not attest slot %v (epoch %v)", validatorIndex, validatorPubkeyFromIndex[validatorIndex], slot, epoch)
 				totalMissedAttestationsCounter.Inc()
 			}
 			delete(unfulfilledAttesterDuties, slot)
@@ -534,7 +531,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 				continue
 			}
 			if proposerIndex == validatorIndex {
-				validatorPublicKey := reversedIndexes[validatorIndex]
+				validatorPublicKey := validatorPubkeyFromIndex[validatorIndex]
 				Report("⚠️ 🧱 Validator %v (%v) proposed a block containing no transactions at epoch %v and slot %v", validatorPublicKey, validatorIndex, epoch, slot)
 				lastProposedEmptyBlockSlotGauge.Set(float64(slot))
 				totalProposedEmptyBlocksCounter.Inc()
@@ -553,7 +550,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 					totalVanillaBlocksCounter.Inc()
 					lastVanillaBlockSlotGauge.Set(float64(slot))
 					lastVanillaBlockValidatorGauge.Set(float64(validatorIndex))
-					log.Error().Msgf("❌ Missing bid trace for proposal slot %v, validator %v (%v)", slot, validatorIndex, reversedIndexes[validatorIndex])
+					log.Error().Msgf("❌ Missing bid trace for proposal slot %v, validator %v (%v)", slot, validatorIndex, validatorPubkeyFromIndex[validatorIndex])
 					continue
 				}
 				block, ok := epochBlocks[slot]
@@ -577,14 +574,14 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 				if execution_block_hash.String() == trace.BlockHash {
 					// Our validator proposed the best block -- all good
 					if opts.Monitor.PrintSuccessful {
-						Info("✅ 🧾 Validator %v (%v) proposed optimal MEV execution block %v at slot %v, epoch %v", validatorIndex, reversedIndexes[validatorIndex], trace.BlockHash, slot, epoch)
+						Info("✅ 🧾 Validator %v (%v) proposed optimal MEV execution block %v at slot %v, epoch %v", validatorIndex, validatorPubkeyFromIndex[validatorIndex], trace.BlockHash, slot, epoch)
 					}
 					continue
 				}
 				totalVanillaBlocksCounter.Inc()
 				lastVanillaBlockSlotGauge.Set(float64(slot))
 				lastVanillaBlockValidatorGauge.Set(float64(validatorIndex))
-				log.Error().Msgf("❌ Validator %v (%v) proposed a vanilla block %v at slot %v", validatorIndex, reversedIndexes[validatorIndex], execution_block_hash, slot)
+				log.Error().Msgf("❌ Validator %v (%v) proposed a vanilla block %v at slot %v", validatorIndex, validatorPubkeyFromIndex[validatorIndex], execution_block_hash, slot)
 			}
 		}
 
