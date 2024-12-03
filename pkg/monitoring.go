@@ -413,10 +413,10 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 			}
 		}, "ListAttesterDuties(epoch=%v)", epoch)
 
-		var proposerDuties map[spec.Slot]phase0.ValidatorIndex
+		var unfulfilledProposerDuties map[spec.Slot]phase0.ValidatorIndex
 		Measure(func() {
 			var err error
-			proposerDuties, err = ListProposerDuties(ctx, beacon, phase0.Epoch(epoch), slices.Collect(maps.Keys(validatorPubkeyFromIndex)))
+			unfulfilledProposerDuties, err = ListProposerDuties(ctx, beacon, phase0.Epoch(epoch), slices.Collect(maps.Keys(validatorPubkeyFromIndex)))
 			Must(err)
 		}, "ListProposerDuties(epoch=%v)", epoch)
 
@@ -424,7 +424,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 		if len(mevRelays) > 0 {
 			Measure(func() {
 				var err error
-				bestBids, err = ListBestBids(ctx, 4*time.Second, mevRelays, epoch, validatorPubkeyFromIndex, proposerDuties)
+				bestBids, err = ListBestBids(ctx, 4*time.Second, mevRelays, epoch, validatorPubkeyFromIndex, unfulfilledProposerDuties)
 				if err != nil {
 					log.Error().Stack().Err(err)
 					// Even if RequestEpochBidTraces() returned an error, there may still be valuable partial results in bidtraces, so process them!
@@ -512,9 +512,9 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 			delete(validatorFromIntraCommitteeValidator, slot)
 		}
 
-		log.Info().Msgf("Epoch %v proposer duties: %v", epoch, proposerDuties)
+		log.Info().Msgf("Epoch %v proposer duties: %v", epoch, unfulfilledProposerDuties)
 		for slot, block := range epochBlocks {
-			validatorIndex, ok := proposerDuties[slot]
+			validatorIndex, ok := unfulfilledProposerDuties[slot]
 			if !ok {
 				continue
 			}
@@ -529,7 +529,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 			}
 
 			totalCanonicalProposalsCounter.Inc()
-			delete(proposerDuties, slot)
+			delete(unfulfilledProposerDuties, slot)
 
 			txns, err := block.ExecutionTransactions()
 			if err != nil {
@@ -570,7 +570,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 				}
 			}
 		}
-		for slot, validatorIndex := range proposerDuties {
+		for slot, validatorIndex := range unfulfilledProposerDuties {
 			Report("❌ 🧱 Validator %v missed proposal at slot %v", validatorIndex, slot)
 			totalMissedProposalsCounter.Inc()
 			lastMissedProposalSlotGauge.Set(float64(slot))
