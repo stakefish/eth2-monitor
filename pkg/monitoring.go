@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
-	"fmt"
 	"maps"
 	"os"
 	"slices"
@@ -209,11 +208,6 @@ func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg 
 	Must(err)
 }
 
-const (
-	// Attestation is assumed to be missed if it was not included within two consequent epochs.
-	missedAttestationThresholdEpochs = 2
-)
-
 func LoadKeys(pubkeysFiles []string) ([]string, error) {
 	plainKeys := opts.Monitor.Pubkeys[:]
 	for _, fname := range pubkeysFiles {
@@ -264,65 +258,6 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 			Help:      "Current justified epoch",
 		})
 	prometheus.MustRegister(epochGauge)
-
-	var epochMissedAttestationsTracker float64
-
-	epochMissedProposalsGauge := prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Namespace: "ETH2",
-			Name:      "epochMissedProposals",
-			Help:      "Proposals missed in current justified epoch",
-		})
-	prometheus.MustRegister(epochMissedProposalsGauge)
-
-	epochCanonicalProposalsGauge := prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Namespace: "ETH2",
-			Name:      "epochCanonicalProposals",
-			Help:      "Canonical proposals in current justified epoch",
-		})
-	prometheus.MustRegister(epochCanonicalProposalsGauge)
-
-	epochMissedAttestationsGauge := prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Namespace: "ETH2",
-			Name:      "epochMissedAttestations",
-			Help:      "Attestations missed in current justified epoch",
-		})
-	prometheus.MustRegister(epochMissedAttestationsGauge)
-
-	lastEpochMissedAttestationsGauge := prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Namespace: "ETH2",
-			Name:      "lastEpochMissedAttestations",
-			Help:      "Attestations missed in last (n-1) justified epoch",
-		})
-	prometheus.MustRegister(lastEpochMissedAttestationsGauge)
-
-	epochCanonicalAttestationsGauge := prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Namespace: "ETH2",
-			// TODO(deni): Rename to epochCanonicalAttestations
-			Name: "epochServedAttestations",
-			Help: "Canonical attestations in current justified epoch",
-		})
-	prometheus.MustRegister(epochCanonicalAttestationsGauge)
-
-	epochOrphanedAttestationsGauge := prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Namespace: "ETH2",
-			Name:      "epochOrphanedAttestations",
-			Help:      "Attestations orphaned in current justified epoch",
-		})
-	prometheus.MustRegister(epochOrphanedAttestationsGauge)
-
-	epochDelayedAttestationsOverToleranceGauge := prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Namespace: "ETH2",
-			Name:      "epochDelayedAttestationsOverTolerance",
-			Help:      "Attestation delayed over tolerance distance setting in current justified epoch",
-		})
-	prometheus.MustRegister(epochDelayedAttestationsOverToleranceGauge)
 
 	lastProposedEmptyBlockSlotGauge := prometheus.NewGauge(
 		prometheus.GaugeOpts{
@@ -413,14 +348,6 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 		})
 	prometheus.MustRegister(totalCanonicalAttestationsCounter)
 
-	totalOrphanedAttestationsCounter := prometheus.NewCounter(
-		prometheus.CounterOpts{
-			Namespace: "ETH2",
-			Name:      "totalOrphanedAttestations",
-			Help:      "Attestations orphaned since monitoring started",
-		})
-	prometheus.MustRegister(totalOrphanedAttestationsCounter)
-
 	totalDelayedAttestationsOverToleranceCounter := prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Namespace: "ETH2",
@@ -436,13 +363,6 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 		Buckets:   prometheus.LinearBuckets(1, 1, 32),
 	})
 	prometheus.MustRegister(canonicalAttestationDistances)
-	orphanedAttestationDistances := prometheus.NewHistogram(prometheus.HistogramOpts{
-		Namespace: "ETH2",
-		Name:      "orphanedAttestationDistances",
-		Help:      "Histogram of orphaned attestation distances.",
-		Buckets:   prometheus.LinearBuckets(1, 1, 32),
-	})
-	prometheus.MustRegister(orphanedAttestationDistances)
 
 	var pusher *push.Pusher
 	if opts.PushGatewayUrl != "" && opts.PushGatewayJob != "" {
@@ -451,21 +371,12 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 			epochGauge,
 
 			// Attestations
-			epochMissedAttestationsGauge,
-			lastEpochMissedAttestationsGauge,
-			epochCanonicalAttestationsGauge,
-			epochOrphanedAttestationsGauge,
-			epochDelayedAttestationsOverToleranceGauge,
 			totalMissedAttestationsCounter,
 			totalCanonicalAttestationsCounter,
-			totalOrphanedAttestationsCounter,
 			totalDelayedAttestationsOverToleranceCounter,
 			canonicalAttestationDistances,
-			orphanedAttestationDistances,
 
 			// Proposals
-			epochMissedProposalsGauge,
-			epochCanonicalProposalsGauge,
 			totalMissedProposalsCounter,
 			totalCanonicalProposalsCounter,
 			lastMissedProposalSlotGauge,
@@ -479,29 +390,18 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 
 	unfulfilledAttesterDuties := make(map[spec.Slot]Set[phase0.ValidatorIndex])
 	validatorFromIntraCommitteeValidator := make(map[spec.Slot]map[phase0.CommitteeIndex]map[int]phase0.ValidatorIndex)
-	for justifiedEpoch := range epochsChan {
+	for epoch := range epochsChan {
 		// On every chain head update we:
 		// * Retrieve new committees for the new epoch,
 		// * Mark scheduled attestations as attested,
 		// * Check attestations if some of them too old.
-		log.Info().Msgf("New justified epoch %v", justifiedEpoch)
-		epochGauge.Set(float64(justifiedEpoch))
-		// Reset all metrics for new epoch.
-		epochMissedProposalsGauge.Set(float64(0))
-		epochCanonicalProposalsGauge.Set(float64(0))
-		lastEpochMissedAttestationsGauge.Set(epochMissedAttestationsTracker)
-		epochMissedAttestationsTracker = 0
-		epochMissedAttestationsGauge.Set(float64(0))
-		epochCanonicalAttestationsGauge.Set(float64(0))
-		epochOrphanedAttestationsGauge.Set(float64(0))
-		epochDelayedAttestationsOverToleranceGauge.Set(float64(0))
+		log.Info().Msgf("New justified epoch %v", epoch)
+		epochGauge.Set(float64(epoch))
 
 		var err error
 		var epochBlocks map[spec.Slot]*eth2spec.VersionedSignedBeaconBlock
 		var proposals map[spec.Slot]phase0.ValidatorIndex
 		var bestBids map[spec.Slot]BidTrace
-
-		epoch := justifiedEpoch
 
 		_, reversedIndexes, err := ResolveValidatorKeys(ctx, beacon, plainKeys, epoch)
 		Must(err)
@@ -557,24 +457,63 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 						continue
 					}
 					validatorIndex := validatorFromIntraCommitteeValidator[attestedSlot][attestation.Data.Index][intraCommitteeValidatorIndex]
+
 					unfulfilledAttesterDuties[attestedSlot].Remove(validatorIndex)
 					if unfulfilledAttesterDuties[attestedSlot].IsEmpty() {
 						delete(unfulfilledAttesterDuties, attestedSlot)
 					}
+					totalCanonicalAttestationsCounter.Inc()
+
+					blockSlot, err := block.Slot()
+					if err != nil {
+						log.Error().Err(err).Msg("Get block slot")
+						continue
+					}
+
+					attestationDistance := blockSlot - phase0.Slot(attestedSlot) - 1
+					// Take skipped slots into account
+					for s := attestedSlot; s < uint64(blockSlot); s++ {
+						if _, ok := epochBlocks[s]; !ok {
+							attestationDistance--
+						}
+					}
+
+					if attestationDistance > 2 {
+						Report("⚠️ 🧾 Validator %v (%v) attested slot %v at slot %v, epoch %v, attestation distance is %v",
+							validatorIndex, reversedIndexes[validatorIndex], attestedSlot, blockSlot, epoch, attestationDistance)
+						totalDelayedAttestationsOverToleranceCounter.Inc()
+					} else if opts.Monitor.PrintSuccessful {
+						Info("✅ 🧾 Validator %v (%v) attested slot %v at slot %v, epoch %v", validatorIndex, reversedIndexes[validatorIndex], attestedSlot, blockSlot, epoch)
+					}
+
+					totalCanonicalAttestationsCounter.Inc()
+					canonicalAttestationDistances.Observe(float64(attestationDistance))
 				}
 			}
 		}
 
-		// TODO Check what's left in unfulFilledAttesterDuties.  If it's older than missedAttestationDistance, increment missed attestation counters
-		fmt.Printf("unfulfilledAttesterDuties: %v\n", unfulfilledAttesterDuties)
+		// Attestation is assumed to be missed if it was not included within
+		// current epoch or one after the current.  Normally, attestations should
+		// land in 1-2 *slots* after the attested one.
+		missedAttestationEpoch := epoch - 1
+		missedAttestationSlotHigh := spec.EpochHighestSlot(missedAttestationEpoch)
+		for _, slot := range slices.Sorted(maps.Keys(unfulfilledAttesterDuties)) {
+			if slot > missedAttestationSlotHigh {
+				break
+			}
+			for validatorIndex := range unfulfilledAttesterDuties[slot].Elems() {
+				Report("❌ 🧾 Validator %v (%v) did not attest slot %v (epoch %v)", validatorIndex, reversedIndexes[validatorIndex], slot, epoch)
+				totalMissedAttestationsCounter.Inc()
+			}
+			delete(unfulfilledAttesterDuties, slot)
+			delete(validatorFromIntraCommitteeValidator, slot)
+		}
 
 		log.Info().Msgf("Number of epoch %v tracked proposals is %v", epoch, len(proposals))
 		for slot, validatorIndex := range proposals {
 			block, ok := epochBlocks[slot]
 			if !ok {
-				Report("❌ 🧱 Validator %v missed proposal at slot %v",
-					validatorIndex, slot)
-				epochMissedProposalsGauge.Add(1)
+				Report("❌ 🧱 Validator %v missed proposal at slot %v", validatorIndex, slot)
 				totalMissedProposalsCounter.Inc()
 				lastMissedProposalSlotGauge.Set(float64(slot))
 				lastMissedProposalValidatorIndexGauge.Set(float64(validatorIndex))
@@ -596,12 +535,11 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 			}
 			if proposerIndex == validatorIndex {
 				validatorPublicKey := reversedIndexes[validatorIndex]
-				Report("⚠️ 🧱 Validator %v (%v) proposed a block containing no transactions at epoch %v and slot %v", validatorPublicKey, validatorIndex, justifiedEpoch, slot)
+				Report("⚠️ 🧱 Validator %v (%v) proposed a block containing no transactions at epoch %v and slot %v", validatorPublicKey, validatorIndex, epoch, slot)
 				lastProposedEmptyBlockSlotGauge.Set(float64(slot))
 				totalProposedEmptyBlocksCounter.Inc()
 			}
 
-			epochCanonicalProposalsGauge.Add(1)
 			totalCanonicalProposalsCounter.Inc()
 		}
 
@@ -648,15 +586,6 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 				lastVanillaBlockValidatorGauge.Set(float64(validatorIndex))
 				log.Error().Msgf("❌ Validator %v (%v) proposed a vanilla block %v at slot %v", validatorIndex, reversedIndexes[validatorIndex], execution_block_hash, slot)
 			}
-		}
-
-		lowestLiveSlot := spec.EpochLowestSlot(epoch - missedAttestationThresholdEpochs)
-		for _, slot := range sortedKeys(unfulfilledAttesterDuties) {
-			if slot >= lowestLiveSlot {
-				break
-			}
-			delete(unfulfilledAttesterDuties, slot)
-			delete(validatorFromIntraCommitteeValidator, slot)
 		}
 
 		if pusher != nil {

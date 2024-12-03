@@ -2,6 +2,7 @@ package pkg
 
 import (
 	"fmt"
+	"iter"
 	"strings"
 )
 
@@ -47,4 +48,14 @@ func (s Set[E]) String() string {
 	}
 	sb.WriteString("}")
 	return sb.String()
+}
+
+func (s Set[E]) Elems() iter.Seq[E] {
+	return func(yield func(E) bool) {
+		for v := range s {
+			if !yield(v) {
+				return
+			}
+		}
+	}
 }

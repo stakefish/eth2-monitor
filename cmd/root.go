@@ -115,8 +115,6 @@ func init() {
 	monitorCmd.PersistentFlags().BoolVar(&opts.Monitor.PrintSuccessful, "print-successful", false, "print successful attestations")
 	monitorCmd.PersistentFlags().UintSliceVar(&opts.Monitor.ReplayEpoch, "replay-epoch", nil, "replay epoch for debug purposes")
 	monitorCmd.PersistentFlags().Uint64Var(&opts.Monitor.SinceEpoch, "since-epoch", ^uint64(0), "replay epochs from the specified one")
-	monitorCmd.PersistentFlags().Uint64VarP(&opts.Monitor.DistanceTolerance, "distance-tolerance", "d", 2, "longest tolerated inclusion slot distance")
-	monitorCmd.PersistentFlags().BoolVar(&opts.Monitor.UseAbsoluteDistance, "use-absolute-distance", false, "use the absolute distance to compare against the tolerance")
 	monitorCmd.PersistentFlags().StringSliceVarP(&opts.Monitor.Pubkeys, "pubkey", "k", nil, "validator public key")
 	monitorCmd.PersistentFlags().StringVar(&opts.Monitor.MEVRelaysFilePath, "mev-relays", "", "file path containing a one-per-line list of MEV relays to use in monitoring vanilla blocks")
 	monitorCmd.PersistentFlags().Lookup("since-epoch").DefValue = "follows justified epoch"
