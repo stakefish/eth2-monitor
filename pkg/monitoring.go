@@ -430,6 +430,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 					// Even if RequestEpochBidTraces() returned an error, there may still be valuable partial results in bidtraces, so process them!
 				}
 			}, "ListBestBids(epoch=%v)", epoch)
+			log.Info().Msgf("Number of MEV boosts is %v", len(bestBids))
 		}
 
 		var epochBlocks map[spec.Slot]*eth2spec.VersionedSignedBeaconBlock
@@ -541,57 +542,39 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 				lastProposedEmptyBlockSlotGauge.Set(float64(slot))
 				totalProposedEmptyBlocksCounter.Inc()
 			}
+
+			if len(mevRelays) > 0 {
+				execution_block_hash, err := block.ExecutionBlockHash()
+				if err != nil {
+					log.Error().Msgf("Failed to obtain execution block hash at slot %v", slot)
+					continue
+				}
+				trace, ok := bestBids[slot]
+				if !ok {
+					totalVanillaBlocksCounter.Inc()
+					lastVanillaBlockSlotGauge.Set(float64(slot))
+					lastVanillaBlockValidatorGauge.Set(float64(validatorIndex))
+					log.Error().Msgf("Missing bid trace for proposal slot %v, validator %v (%v)", slot, validatorIndex, validatorPubkeyFromIndex[validatorIndex])
+					continue
+				}
+				if execution_block_hash.String() != trace.BlockHash {
+					totalVanillaBlocksCounter.Inc()
+					lastVanillaBlockSlotGauge.Set(float64(slot))
+					lastVanillaBlockValidatorGauge.Set(float64(validatorIndex))
+					log.Error().Msgf("Validator %v (%v) proposed a vanilla block %v at slot %v", validatorIndex, validatorPubkeyFromIndex[validatorIndex], execution_block_hash, slot)
+					continue
+				}
+				if opts.Monitor.PrintSuccessful {
+					// Our validator proposed the best block -- all good
+					Info("✅ 🧾 Validator %v (%v) proposed optimal MEV execution block %v at slot %v, epoch %v", validatorIndex, validatorPubkeyFromIndex[validatorIndex], trace.BlockHash, slot, epoch)
+				}
+			}
 		}
 		for slot, validatorIndex := range proposerDuties {
 			Report("❌ 🧱 Validator %v missed proposal at slot %v", validatorIndex, slot)
 			totalMissedProposalsCounter.Inc()
 			lastMissedProposalSlotGauge.Set(float64(slot))
 			lastMissedProposalValidatorIndexGauge.Set(float64(validatorIndex))
-		}
-
-		if len(mevRelays) > 0 {
-			if len(proposerDuties) > 0 {
-				log.Info().Msgf("Number of MEV boosts is %v", len(bestBids))
-			}
-			for slot, validatorIndex := range proposerDuties {
-				trace, ok := bestBids[slot]
-				if !ok {
-					totalVanillaBlocksCounter.Inc()
-					lastVanillaBlockSlotGauge.Set(float64(slot))
-					lastVanillaBlockValidatorGauge.Set(float64(validatorIndex))
-					log.Error().Msgf("❌ Missing bid trace for proposal slot %v, validator %v (%v)", slot, validatorIndex, validatorPubkeyFromIndex[validatorIndex])
-					continue
-				}
-				block, ok := epochBlocks[slot]
-				if !ok {
-					// Missed proposal reported earlier.  Don't report again
-					continue
-				}
-				proposerIndex, err := block.ProposerIndex()
-				if err != nil {
-					log.Error().Msgf("Error obtaining proposer index for block")
-					continue
-				}
-				if proposerIndex != validatorIndex {
-					continue
-				}
-				execution_block_hash, err := block.ExecutionBlockHash()
-				if err != nil {
-					log.Error().Msgf("❌ Failed to obtain execution block hash at slot %v", slot)
-					continue
-				}
-				if execution_block_hash.String() == trace.BlockHash {
-					// Our validator proposed the best block -- all good
-					if opts.Monitor.PrintSuccessful {
-						Info("✅ 🧾 Validator %v (%v) proposed optimal MEV execution block %v at slot %v, epoch %v", validatorIndex, validatorPubkeyFromIndex[validatorIndex], trace.BlockHash, slot, epoch)
-					}
-					continue
-				}
-				totalVanillaBlocksCounter.Inc()
-				lastVanillaBlockSlotGauge.Set(float64(slot))
-				lastVanillaBlockValidatorGauge.Set(float64(validatorIndex))
-				log.Error().Msgf("❌ Validator %v (%v) proposed a vanilla block %v at slot %v", validatorIndex, validatorPubkeyFromIndex[validatorIndex], execution_block_hash, slot)
-			}
 		}
 
 		if pusher != nil {
