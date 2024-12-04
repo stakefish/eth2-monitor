@@ -62,6 +62,9 @@ var (
 
 			plainPubkeys, err := pkg.LoadKeys(args)
 			pkg.Must(err)
+			if len(plainPubkeys) == 0 {
+				panic("No validators to monitor")
+			}
 			log.Info().Msgf("Loaded validator keys: %v", len(plainPubkeys))
 
 			mevRelays := []string{}

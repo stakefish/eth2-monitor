@@ -388,7 +388,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 	unfulfilledAttesterDuties := make(map[spec.Slot]Set[phase0.ValidatorIndex])
 	validatorFromIntraCommitteeValidator := make(map[spec.Slot]map[phase0.CommitteeIndex]map[int]phase0.ValidatorIndex)
 	for epoch := range epochsChan {
-		log.Info().Msgf("New epoch %v", epoch)
+		log.Debug().Msgf("New epoch %v", epoch)
 		epochGauge.Set(float64(epoch))
 
 		var validatorPubkeyFromIndex map[phase0.ValidatorIndex]string
@@ -397,6 +397,11 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 			validatorPubkeyFromIndex, err = ResolveValidatorKeys(ctx, beacon, plainKeys, epoch)
 			Must(err)
 		}, "ResolveValidatorKeys(epoch=%v)", epoch)
+
+		if len(validatorPubkeyFromIndex) == 0 {
+			panic("No active validators")
+		}
+		log.Debug().Msgf("Epoch %v validators: %v/%v", epoch, len(validatorPubkeyFromIndex), len(plainKeys))
 
 		Measure(func() {
 			epochCommittees, err := ListCommittees(ctx, beacon, spec.Epoch(epoch), NewSet(slices.Collect(maps.Keys(validatorPubkeyFromIndex))...))
@@ -430,7 +435,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 					// Even if RequestEpochBidTraces() returned an error, there may still be valuable partial results in bidtraces, so process them!
 				}
 			}, "ListBestBids(epoch=%v)", epoch)
-			log.Info().Msgf("Number of MEV boosts is %v", len(bestBids))
+			log.Debug().Msgf("Number of MEV boosts is %v", len(bestBids))
 		}
 
 		var epochBlocks map[spec.Slot]*eth2spec.VersionedSignedBeaconBlock
@@ -499,7 +504,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 		// land in 1-2 *slots* after the attested one.
 		missedAttestationEpoch := epoch - 1
 		missedAttestationSlotHigh := spec.EpochHighestSlot(missedAttestationEpoch)
-		log.Info().Msgf("Unfulfilled attester duties: %v", unfulfilledAttesterDuties)
+		log.Debug().Msgf("Epoch %v unfulfilled attester duties: %v", epoch, unfulfilledAttesterDuties)
 		for _, slot := range slices.Sorted(maps.Keys(unfulfilledAttesterDuties)) {
 			if slot > missedAttestationSlotHigh {
 				break
@@ -512,7 +517,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 			delete(validatorFromIntraCommitteeValidator, slot)
 		}
 
-		log.Info().Msgf("Epoch %v proposer duties: %v", epoch, unfulfilledProposerDuties)
+		log.Debug().Msgf("Epoch %v proposer duties: %v", epoch, unfulfilledProposerDuties)
 		for slot, block := range epochBlocks {
 			validatorIndex, ok := unfulfilledProposerDuties[slot]
 			if !ok {
