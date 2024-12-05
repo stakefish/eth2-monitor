@@ -353,6 +353,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 		})
 	prometheus.MustRegister(totalDelayedAttestationsOverToleranceCounter)
 
+	// https://www.attestant.io/posts/defining-attestation-effectiveness/
 	canonicalAttestationDistances := prometheus.NewHistogram(prometheus.HistogramOpts{
 		Namespace: "ETH2",
 		Name:      "canonicalAttestationDistances",
@@ -477,9 +478,11 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 						continue
 					}
 
-					attestationDistance := blockSlot - phase0.Slot(attestedSlot)
-					// Take skipped slots into account
-					for s := attestedSlot; s < uint64(blockSlot); s++ {
+					// https://www.attestant.io/posts/defining-attestation-effectiveness/
+					earliestInclusionSlot := attestedSlot + 1
+					attestationDistance := blockSlot - phase0.Slot(earliestInclusionSlot)
+					// Do not penalize validator for skipped slots
+					for s := earliestInclusionSlot; s < uint64(blockSlot); s++ {
 						if _, ok := epochBlocks[s]; !ok {
 							attestationDistance--
 						}
