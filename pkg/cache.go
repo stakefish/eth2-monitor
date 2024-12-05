@@ -68,7 +68,7 @@ func SaveCache(newCache *LocalCache) {
 
 	tmpfile, err := os.CreateTemp("", "stakefish-eth2-monitor-cache.*.json")
 	if err != nil {
-		log.Debug().Err(err).Msg("SaveCache: os.Open failed; skip")
+		log.Warn().Err(err).Msg("SaveCache: os.CreateTemp failed; skip")
 		return
 	}
 	defer os.Remove(tmpfile.Name())
