@@ -3,6 +3,7 @@ package beaconchain
 import (
 	"context"
 	"encoding/hex"
+	"eth2-monitor/spec"
 	"fmt"
 	"strings"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/attestantio/go-eth2-client/api"
 	apiv1 "github.com/attestantio/go-eth2-client/api/v1"
 	eth2http "github.com/attestantio/go-eth2-client/http"
+	eth2spec "github.com/attestantio/go-eth2-client/spec"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 )
 
@@ -47,7 +49,7 @@ func NormalizedPublicKey(pubkey string) string {
 	return pubkey
 }
 
-func (beacon *BeaconChain) GetValidatorIndexes(ctx context.Context, pubkeys []string) (map[string]phase0.ValidatorIndex, error) {
+func (beacon *BeaconChain) GetValidatorIndexes(ctx context.Context, pubkeys []string, epoch spec.Epoch) (map[string]phase0.ValidatorIndex, error) {
 	provider := beacon.service.(eth2client.ValidatorsProvider)
 
 	blspubkeys := make([]phase0.BLSPubKey, len(pubkeys))
@@ -60,7 +62,7 @@ func (beacon *BeaconChain) GetValidatorIndexes(ctx context.Context, pubkeys []st
 	}
 
 	resp, err := provider.Validators(ctx, &api.ValidatorsOpts{
-		State:   "justified",
+		State:   fmt.Sprintf("%d", spec.EpochLowestSlot(epoch)),
 		PubKeys: blspubkeys,
 	})
 	if err != nil {
@@ -72,12 +74,54 @@ func (beacon *BeaconChain) GetValidatorIndexes(ctx context.Context, pubkeys []st
 
 	result := map[string]phase0.ValidatorIndex{}
 	for index, validator := range resp.Data {
-		// Includes the leading 0x
-		key := validator.Validator.PublicKey.String()
-		key = NormalizedPublicKey(key)
-		result[key] = index
+		if validator.Status == apiv1.ValidatorStateActiveOngoing || validator.Status == apiv1.ValidatorStateActiveExiting || validator.Status == apiv1.ValidatorStateActiveSlashed {
+			// Includes the leading 0x
+			key := validator.Validator.PublicKey.String()
+			key = NormalizedPublicKey(key)
+			result[key] = index
+		}
 	}
 	return result, nil
+}
+
+// Resolve slot number to a block
+func (beacon *BeaconChain) GetBlockHeader(ctx context.Context, slot phase0.Slot) (*apiv1.BeaconBlockHeader, error) {
+	provider := beacon.Service().(eth2client.BeaconBlockHeadersProvider)
+
+	resp, err := provider.BeaconBlockHeader(ctx, &api.BeaconBlockHeaderOpts{
+		Block: fmt.Sprintf("%v", slot),
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	if resp == nil {
+		// Missed slot
+		return nil, nil
+	}
+
+	return resp.Data, err
+}
+
+// Get block payload
+func (beacon *BeaconChain) GetBlock(ctx context.Context, slot phase0.Slot) (*eth2spec.VersionedSignedBeaconBlock, error) {
+	provider := beacon.Service().(eth2client.SignedBeaconBlockProvider)
+
+	resp, err := provider.SignedBeaconBlock(ctx, &api.SignedBeaconBlockOpts{
+		Block: fmt.Sprintf("%v", slot),
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	if resp == nil {
+		// Missed slot
+		return nil, nil
+	}
+
+	return resp.Data, err
 }
 
 func (beacon *BeaconChain) GetProposerDuties(ctx context.Context, epoch phase0.Epoch, indices []phase0.ValidatorIndex) ([]*apiv1.ProposerDuty, error) {
@@ -92,11 +136,11 @@ func (beacon *BeaconChain) GetProposerDuties(ctx context.Context, epoch phase0.E
 	return resp.Data, err
 }
 
-func (beacon *BeaconChain) GetBeaconCommitees(ctx context.Context, epoch phase0.Epoch) ([]*apiv1.BeaconCommittee, error) {
-	provider := beacon.service.(eth2client.BeaconCommitteesProvider)
-	resp, err := provider.BeaconCommittees(ctx, &api.BeaconCommitteesOpts{
-		State: "justified",
-		Epoch: &epoch,
+func (beacon *BeaconChain) GetAttesterDuties(ctx context.Context, epoch phase0.Epoch, indices []phase0.ValidatorIndex) ([]*apiv1.AttesterDuty, error) {
+	provider := beacon.service.(eth2client.AttesterDutiesProvider)
+	resp, err := provider.AttesterDuties(ctx, &api.AttesterDutiesOpts{
+		Epoch:   epoch,
+		Indices: indices,
 	})
 	if err != nil {
 		return nil, err
@@ -104,38 +148,14 @@ func (beacon *BeaconChain) GetBeaconCommitees(ctx context.Context, epoch phase0.
 	return resp.Data, err
 }
 
-func (beacon *BeaconChain) getValidatorBalance(ctx context.Context, validator phase0.ValidatorIndex, slot phase0.Slot) (*phase0.Gwei, error) {
-	provider := beacon.service.(eth2client.ValidatorBalancesProvider)
-	resp, err := provider.ValidatorBalances(ctx, &api.ValidatorBalancesOpts{
-		State:   fmt.Sprintf("%d", slot),
-		Indices: []phase0.ValidatorIndex{validator},
+func (beacon *BeaconChain) GetBeaconCommitees(ctx context.Context, epoch phase0.Epoch) ([]*apiv1.BeaconCommittee, error) {
+	provider := beacon.service.(eth2client.BeaconCommitteesProvider)
+	resp, err := provider.BeaconCommittees(ctx, &api.BeaconCommitteesOpts{
+		State: fmt.Sprintf("%d", spec.EpochLowestSlot(uint64(epoch))),
+		Epoch: &epoch,
 	})
 	if err != nil {
 		return nil, err
 	}
-	if len(resp.Data) == 0 {
-		return nil, nil
-	}
-	if len(resp.Data) > 1 {
-		panic(fmt.Sprintf("Expected at most 1 validator in Beacon API response, got %v", len(resp.Data)))
-	}
-	for _, balance := range resp.Data {
-		return &balance, nil
-	}
-	panic("unreachable")
-}
-
-func (beacon *BeaconChain) GetValidatorBalanceDiff(ctx context.Context, validator phase0.ValidatorIndex, earlierSlot phase0.Slot, laterSlot phase0.Slot) (*int64, error) {
-	earlierBalance, err := beacon.getValidatorBalance(ctx, validator, earlierSlot)
-	if err != nil {
-		return nil, err
-	}
-
-	laterBalance, err := beacon.getValidatorBalance(ctx, validator, laterSlot)
-	if err != nil {
-		return nil, err
-	}
-
-	balance := int64(*laterBalance) - int64(*earlierBalance)
-	return &balance, nil
+	return resp.Data, err
 }

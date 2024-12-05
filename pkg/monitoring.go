@@ -3,13 +3,10 @@ package pkg
 import (
 	"bufio"
 	"context"
-	"encoding/hex"
 	"encoding/json"
-	"fmt"
+	"maps"
 	"os"
 	"slices"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -21,13 +18,9 @@ import (
 	"github.com/attestantio/go-eth2-client/api"
 	v1 "github.com/attestantio/go-eth2-client/api/v1"
 	eth2spec "github.com/attestantio/go-eth2-client/spec"
-	"github.com/attestantio/go-eth2-client/spec/bellatrix"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
-	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/pkg/errors"
-	bitfield "github.com/prysmaticlabs/go-bitfield"
 	"github.com/rs/zerolog/log"
-	"golang.org/x/exp/maps"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/push"
@@ -35,16 +28,15 @@ import (
 
 const VALIDATOR_INDEX_INVALID = ^spec.ValidatorIndex(0)
 
-// IndexPubkeys transforms validator public keys into their indexes.
+// ResolveValidatorKeys transforms validator public keys into their indexes.
 // It returns direct and reversed mapping.
-func IndexPubkeys(ctx context.Context, beacon *beaconchain.BeaconChain, plainPubKeys []string) (map[string]phase0.ValidatorIndex, map[phase0.ValidatorIndex]string, error) {
+func ResolveValidatorKeys(ctx context.Context, beacon *beaconchain.BeaconChain, plainPubKeys []string, epoch spec.Epoch) (map[phase0.ValidatorIndex]string, error) {
 	normalized := make([]string, len(plainPubKeys))
 	for i, key := range plainPubKeys {
 		normalized[i] = beaconchain.NormalizedPublicKey(key)
 	}
 
-	result := make(map[string]phase0.ValidatorIndex)
-	reversed := make(map[phase0.ValidatorIndex]string)
+	result := make(map[phase0.ValidatorIndex]string)
 
 	// Resolve cached validators to indexes
 	cache := LoadCache()
@@ -52,8 +44,7 @@ func IndexPubkeys(ctx context.Context, beacon *beaconchain.BeaconChain, plainPub
 	for _, pubkey := range normalized {
 		if cachedIndex, ok := cache.Validators[pubkey]; ok && time.Until(cachedIndex.At) < 8*time.Hour {
 			if cachedIndex.Index != VALIDATOR_INDEX_INVALID {
-				result[pubkey] = phase0.ValidatorIndex(cachedIndex.Index)
-				reversed[phase0.ValidatorIndex(cachedIndex.Index)] = pubkey
+				result[phase0.ValidatorIndex(cachedIndex.Index)] = pubkey
 			}
 		} else {
 			uncached = append(uncached, pubkey)
@@ -62,14 +53,13 @@ func IndexPubkeys(ctx context.Context, beacon *beaconchain.BeaconChain, plainPub
 
 	// Resolve validators not in cache
 	for chunk := range slices.Chunk(uncached, 100) {
-		partial, err := beacon.GetValidatorIndexes(ctx, chunk)
+		partial, err := beacon.GetValidatorIndexes(ctx, chunk, epoch)
 		if err != nil {
-			return nil, nil, errors.Wrap(err, "Could not retrieve validator indexes")
+			return nil, errors.Wrap(err, "Could not retrieve validator indexes")
 		}
 		for _, pubkey := range chunk {
 			if index, ok := partial[pubkey]; ok {
-				result[pubkey] = index
-				reversed[index] = pubkey
+				result[index] = pubkey
 				cache.Validators[pubkey] = CachedIndex{
 					Index: uint64(index),
 					At:    time.Now(),
@@ -85,219 +75,90 @@ func IndexPubkeys(ctx context.Context, beacon *beaconchain.BeaconChain, plainPub
 
 	SaveCache(cache)
 
-	return result, reversed, nil
-}
-
-func processDeposits(ctx context.Context, beacon *beaconchain.BeaconChain, hashedKeys map[string]interface{}, deposits []*phase0.Deposit) (map[string]phase0.ValidatorIndex, map[phase0.ValidatorIndex]string, error) {
-	var pubkeys []string
-
-	for _, deposit := range deposits {
-		binPubKey := deposit.Data.PublicKey
-		pubkey := hex.EncodeToString(binPubKey[:])
-		pubkey = strings.ToLower(pubkey)
-
-		if _, ok := hashedKeys[pubkey]; !ok {
-			continue
-		}
-
-		Info("Validator %v has been deposited", pubkey)
-
-		pubkeys = append(pubkeys, pubkey)
-	}
-
-	return IndexPubkeys(ctx, beacon, pubkeys)
-}
-
-// ListProposers returns block proposers scheduled for epoch.
-// To improve performance, it has to narrow the set of validators for which it checks duties.
-func ListProposers(ctx context.Context, beacon *beaconchain.BeaconChain, epoch phase0.Epoch, validators map[string]phase0.ValidatorIndex, epochCommittees map[spec.Slot]BeaconCommittees) (map[spec.Slot]phase0.ValidatorIndex, error) {
-	// Filter out non-activated validator indexes and use only active ones.
-	var indexes []phase0.ValidatorIndex
-	activeIndexes := make(map[phase0.ValidatorIndex]interface{})
-	for _, committees := range epochCommittees {
-		for _, indexes := range committees {
-			for _, index := range indexes {
-				activeIndexes[phase0.ValidatorIndex(index)] = nil
-			}
-		}
-	}
-	for _, index := range validators {
-		if _, ok := activeIndexes[index]; ok {
-			indexes = append(indexes, phase0.ValidatorIndex(index))
-		}
-	}
-
-	chunkSize := 250
-	result := make(map[spec.Slot]phase0.ValidatorIndex)
-	for i := 0; i < len(indexes); i += chunkSize {
-		end := i + chunkSize
-		if end > len(indexes) {
-			end = len(indexes)
-		}
-		proposerDuties, err := beacon.GetProposerDuties(ctx, epoch, indexes[i:end])
-		if err != nil {
-			return nil, err
-		}
-
-		for _, duty := range proposerDuties {
-			result[spec.Slot(duty.Slot)] = phase0.ValidatorIndex(duty.ValidatorIndex)
-		}
-	}
-
 	return result, nil
 }
 
-type BeaconCommittees map[spec.CommitteeIndex][]phase0.ValidatorIndex
-
-// ListBeaconCommittees lists committees for a specific epoch.
-func ListBeaconCommittees(ctx context.Context, beacon *beaconchain.BeaconChain, epoch spec.Epoch) (map[spec.Slot]BeaconCommittees, error) {
+// Returns: per-slot mapping: validator index in the committee -> global validator index
+// The in-committee index is very small -- ~few hundred, whereas the global one is 6-digit+
+func ListCommittees(ctx context.Context, beacon *beaconchain.BeaconChain, epoch spec.Epoch, validators Set[phase0.ValidatorIndex]) (map[spec.Slot]map[phase0.CommitteeIndex]map[int]phase0.ValidatorIndex, error) {
 	committees, err := beacon.GetBeaconCommitees(ctx, phase0.Epoch(epoch))
 	if err != nil {
 		return nil, err
 	}
 
-	result := make(map[spec.Slot]BeaconCommittees)
+	result := make(map[spec.Slot]map[phase0.CommitteeIndex]map[int]phase0.ValidatorIndex)
 
 	for _, committee := range committees {
 		slot := uint64(committee.Slot)
-		if _, ok := result[slot]; !ok {
-			result[slot] = make(BeaconCommittees)
+		for intraCommitteeValidatorIndex, globalValidatorIndex := range committee.Validators {
+			if validators.Contains(globalValidatorIndex) {
+				if _, ok := result[slot]; !ok {
+					result[slot] = make(map[phase0.CommitteeIndex]map[int]phase0.ValidatorIndex)
+				}
+				if _, ok := result[slot][committee.Index]; !ok {
+					result[slot][committee.Index] = make(map[int]phase0.ValidatorIndex)
+				}
+				result[slot][committee.Index][intraCommitteeValidatorIndex] = globalValidatorIndex
+			}
 		}
-		var indexes []phase0.ValidatorIndex
-		for _, index := range committee.Validators {
-			indexes = append(indexes, phase0.ValidatorIndex(index))
-		}
-		result[slot][spec.CommitteeIndex(committee.Index)] = indexes
 	}
 
 	return result, nil
 }
 
-type ChainBlock struct {
-	IsCanonical       bool
-	Slot              spec.Slot
-	ProposerIndex     phase0.ValidatorIndex
-	ChainAttestations []*ChainAttestation
-
-	BlockContainer    *eth2spec.VersionedSignedBeaconBlock
-	Attestations      []*phase0.Attestation
-	Deposits          []*phase0.Deposit
-	AttesterSlashings []*phase0.AttesterSlashing
-	ProposerSlashings []*phase0.ProposerSlashing
-	VoluntaryExits    []*phase0.SignedVoluntaryExit
-	Transactions      []types.Transaction
-}
-
-type ChainAttestation struct {
-	AggregationBits []byte
-	Slot            spec.Slot
-	InclusionSlot   spec.Slot
-	CommitteeIndex  spec.CommitteeIndex
-}
-
-func unmarshallTransactions(rlpEncodedTxs []bellatrix.Transaction) (txs []types.Transaction, err error) {
-	for _, rlpEncodedTx := range rlpEncodedTxs {
-		var tx types.Transaction
-		if err := tx.UnmarshalBinary(rlpEncodedTx); err != nil {
+// ListProposerDuties returns block proposers scheduled for epoch.
+// To improve performance, it has to narrow the set of validators for which it checks duties.
+func ListProposerDuties(ctx context.Context, beacon *beaconchain.BeaconChain, epoch phase0.Epoch, validators []phase0.ValidatorIndex) (map[spec.Slot]phase0.ValidatorIndex, error) {
+	result := make(map[spec.Slot]phase0.ValidatorIndex)
+	for chunk := range slices.Chunk(validators, 250) {
+		duties, err := beacon.GetProposerDuties(ctx, epoch, chunk)
+		if err != nil {
 			return nil, err
 		}
-		txs = append(txs, tx)
+
+		for _, duty := range duties {
+			result[spec.Slot(duty.Slot)] = phase0.ValidatorIndex(duty.ValidatorIndex)
+		}
 	}
-	return txs, nil
+	return result, nil
 }
 
-// ListBlocks lists blocks and attestations for a specific epoch.
-func ListBlocks(ctx context.Context, beacon *beaconchain.BeaconChain, epoch spec.Epoch) (map[spec.Slot][]*ChainBlock, error) {
-	blockHeadersProvider := beacon.Service().(eth2client.BeaconBlockHeadersProvider)
-	blockProvider := beacon.Service().(eth2client.SignedBeaconBlockProvider)
+func ListAttesterDuties(ctx context.Context, beacon *beaconchain.BeaconChain, epoch phase0.Epoch, validators []phase0.ValidatorIndex) (map[spec.Slot]Set[phase0.ValidatorIndex], error) {
+	duties, err := beacon.GetAttesterDuties(ctx, epoch, validators)
+	if err != nil {
+		return nil, err
+	}
 
-	result := make(map[spec.Slot][]*ChainBlock)
-	lastSlot := (epoch + 1) * spec.SLOTS_PER_EPOCH
-	for slot := epoch * spec.SLOTS_PER_EPOCH; slot < lastSlot; slot++ {
-		resp, err := blockHeadersProvider.BeaconBlockHeader(ctx, &api.BeaconBlockHeaderOpts{
-			Common: api.CommonOpts{},
-			Block:  fmt.Sprintf("%v", slot),
-		})
+	result := make(map[spec.Slot]Set[phase0.ValidatorIndex])
+	for _, duty := range duties {
+		slot := uint64(duty.Slot)
+		if _, ok := result[slot]; !ok {
+			result[slot] = NewSet[phase0.ValidatorIndex]()
+		}
+		result[slot].Add(duty.ValidatorIndex)
+	}
+	return result, nil
+}
 
-		if resp == nil {
+func ListEpochBlocks(ctx context.Context, beacon *beaconchain.BeaconChain, epoch spec.Epoch) (map[spec.Slot]*eth2spec.VersionedSignedBeaconBlock, error) {
+	result := make(map[spec.Slot]*eth2spec.VersionedSignedBeaconBlock, spec.SLOTS_PER_EPOCH)
+	low := spec.EpochLowestSlot(epoch)
+	high := spec.EpochHighestSlot(epoch)
+	for slot := low; slot <= high; slot++ {
+		block, err := beacon.GetBlock(ctx, phase0.Slot(slot))
+
+		if err != nil {
+			log.Error().Err(err)
+			continue
+		}
+
+		if block == nil {
 			// Missed slot
 			continue
 		}
-		log.Trace().Msgf("Block at slot %v root=%v", slot, hex.EncodeToString(resp.Data.Root[:]))
-		if err != nil {
-			log.Error().Err(err).Msg("BeaconBlockHeader")
-			continue
-		}
 
-		proposerIndex := phase0.ValidatorIndex(resp.Data.Header.Message.ProposerIndex)
-
-		signedBeaconBlock, err := blockProvider.SignedBeaconBlock(ctx, &api.SignedBeaconBlockOpts{
-			Block: strconv.FormatUint(uint64(resp.Data.Header.Message.Slot), 10),
-		})
-		if err != nil {
-			log.Error().Err(err).Msg("SignedBeaconBlock")
-			continue
-		}
-
-		blockAttestations, err := signedBeaconBlock.Data.Attestations()
-		if err != nil {
-			return nil, err
-		}
-		var chainAttestations []*ChainAttestation
-		for _, att := range blockAttestations {
-			chainAttestations = append(chainAttestations, &ChainAttestation{
-				AggregationBits: att.AggregationBits,
-				CommitteeIndex:  spec.CommitteeIndex(att.Data.Index),
-				Slot:            spec.Slot(att.Data.Slot),
-				InclusionSlot:   slot,
-			})
-		}
-
-		attesterSlashings, err := signedBeaconBlock.Data.AttesterSlashings()
-		if err != nil {
-			return nil, err
-		}
-
-		proposerSlashings, err := signedBeaconBlock.Data.ProposerSlashings()
-		if err != nil {
-			return nil, err
-		}
-
-		deposits, err := signedBeaconBlock.Data.Deposits()
-		if err != nil {
-			return nil, err
-		}
-
-		// https://github.com/ethereum/annotated-spec/blob/98c63ebcdfee6435e8b2a76e1fca8549722f6336/merge/beacon-chain.md#custom-types%C2%B6
-		//      [...] execution blocks are stored in SSZ form, but the
-		//      transactions inside them are encoded with RLP, and so
-		//      to software that only understands SSZ they are
-		//      presented as "opaque" byte arrays.
-		marshalledTransactions, err := signedBeaconBlock.Data.ExecutionTransactions()
-		if err != nil {
-			return nil, err
-		}
-		var unmarshalledTransactions []types.Transaction
-		if marshalledTransactions != nil {
-			txs, err := unmarshallTransactions(marshalledTransactions)
-			if err == nil {
-				unmarshalledTransactions = txs
-			}
-		}
-
-		result[slot] = append(result[slot], &ChainBlock{
-			IsCanonical:       resp.Data.Canonical,
-			ProposerIndex:     proposerIndex,
-			Slot:              slot,
-			AttesterSlashings: attesterSlashings,
-			ProposerSlashings: proposerSlashings,
-			BlockContainer:    signedBeaconBlock.Data,
-			ChainAttestations: chainAttestations,
-			Deposits:          deposits,
-			Transactions:      unmarshalledTransactions,
-		})
+		result[slot] = block
 	}
-
 	return result, nil
 }
 
@@ -331,7 +192,7 @@ func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg 
 	eventsHandlerFunc := func(event *v1.Event) {
 		headEvent := event.Data.(*v1.HeadEvent)
 		log.Trace().Msgf("New head slot %v block %v", headEvent.Slot, headEvent.Block.String())
-		thisEpoch := uint64(headEvent.Slot / spec.SLOTS_PER_EPOCH)
+		thisEpoch := spec.EpochFromSlot(uint64(headEvent.Slot))
 		if thisEpoch > lastEpoch {
 			log.Trace().Msgf("New epoch %v at slot %v", thisEpoch, headEvent.Slot)
 			epochsChan <- lastEpoch // send the epoch that has just ended
@@ -343,18 +204,6 @@ func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg 
 	err = eventsProvider.Events(ctx, []string{"head"}, eventsHandlerFunc)
 	Must(err)
 }
-
-type AttestationLoggingStatus struct {
-	IsAttested  bool
-	IsCanonical bool
-	IsPrinted   bool
-	Slot        spec.Slot
-}
-
-const (
-	// Attestation is assumed to be missed if it was not included within two consequent epochs.
-	missedAttestationDistance = 2
-)
 
 func LoadKeys(pubkeysFiles []string) ([]string, error) {
 	plainKeys := opts.Monitor.Pubkeys[:]
@@ -399,20 +248,6 @@ func LoadMEVRelays(mevRelaysFilePath string) ([]string, error) {
 func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.BeaconChain, plainKeys []string, mevRelays []string, wg *sync.WaitGroup, epochsChan chan spec.Epoch) {
 	defer wg.Done()
 
-	hashedKeys := make(map[string]interface{})
-	for _, pubkey := range plainKeys {
-		normalized := beaconchain.NormalizedPublicKey(pubkey)
-		hashedKeys[normalized] = nil
-	}
-	directIndexes, reversedIndexes, err := IndexPubkeys(ctx, beacon, plainKeys)
-	Must(err)
-
-	committees := make(map[spec.Slot]BeaconCommittees)
-	blocks := make(map[spec.Slot][]*ChainBlock)
-
-	includedAttestations := make(map[spec.Epoch]map[phase0.ValidatorIndex]*ChainAttestation)
-	attestedEpoches := make(map[spec.Epoch]map[phase0.ValidatorIndex]*AttestationLoggingStatus)
-
 	epochGauge := prometheus.NewGauge(
 		prometheus.GaugeOpts{
 			Namespace: "ETH2",
@@ -420,73 +255,6 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 			Help:      "Current justified epoch",
 		})
 	prometheus.MustRegister(epochGauge)
-
-	var epochMissedAttestationsTracker float64
-
-	epochMissedProposalsGauge := prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Namespace: "ETH2",
-			Name:      "epochMissedProposals",
-			Help:      "Proposals missed in current justified epoch",
-		})
-	prometheus.MustRegister(epochMissedProposalsGauge)
-
-	epochCanonicalProposalsGauge := prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Namespace: "ETH2",
-			Name:      "epochCanonicalProposals",
-			Help:      "Canonical proposals in current justified epoch",
-		})
-	prometheus.MustRegister(epochCanonicalProposalsGauge)
-
-	epochOrphanedProposalsGauge := prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Namespace: "ETH2",
-			Name:      "epochOrphanedProposals",
-			Help:      "Orphaned proposals in current justified epoch",
-		})
-	prometheus.MustRegister(epochOrphanedProposalsGauge)
-
-	epochMissedAttestationsGauge := prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Namespace: "ETH2",
-			Name:      "epochMissedAttestations",
-			Help:      "Attestations missed in current justified epoch",
-		})
-	prometheus.MustRegister(epochMissedAttestationsGauge)
-
-	lastEpochMissedAttestationsGauge := prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Namespace: "ETH2",
-			Name:      "lastEpochMissedAttestations",
-			Help:      "Attestations missed in last (n-1) justified epoch",
-		})
-	prometheus.MustRegister(lastEpochMissedAttestationsGauge)
-
-	epochCanonicalAttestationsGauge := prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Namespace: "ETH2",
-			// TODO(deni): Rename to epochCanonicalAttestations
-			Name: "epochServedAttestations",
-			Help: "Canonical attestations in current justified epoch",
-		})
-	prometheus.MustRegister(epochCanonicalAttestationsGauge)
-
-	epochOrphanedAttestationsGauge := prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Namespace: "ETH2",
-			Name:      "epochOrphanedAttestations",
-			Help:      "Attestations orphaned in current justified epoch",
-		})
-	prometheus.MustRegister(epochOrphanedAttestationsGauge)
-
-	epochDelayedAttestationsOverToleranceGauge := prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Namespace: "ETH2",
-			Name:      "epochDelayedAttestationsOverTolerance",
-			Help:      "Attestation delayed over tolerance distance setting in current justified epoch",
-		})
-	prometheus.MustRegister(epochDelayedAttestationsOverToleranceGauge)
 
 	lastProposedEmptyBlockSlotGauge := prometheus.NewGauge(
 		prometheus.GaugeOpts{
@@ -527,14 +295,6 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 			Help:      "Canonical proposals since monitoring started",
 		})
 	prometheus.MustRegister(totalCanonicalProposalsCounter)
-
-	totalOrphanedProposalsCounter := prometheus.NewCounter(
-		prometheus.CounterOpts{
-			Namespace: "ETH2",
-			Name:      "totalOrphanedProposals",
-			Help:      "Proposals orphaned since monitoring started",
-		})
-	prometheus.MustRegister(totalOrphanedProposalsCounter)
 
 	totalMissedAttestationsCounter := prometheus.NewCounter(
 		prometheus.CounterOpts{
@@ -585,14 +345,6 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 		})
 	prometheus.MustRegister(totalCanonicalAttestationsCounter)
 
-	totalOrphanedAttestationsCounter := prometheus.NewCounter(
-		prometheus.CounterOpts{
-			Namespace: "ETH2",
-			Name:      "totalOrphanedAttestations",
-			Help:      "Attestations orphaned since monitoring started",
-		})
-	prometheus.MustRegister(totalOrphanedAttestationsCounter)
-
 	totalDelayedAttestationsOverToleranceCounter := prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Namespace: "ETH2",
@@ -608,13 +360,6 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 		Buckets:   prometheus.LinearBuckets(1, 1, 32),
 	})
 	prometheus.MustRegister(canonicalAttestationDistances)
-	orphanedAttestationDistances := prometheus.NewHistogram(prometheus.HistogramOpts{
-		Namespace: "ETH2",
-		Name:      "orphanedAttestationDistances",
-		Help:      "Histogram of orphaned attestation distances.",
-		Buckets:   prometheus.LinearBuckets(1, 1, 32),
-	})
-	prometheus.MustRegister(orphanedAttestationDistances)
 
 	var pusher *push.Pusher
 	if opts.PushGatewayUrl != "" && opts.PushGatewayJob != "" {
@@ -623,25 +368,14 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 			epochGauge,
 
 			// Attestations
-			epochMissedAttestationsGauge,
-			lastEpochMissedAttestationsGauge,
-			epochCanonicalAttestationsGauge,
-			epochOrphanedAttestationsGauge,
-			epochDelayedAttestationsOverToleranceGauge,
 			totalMissedAttestationsCounter,
 			totalCanonicalAttestationsCounter,
-			totalOrphanedAttestationsCounter,
 			totalDelayedAttestationsOverToleranceCounter,
 			canonicalAttestationDistances,
-			orphanedAttestationDistances,
 
 			// Proposals
-			epochMissedProposalsGauge,
-			epochCanonicalProposalsGauge,
-			epochOrphanedProposalsGauge,
 			totalMissedProposalsCounter,
 			totalCanonicalProposalsCounter,
-			totalOrphanedProposalsCounter,
 			lastMissedProposalSlotGauge,
 			lastMissedProposalValidatorIndexGauge,
 
@@ -651,255 +385,201 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 		pusher = push.New(opts.PushGatewayUrl, opts.PushGatewayJob).Gatherer(registry)
 	}
 
-	for justifiedEpoch := range epochsChan {
-		// On every chain head update we:
-		// * Retrieve new committees for the new epoch,
-		// * Mark scheduled attestations as attested,
-		// * Check attestations if some of them too old.
-		log.Info().Msgf("New justified epoch %v", justifiedEpoch)
-		epochGauge.Set(float64(justifiedEpoch))
-		// Reset all metrics for new epoch.
-		epochMissedProposalsGauge.Set(float64(0))
-		epochCanonicalProposalsGauge.Set(float64(0))
-		epochOrphanedProposalsGauge.Set(float64(0))
-		lastEpochMissedAttestationsGauge.Set(epochMissedAttestationsTracker)
-		epochMissedAttestationsTracker = 0
-		epochMissedAttestationsGauge.Set(float64(0))
-		epochCanonicalAttestationsGauge.Set(float64(0))
-		epochOrphanedAttestationsGauge.Set(float64(0))
-		epochDelayedAttestationsOverToleranceGauge.Set(float64(0))
+	unfulfilledAttesterDuties := make(map[spec.Slot]Set[phase0.ValidatorIndex])
+	validatorFromIntraCommitteeValidator := make(map[spec.Slot]map[phase0.CommitteeIndex]map[int]phase0.ValidatorIndex)
+	for epoch := range epochsChan {
+		log.Debug().Msgf("New epoch %v", epoch)
+		epochGauge.Set(float64(epoch))
 
-		var err error
-		var epochCommittees map[spec.Slot]BeaconCommittees
-		var epochBlocks map[spec.Slot][]*ChainBlock
-		var proposals map[spec.Slot]phase0.ValidatorIndex
+		var validatorPubkeyFromIndex map[phase0.ValidatorIndex]string
+		Measure(func() {
+			var err error
+			validatorPubkeyFromIndex, err = ResolveValidatorKeys(ctx, beacon, plainKeys, epoch)
+			Must(err)
+		}, "ResolveValidatorKeys(epoch=%v)", epoch)
+
+		if len(validatorPubkeyFromIndex) == 0 {
+			panic("No active validators")
+		}
+		log.Debug().Msgf("Epoch %v validators: %v/%v", epoch, len(validatorPubkeyFromIndex), len(plainKeys))
+
+		Measure(func() {
+			epochCommittees, err := ListCommittees(ctx, beacon, spec.Epoch(epoch), NewSet(slices.Collect(maps.Keys(validatorPubkeyFromIndex))...))
+			Must(err)
+			for slot, slotGlobalFromIntra := range epochCommittees {
+				validatorFromIntraCommitteeValidator[slot] = slotGlobalFromIntra
+			}
+		}, "ListCommittees(epoch=%v)", epoch)
+		Measure(func() {
+			epochAttesterDuties, err := ListAttesterDuties(ctx, beacon, phase0.Epoch(epoch), slices.Collect(maps.Keys(validatorPubkeyFromIndex)))
+			Must(err)
+			for slot, attesters := range epochAttesterDuties {
+				unfulfilledAttesterDuties[slot] = attesters
+			}
+		}, "ListAttesterDuties(epoch=%v)", epoch)
+
+		var unfulfilledProposerDuties map[spec.Slot]phase0.ValidatorIndex
+		Measure(func() {
+			var err error
+			unfulfilledProposerDuties, err = ListProposerDuties(ctx, beacon, phase0.Epoch(epoch), slices.Collect(maps.Keys(validatorPubkeyFromIndex)))
+			Must(err)
+		}, "ListProposerDuties(epoch=%v)", epoch)
+
 		var bestBids map[spec.Slot]BidTrace
-
-		epoch := justifiedEpoch
-		Measure(func() {
-			epochCommittees, err = ListBeaconCommittees(ctx, beacon, spec.Epoch(epoch))
-			Must(err)
-		}, "ListBeaconCommittees(epoch=%v)", epoch)
-		Measure(func() {
-			epochBlocks, err = ListBlocks(ctx, beacon, spec.Epoch(epoch))
-			Must(err)
-		}, "ListBlocks(epoch=%v)", epoch)
-		Measure(func() {
-			proposals, err = ListProposers(ctx, beacon, phase0.Epoch(epoch), directIndexes, epochCommittees)
-			Must(err)
-		}, "ListProposers(epoch=%v)", epoch)
 		if len(mevRelays) > 0 {
 			Measure(func() {
-				bestBids, err = ListBestBids(ctx, 4*time.Second, mevRelays, epoch, reversedIndexes, proposals)
+				var err error
+				bestBids, err = ListBestBids(ctx, 4*time.Second, mevRelays, epoch, validatorPubkeyFromIndex, unfulfilledProposerDuties)
 				if err != nil {
 					log.Error().Stack().Err(err)
 					// Even if RequestEpochBidTraces() returned an error, there may still be valuable partial results in bidtraces, so process them!
 				}
-			}, "RequestEpochBidTraces(epoch=%v)", epoch)
+			}, "ListBestBids(epoch=%v)", epoch)
+			log.Debug().Msgf("Number of MEV boosts is %v", len(bestBids))
 		}
 
-		for slot, v := range epochCommittees {
-			committees[slot] = v
-		}
-		for slot, v := range epochBlocks {
-			blocks[slot] = v
-		}
+		var epochBlocks map[spec.Slot]*eth2spec.VersionedSignedBeaconBlock
+		Measure(func() {
+			var err error
+			epochBlocks, err = ListEpochBlocks(ctx, beacon, spec.Epoch(epoch))
+			Must(err)
+		}, "ListEpochBlocks(epoch=%v)", epoch)
 
-		attestingValidatorsCount := 0
-		for slot, slotCommittees := range epochCommittees {
-			var epoch spec.Epoch = slot / spec.SLOTS_PER_EPOCH
-			if _, ok := attestedEpoches[epoch]; !ok {
-				attestedEpoches[epoch] = make(map[phase0.ValidatorIndex]*AttestationLoggingStatus)
+		for _, block := range epochBlocks {
+			attestations, err := block.Attestations()
+			if err != nil {
+				log.Error().Err(err).Msg("Get block attestations")
+				continue
 			}
+			for _, attestation := range attestations {
+				for _, intraCommitteeValidatorIndex := range attestation.AggregationBits.BitIndices() {
+					attestedSlot := uint64(attestation.Data.Slot)
+					if _, ok := validatorFromIntraCommitteeValidator[attestedSlot]; !ok {
+						continue
+					}
+					if _, ok := validatorFromIntraCommitteeValidator[attestedSlot][attestation.Data.Index]; !ok {
+						continue
+					}
+					if _, ok := validatorFromIntraCommitteeValidator[attestedSlot][attestation.Data.Index][intraCommitteeValidatorIndex]; !ok {
+						continue
+					}
+					validatorIndex := validatorFromIntraCommitteeValidator[attestedSlot][attestation.Data.Index][intraCommitteeValidatorIndex]
 
-			for _, committee := range slotCommittees {
-				for _, index := range committee {
-					if _, ok := reversedIndexes[phase0.ValidatorIndex(index)]; ok {
-						attestingValidatorsCount++
+					unfulfilledAttesterDuties[attestedSlot].Remove(validatorIndex)
+					if unfulfilledAttesterDuties[attestedSlot].IsEmpty() {
+						delete(unfulfilledAttesterDuties, attestedSlot)
+					}
+					totalCanonicalAttestationsCounter.Inc()
+
+					blockSlot, err := block.Slot()
+					if err != nil {
+						log.Error().Err(err).Msg("Get block slot")
+						continue
 					}
 
-					if _, ok := attestedEpoches[epoch][index]; !ok {
-						attestedEpoches[epoch][index] = &AttestationLoggingStatus{
-							Slot: slot,
+					attestationDistance := blockSlot - phase0.Slot(attestedSlot)
+					// Take skipped slots into account
+					for s := attestedSlot; s < uint64(blockSlot); s++ {
+						if _, ok := epochBlocks[s]; !ok {
+							attestationDistance--
 						}
 					}
-				}
-			}
-		}
 
-		log.Info().Msgf("Number of attesting validators is %v", attestingValidatorsCount)
-
-		for _, slotBlocks := range blocks {
-			for _, chainBlock := range slotBlocks {
-				newDirectIndexes, newReversedIndexes, err := processDeposits(ctx, beacon, hashedKeys, chainBlock.Deposits)
-				Must(err)
-				maps.Copy(directIndexes, newDirectIndexes)
-				maps.Copy(reversedIndexes, newReversedIndexes)
-				for _, attestation := range chainBlock.ChainAttestations {
-					isCanonical := chainBlock.IsCanonical
-					// Every included attestation contains aggregation bits, i.e. a list of validators
-					// from which attestations were aggregated.
-					// We check if a validator was included in this list and, if not, such validator
-					// may have missed the attestation.
-					// The attestation of such validator might be aggregated and be included in later blocks.
-					bits := bitfield.Bitlist(attestation.AggregationBits)
-
-					var epoch spec.Epoch = attestation.Slot / spec.SLOTS_PER_EPOCH
-					committee := committees[attestation.Slot][attestation.CommitteeIndex]
-					for i, index := range committee {
-						if _, ok := includedAttestations[epoch]; !ok {
-							includedAttestations[epoch] = make(map[phase0.ValidatorIndex]*ChainAttestation)
-						}
-						if bits.BitAt(uint64(i)) {
-							attestedEpoch := attestedEpoches[epoch][index]
-							att := includedAttestations[epoch][index]
-							if att == nil || att.InclusionSlot > attestation.InclusionSlot || !attestedEpoch.IsCanonical {
-								includedAttestations[epoch][index] = attestation
-								attestedEpoches[epoch][index].IsAttested = true
-								attestedEpoches[epoch][index].IsCanonical = isCanonical
-							}
-						}
-					}
-				}
-			}
-		}
-
-		// Find timed-out attestations and missed blocks. Then, report it.
-		var epochsToGarbage []spec.Epoch
-		for epoch, validators := range attestedEpoches {
-			if epoch <= justifiedEpoch-missedAttestationDistance {
-				epochsToGarbage = append(epochsToGarbage, epoch)
-			}
-
-			for index, attStatus := range validators {
-				if _, ok := reversedIndexes[index]; !ok {
-					continue
-				}
-				if epoch <= justifiedEpoch-missedAttestationDistance && !attStatus.IsAttested && !attStatus.IsPrinted {
-					Report("❌ 🧾 Validator %v (%v) did not attest slot %v (epoch %v)", index, reversedIndexes[index], attStatus.Slot, epoch)
-					epochMissedAttestationsTracker += 1
-					epochMissedAttestationsGauge.Add(1)
-					totalMissedAttestationsCounter.Inc()
-					attStatus.IsPrinted = true
-				} else if att := includedAttestations[epoch][index]; att != nil && !attStatus.IsPrinted {
-					var absDistance spec.Slot = att.InclusionSlot - att.Slot
-					var optimalDistance spec.Slot = absDistance - 1
-					for e := att.Slot + 1; e < att.InclusionSlot; e++ {
-						if _, ok := blocks[e]; !ok {
-							optimalDistance--
-						}
-					}
-					distanceToCompare := optimalDistance
-					if opts.Monitor.UseAbsoluteDistance {
-						distanceToCompare = absDistance
-					}
-					if distanceToCompare > opts.Monitor.DistanceTolerance {
-						Report("⚠️ 🧾 Validator %v (%v) attested slot %v at slot %v, epoch %v, opt distance is %v, abs distance is %v",
-							index, reversedIndexes[index], att.Slot, att.InclusionSlot, epoch, optimalDistance, absDistance)
-						epochDelayedAttestationsOverToleranceGauge.Add(1)
+					if attestationDistance > 2 {
+						Report("⚠️ 🧾 Validator %v (%v) attested slot %v at slot %v, epoch %v, attestation distance is %v",
+							validatorIndex, validatorPubkeyFromIndex[validatorIndex], attestedSlot, blockSlot, epoch, attestationDistance)
 						totalDelayedAttestationsOverToleranceCounter.Inc()
 					} else if opts.Monitor.PrintSuccessful {
-						Info("✅ 🧾 Validator %v (%v) attested slot %v at slot %v, epoch %v, opt distance is %v, abs distance is %v",
-							index, reversedIndexes[index], att.Slot, att.InclusionSlot, epoch, optimalDistance, absDistance)
+						Info("✅ 🧾 Validator %v (%v) attested slot %v at slot %v, epoch %v", validatorIndex, validatorPubkeyFromIndex[validatorIndex], attestedSlot, blockSlot, epoch)
 					}
-					attStatus.IsPrinted = true
 
-					if attStatus.IsCanonical {
-						epochCanonicalAttestationsGauge.Add(1)
-						totalCanonicalAttestationsCounter.Inc()
-						canonicalAttestationDistances.Observe(float64(absDistance))
-					} else {
-						epochOrphanedAttestationsGauge.Add(1)
-						totalOrphanedAttestationsCounter.Inc()
-						orphanedAttestationDistances.Observe(float64(absDistance))
-					}
+					totalCanonicalAttestationsCounter.Inc()
+					canonicalAttestationDistances.Observe(float64(attestationDistance))
 				}
 			}
 		}
 
-		log.Info().Msgf("Number of epoch %v tracked proposals is %v", epoch, len(proposals))
-		for slot, validatorIndex := range proposals {
-			slotBlocks, ok := blocks[slot]
-			if !ok {
-				Report("❌ 🧱 Validator %v missed proposal at slot %v",
-					validatorIndex, slot)
-				epochMissedProposalsGauge.Add(1)
-				totalMissedProposalsCounter.Inc()
-				lastMissedProposalSlotGauge.Set(float64(slot))
-				lastMissedProposalValidatorIndexGauge.Set(float64(validatorIndex))
+		// Attestation is assumed to be missed if it was not included within
+		// current epoch or one after the current.  Normally, attestations should
+		// land in 1-2 *slots* after the attested one.
+		missedAttestationEpoch := epoch - 1
+		missedAttestationSlotHigh := spec.EpochHighestSlot(missedAttestationEpoch)
+		log.Debug().Msgf("Epoch %v unfulfilled attester duties: %v", epoch, unfulfilledAttesterDuties)
+		for _, slot := range slices.Sorted(maps.Keys(unfulfilledAttesterDuties)) {
+			if slot > missedAttestationSlotHigh {
 				break
 			}
-
-			for _, slotBlock := range slotBlocks {
-				if len(slotBlock.Transactions) != 0 {
-					continue
-				}
-				if slotBlock.ProposerIndex == validatorIndex {
-					validatorPublicKey := reversedIndexes[validatorIndex]
-					Report("⚠️ 🧱 Validator %v (%v) proposed a block containing no transactions at epoch %v and slot %v", validatorPublicKey, validatorIndex, justifiedEpoch, slot)
-					lastProposedEmptyBlockSlotGauge.Set(float64(slot))
-					totalProposedEmptyBlocksCounter.Inc()
-				}
+			for validatorIndex := range unfulfilledAttesterDuties[slot].Elems() {
+				Report("❌ 🧾 Validator %v (%v) did not attest slot %v (epoch %v)", validatorIndex, validatorPubkeyFromIndex[validatorIndex], slot, epoch)
+				totalMissedAttestationsCounter.Inc()
 			}
-
-			isCanonical := false
-			for _, slotBlock := range slotBlocks {
-				if slotBlock.ProposerIndex == validatorIndex && slotBlock.IsCanonical {
-					isCanonical = true
-					break
-				}
-			}
-			if isCanonical {
-				epochCanonicalProposalsGauge.Add(1)
-				totalCanonicalProposalsCounter.Inc()
-			} else {
-				Report("⚠️ 🧱 Validator %v has got block orphaned at epoch %v and slot %v",
-					validatorIndex, justifiedEpoch, slot)
-				epochOrphanedProposalsGauge.Add(1)
-				totalOrphanedProposalsCounter.Inc()
-			}
+			delete(unfulfilledAttesterDuties, slot)
+			delete(validatorFromIntraCommitteeValidator, slot)
 		}
 
-		if len(mevRelays) > 0 {
-			if len(proposals) > 0 {
-				log.Info().Msgf("Number of MEV boosts is %v", len(bestBids))
+		log.Debug().Msgf("Epoch %v proposer duties: %v", epoch, unfulfilledProposerDuties)
+		for slot, block := range epochBlocks {
+			validatorIndex, ok := unfulfilledProposerDuties[slot]
+			if !ok {
+				continue
 			}
-			for slot, validatorIndex := range proposals {
+			proposerIndex, err := block.ProposerIndex()
+			if err != nil {
+				log.Error().Msgf("Unable to obtain proposer index for block")
+				continue
+			}
+			if proposerIndex != validatorIndex {
+				log.Error().Msgf("Block proposed by an unexpected validator")
+				continue
+			}
+
+			totalCanonicalProposalsCounter.Inc()
+			delete(unfulfilledProposerDuties, slot)
+
+			txns, err := block.ExecutionTransactions()
+			if err != nil {
+				log.Error().Msgf("Unable to obtain execution layer transactions for block")
+				continue
+			}
+			if len(txns) == 0 {
+				validatorPublicKey := validatorPubkeyFromIndex[validatorIndex]
+				Report("⚠️ 🧱 Validator %v (%v) proposed a block containing no transactions at epoch %v and slot %v", validatorPublicKey, validatorIndex, epoch, slot)
+				lastProposedEmptyBlockSlotGauge.Set(float64(slot))
+				totalProposedEmptyBlocksCounter.Inc()
+			}
+
+			if len(mevRelays) > 0 {
+				execution_block_hash, err := block.ExecutionBlockHash()
+				if err != nil {
+					log.Error().Msgf("Failed to obtain execution block hash at slot %v", slot)
+					continue
+				}
 				trace, ok := bestBids[slot]
 				if !ok {
 					totalVanillaBlocksCounter.Inc()
 					lastVanillaBlockSlotGauge.Set(float64(slot))
 					lastVanillaBlockValidatorGauge.Set(float64(validatorIndex))
-					log.Error().Msgf("❌ Missing bid trace for proposal slot %v, validator %v (%v)", slot, validatorIndex, reversedIndexes[validatorIndex])
+					log.Error().Msgf("Missing bid trace for proposal slot %v, validator %v (%v)", slot, validatorIndex, validatorPubkeyFromIndex[validatorIndex])
 					continue
 				}
-				slotBlocks, ok := blocks[slot]
-				if !ok {
-					// Missed proposal reported earlier.  Don't report again
-					continue
-				}
-				for _, slotBlock := range slotBlocks {
-					if slotBlock.ProposerIndex != validatorIndex {
-						continue
-					}
-					execution_block_hash, err := slotBlock.BlockContainer.ExecutionBlockHash()
-					if err != nil {
-						log.Error().Msgf("❌ Failed to obtain execution block hash at slot %v", slot)
-						continue
-					}
-					if execution_block_hash.String() == trace.BlockHash {
-						// Our validator proposed the best block -- all good
-						if opts.Monitor.PrintSuccessful {
-							Info("✅ 🧾 Validator %v (%v) proposed optimal MEV execution block %v at slot %v, epoch %v", validatorIndex, reversedIndexes[validatorIndex], trace.BlockHash, slot, epoch)
-						}
-						continue
-					}
+				if execution_block_hash.String() != trace.BlockHash {
 					totalVanillaBlocksCounter.Inc()
 					lastVanillaBlockSlotGauge.Set(float64(slot))
 					lastVanillaBlockValidatorGauge.Set(float64(validatorIndex))
-					log.Error().Msgf("❌ Validator %v (%v) proposed a vanilla block %v at slot %v", validatorIndex, reversedIndexes[validatorIndex], execution_block_hash, slot)
+					log.Error().Msgf("Validator %v (%v) proposed a vanilla block %v at slot %v", validatorIndex, validatorPubkeyFromIndex[validatorIndex], execution_block_hash, slot)
+					continue
+				}
+				if opts.Monitor.PrintSuccessful {
+					// Our validator proposed the best block -- all good
+					Info("✅ 🧾 Validator %v (%v) proposed optimal MEV execution block %v at slot %v, epoch %v", validatorIndex, validatorPubkeyFromIndex[validatorIndex], trace.BlockHash, slot, epoch)
 				}
 			}
+		}
+		for slot, validatorIndex := range unfulfilledProposerDuties {
+			Report("❌ 🧱 Validator %v missed proposal at slot %v", validatorIndex, slot)
+			totalMissedProposalsCounter.Inc()
+			lastMissedProposalSlotGauge.Set(float64(slot))
+			lastMissedProposalValidatorIndexGauge.Set(float64(validatorIndex))
 		}
 
 		if pusher != nil {
@@ -907,35 +587,5 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 				log.Error().Msgf("❌ Could not push to Pushgateway: %v", err)
 			}
 		}
-
-		// Garbage collect unnessary epochs and blocks.
-		for _, epoch := range epochsToGarbage {
-			delete(attestedEpoches, epoch)
-			delete(includedAttestations, epoch)
-			for slot := epoch * spec.SLOTS_PER_EPOCH; slot < (epoch+1)*spec.SLOTS_PER_EPOCH; slot++ {
-				delete(blocks, slot)
-				delete(committees, slot)
-			}
-		}
-	}
-}
-
-// MonitorSlashings listens to the beacon chain head changes and checks for slashings.
-func MonitorSlashings(ctx context.Context, beacon *beaconchain.BeaconChain, wg *sync.WaitGroup, epochsChan chan spec.Epoch) {
-	defer wg.Done()
-
-	for justifiedEpoch := range epochsChan {
-		log.Info().Msgf("New justified epoch %v", justifiedEpoch)
-
-		var err error
-		var blocks map[spec.Slot][]*ChainBlock
-
-		epoch := justifiedEpoch
-		Measure(func() {
-			blocks, err = ListBlocks(ctx, beacon, spec.Epoch(epoch))
-			Must(err)
-		}, "ListBlocks(epoch=%v)", epoch)
-
-		ProcessSlashings(ctx, beacon, blocks)
 	}
 }
