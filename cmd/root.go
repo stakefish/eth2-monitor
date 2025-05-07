@@ -95,9 +95,8 @@ var (
 			pkg.Must(err)
 
 			var wg sync.WaitGroup
-			wg.Add(2)
+			wg.Add(1)
 			go pkg.SubscribeToEpochs(ctx, s, beacon, &wg)
-			go pkg.MonitorSlashings(ctx, beacon, &wg)
 			defer wg.Wait()
 		},
 	}

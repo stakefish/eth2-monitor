@@ -210,17 +210,17 @@ type ChainBlock struct {
 	BlockContainer    *eth2spec.VersionedSignedBeaconBlock
 	Attestations      []*phase0.Attestation
 	Deposits          []*phase0.Deposit
-	AttesterSlashings []*phase0.AttesterSlashing
+	AttesterSlashings []eth2spec.VersionedAttesterSlashing
 	ProposerSlashings []*phase0.ProposerSlashing
 	VoluntaryExits    []*phase0.SignedVoluntaryExit
 	Transactions      []types.Transaction
 }
 
 type ChainAttestation struct {
-	AggregationBits []byte
-	Slot            spec.Slot
-	InclusionSlot   spec.Slot
-	CommitteeIndex  spec.CommitteeIndex
+	AggregationBits bitfield.Bitlist
+	Slot            phase0.Slot
+	InclusionSlot   phase0.Slot
+	CommitteeIndex  phase0.CommitteeIndex
 }
 
 func unmarshallTransactions(rlpEncodedTxs []bellatrix.Transaction) (txs []types.Transaction, err error) {
@@ -273,11 +273,17 @@ func ListBlocks(ctx context.Context, beacon *beaconchain.BeaconChain, epoch spec
 		}
 		var chainAttestations []*ChainAttestation
 		for _, att := range blockAttestations {
+			agg, err := att.AggregationBits()
+			if err != nil {
+				log.Error().Err(err).Msg("AggregationBits")
+				continue
+			}
+
 			chainAttestations = append(chainAttestations, &ChainAttestation{
-				AggregationBits: att.AggregationBits,
-				CommitteeIndex:  spec.CommitteeIndex(att.Data.Index),
-				Slot:            spec.Slot(att.Data.Slot),
-				InclusionSlot:   slot,
+				AggregationBits: agg,
+				CommitteeIndex:  att.Electra.Data.Index,
+				Slot:            att.Electra.Data.Slot,
+				InclusionSlot:   phase0.Slot(slot),
 			})
 		}
 
@@ -367,7 +373,10 @@ func SubscribeToEpochs(ctx context.Context, s *prysmgrpc.Service, beacon *beacon
 	}
 
 	eventsProvider := beacon.Service().(eth2client.EventsProvider)
-	err = eventsProvider.Events(ctx, []string{"head"}, eventsHandlerFunc)
+	err = eventsProvider.Events(ctx, &api.EventsOpts{
+		Topics:  []string{"head"},
+		Handler: eventsHandlerFunc,
+	})
 	Must(err)
 }
 
@@ -677,20 +686,20 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 				maps.Copy(reversedIndexes, newReversedIndexes)
 				for _, attestation := range chainBlock.ChainAttestations {
 					isCanonical := chainBlock.IsCanonical
+
 					// Every included attestation contains aggregation bits, i.e. a list of validators
 					// from which attestations were aggregated.
 					// We check if a validator was included in this list and, if not, such validator
 					// may have missed the attestation.
 					// The attestation of such validator might be aggregated and be included in later blocks.
-					bits := bitfield.Bitlist(attestation.AggregationBits)
 
-					var epoch spec.Epoch = attestation.Slot / spec.SLOTS_PER_EPOCH
-					committee := committees[attestation.Slot][attestation.CommitteeIndex]
+					var epoch spec.Epoch = uint64(attestation.Slot) / spec.SLOTS_PER_EPOCH
+					committee := committees[uint64(attestation.Slot)][uint64(attestation.CommitteeIndex)]
 					for i, index := range committee {
 						if _, ok := includedAttestations[epoch]; !ok {
 							includedAttestations[epoch] = make(map[spec.ValidatorIndex]*ChainAttestation)
 						}
-						if bits.BitAt(uint64(i)) {
+						if attestation.AggregationBits.BitAt(uint64(i)) {
 							attestedEpoch := attestedEpoches[epoch][index]
 							att := includedAttestations[epoch][index]
 							if att == nil || att.InclusionSlot > attestation.InclusionSlot || !attestedEpoch.IsCanonical {
@@ -722,10 +731,10 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 					totalMissedAttestationsCounter.Inc()
 					attStatus.IsPrinted = true
 				} else if att := includedAttestations[epoch][index]; att != nil && !attStatus.IsPrinted {
-					var absDistance spec.Slot = att.InclusionSlot - att.Slot
-					var optimalDistance spec.Slot = absDistance - 1
+					var absDistance phase0.Slot = att.InclusionSlot - att.Slot
+					var optimalDistance phase0.Slot = absDistance - 1
 					for e := att.Slot + 1; e < att.InclusionSlot; e++ {
-						if _, ok := blocks[e]; !ok {
+						if _, ok := blocks[uint64(e)]; !ok {
 							optimalDistance--
 						}
 					}
@@ -733,7 +742,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 					if opts.Monitor.UseAbsoluteDistance {
 						distanceToCompare = absDistance
 					}
-					if distanceToCompare > opts.Monitor.DistanceTolerance {
+					if uint64(distanceToCompare) > opts.Monitor.DistanceTolerance {
 						Report("⚠️ 🧾 Validator %v attested epoch %v slot %v at slot %v, opt distance is %v, abs distance is %v",
 							index, epoch, att.Slot, att.InclusionSlot, optimalDistance, absDistance)
 						epochDelayedAttestationsOverToleranceGauge.Add(1)
@@ -812,26 +821,6 @@ func MonitorAttestationsAndProposals(ctx context.Context, s *prysmgrpc.Service, 
 				delete(committees, slot)
 			}
 		}
-	}
-}
-
-// MonitorSlashings listens to the beacon chain head changes and checks for slashings.
-func MonitorSlashings(ctx context.Context, beacon *beaconchain.BeaconChain, wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	for justifiedEpoch := range epochsChan {
-		log.Info().Msgf("New justified epoch %v", justifiedEpoch)
-
-		var err error
-		var blocks map[spec.Slot][]*ChainBlock
-
-		epoch := justifiedEpoch
-		Measure(func() {
-			blocks, err = ListBlocks(ctx, beacon, spec.Epoch(epoch))
-			Must(err)
-		}, "ListBlocks(epoch=%v)", epoch)
-
-		ProcessSlashings(ctx, blocks)
 	}
 }
 
