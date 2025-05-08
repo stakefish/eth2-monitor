@@ -19,8 +19,8 @@ import (
 	eth2client "github.com/attestantio/go-eth2-client"
 	"github.com/attestantio/go-eth2-client/api"
 	v1 "github.com/attestantio/go-eth2-client/api/v1"
-	eth2spec "github.com/attestantio/go-eth2-client/spec"
 	"github.com/attestantio/go-eth2-client/spec/bellatrix"
+	"github.com/attestantio/go-eth2-client/spec/electra"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/pkg/errors"
@@ -207,10 +207,10 @@ type ChainBlock struct {
 	ProposerIndex     spec.ValidatorIndex
 	ChainAttestations []*ChainAttestation
 
-	BlockContainer    *eth2spec.VersionedSignedBeaconBlock
+	BlockContainer    *electra.SignedBeaconBlock
 	Attestations      []*phase0.Attestation
 	Deposits          []*phase0.Deposit
-	AttesterSlashings []eth2spec.VersionedAttesterSlashing
+	AttesterSlashings []*electra.AttesterSlashing
 	ProposerSlashings []*phase0.ProposerSlashing
 	VoluntaryExits    []*phase0.SignedVoluntaryExit
 	Transactions      []types.Transaction
@@ -267,30 +267,18 @@ func ListBlocks(ctx context.Context, beacon *beaconchain.BeaconChain, epoch spec
 			continue
 		}
 
-		blockAttestations, err := signedBeaconBlock.Data.Attestations()
-		if err != nil {
-			return nil, err
-		}
+		blockAttestations := signedBeaconBlock.Data.Electra.Message.Body.Attestations
 		var chainAttestations []*ChainAttestation
 		for _, att := range blockAttestations {
-			agg, err := att.AggregationBits()
-			if err != nil {
-				log.Error().Err(err).Msg("AggregationBits")
-				continue
-			}
-
 			chainAttestations = append(chainAttestations, &ChainAttestation{
-				AggregationBits: agg,
-				CommitteeIndex:  att.Electra.Data.Index,
-				Slot:            att.Electra.Data.Slot,
+				AggregationBits: att.AggregationBits,
+				CommitteeIndex:  att.Data.Index,
+				Slot:            att.Data.Slot,
 				InclusionSlot:   phase0.Slot(slot),
 			})
 		}
 
-		attesterSlashings, err := signedBeaconBlock.Data.AttesterSlashings()
-		if err != nil {
-			return nil, err
-		}
+		attesterSlashings := signedBeaconBlock.Data.Electra.Message.Body.AttesterSlashings
 
 		proposerSlashings, err := signedBeaconBlock.Data.ProposerSlashings()
 		if err != nil {
@@ -325,7 +313,7 @@ func ListBlocks(ctx context.Context, beacon *beaconchain.BeaconChain, epoch spec
 			Slot:              slot,
 			AttesterSlashings: attesterSlashings,
 			ProposerSlashings: proposerSlashings,
-			BlockContainer:    signedBeaconBlock.Data,
+			BlockContainer:    signedBeaconBlock.Data.Electra,
 			ChainAttestations: chainAttestations,
 			Deposits:          deposits,
 			Transactions:      unmarshalledTransactions,
