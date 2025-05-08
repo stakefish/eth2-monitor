@@ -269,13 +269,22 @@ func ListBlocks(ctx context.Context, beacon *beaconchain.BeaconChain, epoch spec
 
 		blockAttestations := signedBeaconBlock.Data.Electra.Message.Body.Attestations
 		var chainAttestations []*ChainAttestation
+		// https://eips.ethereum.org/EIPS/eip-7549
+		const MAX_VALIDATORS_PER_COMMITTEE = 64 // valid for Electra
 		for _, att := range blockAttestations {
-			chainAttestations = append(chainAttestations, &ChainAttestation{
-				AggregationBits: att.AggregationBits,
-				CommitteeIndex:  att.Data.Index,
-				Slot:            att.Data.Slot,
-				InclusionSlot:   phase0.Slot(slot),
-			})
+			for commiteeIndex := range att.CommitteeBits.BitIndices() {
+				agg := bitfield.NewBitlist(MAX_VALIDATORS_PER_COMMITTEE)
+				for i := MAX_VALIDATORS_PER_COMMITTEE * commiteeIndex; i < (MAX_VALIDATORS_PER_COMMITTEE * (commiteeIndex + 1)); i++ {
+					bit := att.AggregationBits.BitAt(uint64(i))
+					agg.SetBitAt(uint64(i-(MAX_VALIDATORS_PER_COMMITTEE*commiteeIndex)), bit)
+				}
+				chainAttestations = append(chainAttestations, &ChainAttestation{
+					AggregationBits: agg,
+					CommitteeIndex:  phase0.CommitteeIndex(commiteeIndex),
+					Slot:            att.Data.Slot,
+					InclusionSlot:   phase0.Slot(slot),
+				})
+			}
 		}
 
 		attesterSlashings := signedBeaconBlock.Data.Electra.Message.Body.AttesterSlashings
