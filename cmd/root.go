@@ -110,8 +110,6 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&opts.MetricsPort, "metrics-port", "1337", "Metrics port to expose metrics for Prometheus")
 	rootCmd.PersistentFlags().StringVar(&opts.SlackURL, "slack-url", "", "Slack Webhook URL")
 	rootCmd.PersistentFlags().StringVar(&opts.SlackUsername, "slack-username", "", "Slack username")
-	rootCmd.PersistentFlags().StringVar(&opts.PushGatewayUrl, "pushgateway-url", "", "Pushgateway URL")
-	rootCmd.PersistentFlags().StringVar(&opts.PushGatewayJob, "pushgateway-job", "", "Pushgateway job")
 
 	rootCmd.AddCommand(versionCmd)
 

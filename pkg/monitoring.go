@@ -24,7 +24,6 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/push"
 )
 
 const VALIDATOR_INDEX_INVALID = ^spec.ValidatorIndex(0)
@@ -362,30 +361,6 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 	})
 	prometheus.MustRegister(canonicalAttestationDistances)
 
-	var pusher *push.Pusher
-	if opts.PushGatewayUrl != "" && opts.PushGatewayJob != "" {
-		registry := prometheus.NewRegistry()
-		registry.MustRegister(
-			epochGauge,
-
-			// Attestations
-			totalMissedAttestationsCounter,
-			totalCanonicalAttestationsCounter,
-			totalDelayedAttestationsOverToleranceCounter,
-			canonicalAttestationDistances,
-
-			// Proposals
-			totalMissedProposalsCounter,
-			totalCanonicalProposalsCounter,
-			lastMissedProposalSlotGauge,
-			lastMissedProposalValidatorIndexGauge,
-
-			// Misc
-			lastProposedEmptyBlockSlotGauge,
-		)
-		pusher = push.New(opts.PushGatewayUrl, opts.PushGatewayJob).Gatherer(registry)
-	}
-
 	unfulfilledAttesterDuties := make(map[spec.Slot]Set[phase0.ValidatorIndex])
 	committees := make(map[phase0.Slot]map[phase0.CommitteeIndex][]phase0.ValidatorIndex)
 	for epoch := range epochsChan {
@@ -575,12 +550,6 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 			totalMissedProposalsCounter.Inc()
 			lastMissedProposalSlotGauge.Set(float64(slot))
 			lastMissedProposalValidatorIndexGauge.Set(float64(validatorIndex))
-		}
-
-		if pusher != nil {
-			if err := pusher.Add(); err != nil {
-				log.Error().Msgf("❌ Could not push to Pushgateway: %v", err)
-			}
 		}
 	}
 }
