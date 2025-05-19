@@ -48,7 +48,7 @@ Sample response:
 
 ]
 */
-func requestBidTracesPage(client *http.Client, baseurl string, slot uint64, limit uint64) ([]BidTrace, error) {
+func requestBidTracesPage(client *http.Client, baseurl string, slot phase0.Slot, limit uint64) ([]BidTrace, error) {
 	var payloads []BidTrace
 
 	url := fmt.Sprintf("%s/relay/v1/data/bidtraces/proposer_payload_delivered?cursor=%d&limit=%d", baseurl, slot, limit)
@@ -83,15 +83,15 @@ func requestBidTracesPage(client *http.Client, baseurl string, slot uint64, limi
 	return payloads, nil
 }
 
-func requestRelayEpochBidTraces(timeout time.Duration, baseurl string, epoch spec.Epoch) ([]BidTrace, error) {
+func requestRelayEpochBidTraces(timeout time.Duration, baseurl string, epoch phase0.Epoch) ([]BidTrace, error) {
 	var bidtraces []BidTrace
 
 	client := http.Client{
 		Timeout: timeout,
 	}
 
-	epochHighestSlot := ((epoch + 1) * spec.SLOTS_PER_EPOCH) - 1
-	epochLowestSlot := epoch * spec.SLOTS_PER_EPOCH
+	epochHighestSlot := spec.EpochHighestSlot(epoch)
+	epochLowestSlot := spec.EpochLowestSlot(epoch)
 
 	slot := epochHighestSlot
 	for {
@@ -105,12 +105,12 @@ func requestRelayEpochBidTraces(timeout time.Duration, baseurl string, epoch spe
 
 		for _, trace := range page {
 			// We're only interested in bid traces from the requested epoch
-			if trace.Slot >= epochLowestSlot && trace.Slot <= epochHighestSlot {
+			if trace.Slot >= uint64(epochLowestSlot) && trace.Slot <= uint64(epochHighestSlot) {
 				bidtraces = append(bidtraces, trace)
 			}
 		}
 
-		if page[len(page)-1].Slot <= epochLowestSlot {
+		if page[len(page)-1].Slot <= uint64(epochLowestSlot) {
 			break
 		}
 
@@ -138,7 +138,7 @@ func exptBackoff(base time.Duration, maxExponent uint) iter.Seq[time.Duration] {
 	}
 }
 
-func requestEpochBidTraces(ctx context.Context, timeout time.Duration, relays []string, epoch uint64) (map[string][]BidTrace, error) {
+func requestEpochBidTraces(ctx context.Context, timeout time.Duration, relays []string, epoch phase0.Epoch) (map[string][]BidTrace, error) {
 	var mu sync.Mutex
 	result := make(map[string][]BidTrace)
 
@@ -176,15 +176,15 @@ func requestEpochBidTraces(ctx context.Context, timeout time.Duration, relays []
 	return result, g.Wait()
 }
 
-func ListBestBids(ctx context.Context, timeout time.Duration, relays []string, epoch uint64, validatorPubkeyFromIndex map[phase0.ValidatorIndex]string, proposals map[spec.Slot]phase0.ValidatorIndex) (map[spec.Slot]BidTrace, error) {
-	bestBids := make(map[spec.Slot]BidTrace)
+func ListBestBids(ctx context.Context, timeout time.Duration, relays []string, epoch phase0.Epoch, validatorPubkeyFromIndex map[phase0.ValidatorIndex]string, proposals map[phase0.Slot]phase0.ValidatorIndex) (map[phase0.Slot]BidTrace, error) {
+	bestBids := make(map[phase0.Slot]BidTrace)
 
 	perRelayBidTraces, err := requestEpochBidTraces(ctx, timeout, relays, epoch)
 
 	// Only keep bid traces whose proposer_pubkey matches any of the tracked validators
 	for _, traces := range perRelayBidTraces {
 		for _, trace := range traces {
-			proposerValidatorIndex, ok := proposals[trace.Slot]
+			proposerValidatorIndex, ok := proposals[phase0.Slot(trace.Slot)]
 			if !ok {
 				continue
 			}
@@ -192,12 +192,12 @@ func ListBestBids(ctx context.Context, timeout time.Duration, relays []string, e
 			if trace.ProposerPubkey != fmt.Sprintf("0x%s", proposerPubkey) {
 				continue
 			}
-			if _, ok := bestBids[trace.Slot]; ok {
-				if trace.Value > bestBids[trace.Slot].Value {
-					bestBids[trace.Slot] = trace
+			if _, ok := bestBids[phase0.Slot(trace.Slot)]; ok {
+				if trace.Value > bestBids[phase0.Slot(trace.Slot)].Value {
+					bestBids[phase0.Slot(trace.Slot)] = trace
 				}
 			} else {
-				bestBids[trace.Slot] = trace
+				bestBids[phase0.Slot(trace.Slot)] = trace
 			}
 		}
 	}

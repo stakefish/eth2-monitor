@@ -49,7 +49,7 @@ func NormalizedPublicKey(pubkey string) string {
 	return pubkey
 }
 
-func (beacon *BeaconChain) GetValidatorIndexes(ctx context.Context, pubkeys []string, epoch spec.Epoch) (map[string]phase0.ValidatorIndex, error) {
+func (beacon *BeaconChain) GetValidatorIndexes(ctx context.Context, pubkeys []string, epoch phase0.Epoch) (map[string]phase0.ValidatorIndex, error) {
 	provider := beacon.service.(eth2client.ValidatorsProvider)
 
 	blspubkeys := make([]phase0.BLSPubKey, len(pubkeys))
@@ -151,7 +151,7 @@ func (beacon *BeaconChain) GetAttesterDuties(ctx context.Context, epoch phase0.E
 func (beacon *BeaconChain) GetBeaconCommitees(ctx context.Context, epoch phase0.Epoch) ([]*apiv1.BeaconCommittee, error) {
 	provider := beacon.service.(eth2client.BeaconCommitteesProvider)
 	resp, err := provider.BeaconCommittees(ctx, &api.BeaconCommitteesOpts{
-		State: fmt.Sprintf("%d", spec.EpochLowestSlot(uint64(epoch))),
+		State: fmt.Sprintf("%d", spec.EpochLowestSlot(epoch)),
 		Epoch: &epoch,
 	})
 	if err != nil {
