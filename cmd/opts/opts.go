@@ -7,8 +7,6 @@ var (
 	MetricsPort    string
 	SlackURL       string
 	SlackUsername  string
-	PushGatewayUrl string
-	PushGatewayJob string
 
 	Monitor struct {
 		ReplayEpoch         []uint
