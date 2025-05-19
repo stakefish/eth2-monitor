@@ -7,13 +7,12 @@ import (
 	"path"
 	"time"
 
-	"eth2-monitor/spec"
-
+	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/rs/zerolog/log"
 )
 
 type CachedIndex struct {
-	Index spec.ValidatorIndex
+	Index phase0.ValidatorIndex
 	At    time.Time
 }
 

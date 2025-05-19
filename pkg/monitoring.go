@@ -26,11 +26,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-const VALIDATOR_INDEX_INVALID = ^spec.ValidatorIndex(0)
+const VALIDATOR_INDEX_INVALID = ^phase0.ValidatorIndex(0)
 
 // ResolveValidatorKeys transforms validator public keys into their indexes.
 // It returns direct and reversed mapping.
-func ResolveValidatorKeys(ctx context.Context, beacon *beaconchain.BeaconChain, plainPubKeys []string, epoch spec.Epoch) (map[phase0.ValidatorIndex]string, error) {
+func ResolveValidatorKeys(ctx context.Context, beacon *beaconchain.BeaconChain, plainPubKeys []string, epoch phase0.Epoch) (map[phase0.ValidatorIndex]string, error) {
 	normalized := make([]string, len(plainPubKeys))
 	for i, key := range plainPubKeys {
 		normalized[i] = beaconchain.NormalizedPublicKey(key)
@@ -44,7 +44,7 @@ func ResolveValidatorKeys(ctx context.Context, beacon *beaconchain.BeaconChain, 
 	for _, pubkey := range normalized {
 		if cachedIndex, ok := cache.Validators[pubkey]; ok && time.Until(cachedIndex.At) < 8*time.Hour {
 			if cachedIndex.Index != VALIDATOR_INDEX_INVALID {
-				result[phase0.ValidatorIndex(cachedIndex.Index)] = pubkey
+				result[cachedIndex.Index] = pubkey
 			}
 		} else {
 			uncached = append(uncached, pubkey)
@@ -61,7 +61,7 @@ func ResolveValidatorKeys(ctx context.Context, beacon *beaconchain.BeaconChain, 
 			if index, ok := partial[pubkey]; ok {
 				result[index] = pubkey
 				cache.Validators[pubkey] = CachedIndex{
-					Index: uint64(index),
+					Index: index,
 					At:    time.Now(),
 				}
 			} else {
@@ -78,7 +78,7 @@ func ResolveValidatorKeys(ctx context.Context, beacon *beaconchain.BeaconChain, 
 	return result, nil
 }
 
-func ListCommittees(ctx context.Context, beacon *beaconchain.BeaconChain, start spec.Epoch, end spec.Epoch) (map[phase0.Slot]map[phase0.CommitteeIndex][]phase0.ValidatorIndex, error) {
+func ListCommittees(ctx context.Context, beacon *beaconchain.BeaconChain, start phase0.Epoch, end phase0.Epoch) (map[phase0.Slot]map[phase0.CommitteeIndex][]phase0.ValidatorIndex, error) {
 	result := make(map[phase0.Slot]map[phase0.CommitteeIndex][]phase0.ValidatorIndex)
 
 	for epoch := start; epoch <= end; epoch++ {
@@ -100,8 +100,8 @@ func ListCommittees(ctx context.Context, beacon *beaconchain.BeaconChain, start 
 
 // ListProposerDuties returns block proposers scheduled for epoch.
 // To improve performance, it has to narrow the set of validators for which it checks duties.
-func ListProposerDuties(ctx context.Context, beacon *beaconchain.BeaconChain, epoch phase0.Epoch, validators []phase0.ValidatorIndex) (map[spec.Slot]phase0.ValidatorIndex, error) {
-	result := make(map[spec.Slot]phase0.ValidatorIndex)
+func ListProposerDuties(ctx context.Context, beacon *beaconchain.BeaconChain, epoch phase0.Epoch, validators []phase0.ValidatorIndex) (map[phase0.Slot]phase0.ValidatorIndex, error) {
+	result := make(map[phase0.Slot]phase0.ValidatorIndex)
 	for chunk := range slices.Chunk(validators, 250) {
 		duties, err := beacon.GetProposerDuties(ctx, epoch, chunk)
 		if err != nil {
@@ -109,21 +109,21 @@ func ListProposerDuties(ctx context.Context, beacon *beaconchain.BeaconChain, ep
 		}
 
 		for _, duty := range duties {
-			result[spec.Slot(duty.Slot)] = phase0.ValidatorIndex(duty.ValidatorIndex)
+			result[duty.Slot] = phase0.ValidatorIndex(duty.ValidatorIndex)
 		}
 	}
 	return result, nil
 }
 
-func ListAttesterDuties(ctx context.Context, beacon *beaconchain.BeaconChain, epoch phase0.Epoch, validators []phase0.ValidatorIndex) (map[spec.Slot]Set[phase0.ValidatorIndex], error) {
+func ListAttesterDuties(ctx context.Context, beacon *beaconchain.BeaconChain, epoch phase0.Epoch, validators []phase0.ValidatorIndex) (map[phase0.Slot]Set[phase0.ValidatorIndex], error) {
 	duties, err := beacon.GetAttesterDuties(ctx, epoch, validators)
 	if err != nil {
 		return nil, err
 	}
 
-	result := make(map[spec.Slot]Set[phase0.ValidatorIndex])
+	result := make(map[phase0.Slot]Set[phase0.ValidatorIndex])
 	for _, duty := range duties {
-		slot := uint64(duty.Slot)
+		slot := duty.Slot
 		if _, ok := result[slot]; !ok {
 			result[slot] = NewSet[phase0.ValidatorIndex]()
 		}
@@ -132,8 +132,8 @@ func ListAttesterDuties(ctx context.Context, beacon *beaconchain.BeaconChain, ep
 	return result, nil
 }
 
-func ListEpochBlocks(ctx context.Context, beacon *beaconchain.BeaconChain, epoch spec.Epoch) (map[spec.Slot]*electra.SignedBeaconBlock, error) {
-	result := make(map[spec.Slot]*electra.SignedBeaconBlock, spec.SLOTS_PER_EPOCH)
+func ListEpochBlocks(ctx context.Context, beacon *beaconchain.BeaconChain, epoch phase0.Epoch) (map[phase0.Slot]*electra.SignedBeaconBlock, error) {
+	result := make(map[phase0.Slot]*electra.SignedBeaconBlock, spec.SLOTS_PER_EPOCH)
 	low := spec.EpochLowestSlot(epoch)
 	high := spec.EpochHighestSlot(epoch)
 	for slot := low; slot <= high; slot++ {
@@ -157,25 +157,25 @@ func ListEpochBlocks(ctx context.Context, beacon *beaconchain.BeaconChain, epoch
 // SubscribeToEpochs subscribes to changings of the beacon chain head.
 // Note, if --replay-epoch or --since-epoch options passed, SubscribeToEpochs will not
 // listen to real-time changes.
-func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg *sync.WaitGroup, epochsChan chan spec.Epoch) {
+func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg *sync.WaitGroup, epochsChan chan phase0.Epoch) {
 	defer wg.Done()
 
 	finalityProvider := beacon.Service().(eth2client.FinalityProvider)
 	resp, err := finalityProvider.Finality(ctx, &api.FinalityOpts{State: "head"})
 	Must(err)
 
-	lastEpoch := uint64(resp.Data.Justified.Epoch)
+	lastEpoch := resp.Data.Justified.Epoch
 
 	if len(opts.Monitor.ReplayEpoch) > 0 {
 		for _, epoch := range opts.Monitor.ReplayEpoch {
-			epochsChan <- spec.Epoch(epoch)
+			epochsChan <- phase0.Epoch(epoch)
 		}
 		close(epochsChan)
 		return
 	}
 	if opts.Monitor.SinceEpoch != ^uint64(0) {
-		for epoch := opts.Monitor.SinceEpoch; epoch < lastEpoch; epoch++ {
-			epochsChan <- epoch
+		for epoch := opts.Monitor.SinceEpoch; phase0.Epoch(epoch) < lastEpoch; epoch++ {
+			epochsChan <- phase0.Epoch(epoch)
 		}
 		close(epochsChan)
 		return
@@ -184,10 +184,10 @@ func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg 
 	eventsHandlerFunc := func(event *v1.Event) {
 		headEvent := event.Data.(*v1.HeadEvent)
 		log.Trace().Msgf("New head slot %v block %v", headEvent.Slot, headEvent.Block.String())
-		thisEpoch := spec.EpochFromSlot(uint64(headEvent.Slot))
+		thisEpoch := spec.EpochFromSlot(headEvent.Slot)
 		if thisEpoch > lastEpoch {
 			log.Trace().Msgf("New epoch %v at slot %v", thisEpoch, headEvent.Slot)
-			epochsChan <- lastEpoch // send the epoch that has just ended
+			epochsChan <- phase0.Epoch(lastEpoch) // send the epoch that has just ended
 			lastEpoch = thisEpoch
 		}
 	}
@@ -244,7 +244,7 @@ func LoadMEVRelays(mevRelaysFilePath string) ([]string, error) {
 }
 
 // MonitorAttestationsAndProposals listens to the beacon chain head changes and checks new blocks and attestations.
-func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.BeaconChain, plainKeys []string, mevRelays []string, wg *sync.WaitGroup, epochsChan chan spec.Epoch) {
+func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.BeaconChain, plainKeys []string, mevRelays []string, wg *sync.WaitGroup, epochsChan chan phase0.Epoch) {
 	defer wg.Done()
 
 	epochGauge := prometheus.NewGauge(
@@ -361,7 +361,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 	})
 	prometheus.MustRegister(canonicalAttestationDistances)
 
-	unfulfilledAttesterDuties := make(map[spec.Slot]Set[phase0.ValidatorIndex])
+	unfulfilledAttesterDuties := make(map[phase0.Slot]Set[phase0.ValidatorIndex])
 	committees := make(map[phase0.Slot]map[phase0.CommitteeIndex][]phase0.ValidatorIndex)
 	for epoch := range epochsChan {
 		log.Debug().Msgf("New epoch %v", epoch)
@@ -381,7 +381,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 
 		Measure(func() {
 			var err error
-			committees, err = ListCommittees(ctx, beacon, spec.Epoch(epoch-1), spec.Epoch(epoch))
+			committees, err = ListCommittees(ctx, beacon, phase0.Epoch(epoch-1), phase0.Epoch(epoch))
 			Must(err)
 		}, "ListCommittees(epoch=%v)", epoch)
 		Measure(func() {
@@ -392,14 +392,14 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 			}
 		}, "ListAttesterDuties(epoch=%v)", epoch)
 
-		var unfulfilledProposerDuties map[spec.Slot]phase0.ValidatorIndex
+		var unfulfilledProposerDuties map[phase0.Slot]phase0.ValidatorIndex
 		Measure(func() {
 			var err error
 			unfulfilledProposerDuties, err = ListProposerDuties(ctx, beacon, phase0.Epoch(epoch), slices.Collect(maps.Keys(validatorPubkeyFromIndex)))
 			Must(err)
 		}, "ListProposerDuties(epoch=%v)", epoch)
 
-		var bestBids map[spec.Slot]BidTrace
+		var bestBids map[phase0.Slot]BidTrace
 		if len(mevRelays) > 0 {
 			Measure(func() {
 				var err error
@@ -412,10 +412,10 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 			log.Debug().Msgf("Number of MEV boosts is %v", len(bestBids))
 		}
 
-		var epochBlocks map[spec.Slot]*electra.SignedBeaconBlock
+		var epochBlocks map[phase0.Slot]*electra.SignedBeaconBlock
 		Measure(func() {
 			var err error
-			epochBlocks, err = ListEpochBlocks(ctx, beacon, spec.Epoch(epoch))
+			epochBlocks, err = ListEpochBlocks(ctx, beacon, phase0.Epoch(epoch))
 			Must(err)
 		}, "ListEpochBlocks(epoch=%v)", epoch)
 
@@ -447,7 +447,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 					committeeOffset += len(committee)
 				}
 
-				attestedSlot := uint64(attestation.Data.Slot)
+				attestedSlot := attestation.Data.Slot
 				for validatorIndex := range attesters {
 					if _, ok := validatorPubkeyFromIndex[validatorIndex]; !ok {
 						continue
@@ -463,8 +463,8 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 					earliestInclusionSlot := attestedSlot + 1
 					attestationDistance := block.Message.Slot - phase0.Slot(earliestInclusionSlot)
 					// Do not penalize validator for skipped slots
-					for s := earliestInclusionSlot; s < uint64(block.Message.Slot); s++ {
-						if _, ok := epochBlocks[s]; !ok {
+					for s := earliestInclusionSlot; s < block.Message.Slot; s++ {
+						if _, ok := epochBlocks[phase0.Slot(s)]; !ok {
 							attestationDistance--
 						}
 					}

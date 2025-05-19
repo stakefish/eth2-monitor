@@ -10,8 +10,8 @@ import (
 	"eth2-monitor/beaconchain"
 	"eth2-monitor/cmd/opts"
 	"eth2-monitor/pkg"
-	"eth2-monitor/spec"
 
+	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -74,7 +74,7 @@ var (
 				log.Info().Msgf("Loaded MEV relays: %v", len(mevRelays))
 			}
 
-			epochsChan := make(chan spec.Epoch)
+			epochsChan := make(chan phase0.Epoch)
 
 			var wg sync.WaitGroup
 			wg.Add(2)
