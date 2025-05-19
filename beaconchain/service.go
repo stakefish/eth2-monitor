@@ -12,7 +12,7 @@ import (
 	"github.com/attestantio/go-eth2-client/api"
 	apiv1 "github.com/attestantio/go-eth2-client/api/v1"
 	eth2http "github.com/attestantio/go-eth2-client/http"
-	eth2spec "github.com/attestantio/go-eth2-client/spec"
+	"github.com/attestantio/go-eth2-client/spec/electra"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 )
 
@@ -105,7 +105,7 @@ func (beacon *BeaconChain) GetBlockHeader(ctx context.Context, slot phase0.Slot)
 }
 
 // Get block payload
-func (beacon *BeaconChain) GetBlock(ctx context.Context, slot phase0.Slot) (*eth2spec.VersionedSignedBeaconBlock, error) {
+func (beacon *BeaconChain) GetBlock(ctx context.Context, slot phase0.Slot) (*electra.SignedBeaconBlock, error) {
 	provider := beacon.Service().(eth2client.SignedBeaconBlockProvider)
 
 	resp, err := provider.SignedBeaconBlock(ctx, &api.SignedBeaconBlockOpts{
@@ -121,7 +121,7 @@ func (beacon *BeaconChain) GetBlock(ctx context.Context, slot phase0.Slot) (*eth
 		return nil, nil
 	}
 
-	return resp.Data, err
+	return resp.Data.Electra, err
 }
 
 func (beacon *BeaconChain) GetProposerDuties(ctx context.Context, epoch phase0.Epoch, indices []phase0.ValidatorIndex) ([]*apiv1.ProposerDuty, error) {

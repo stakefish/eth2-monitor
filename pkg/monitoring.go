@@ -7,6 +7,7 @@ import (
 	"maps"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,7 +18,7 @@ import (
 	eth2client "github.com/attestantio/go-eth2-client"
 	"github.com/attestantio/go-eth2-client/api"
 	v1 "github.com/attestantio/go-eth2-client/api/v1"
-	eth2spec "github.com/attestantio/go-eth2-client/spec"
+	"github.com/attestantio/go-eth2-client/spec/electra"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
@@ -78,28 +79,20 @@ func ResolveValidatorKeys(ctx context.Context, beacon *beaconchain.BeaconChain, 
 	return result, nil
 }
 
-// Returns: per-slot mapping: validator index in the committee -> global validator index
-// The in-committee index is very small -- ~few hundred, whereas the global one is 6-digit+
-func ListCommittees(ctx context.Context, beacon *beaconchain.BeaconChain, epoch spec.Epoch, validators Set[phase0.ValidatorIndex]) (map[spec.Slot]map[phase0.CommitteeIndex]map[int]phase0.ValidatorIndex, error) {
-	committees, err := beacon.GetBeaconCommitees(ctx, phase0.Epoch(epoch))
-	if err != nil {
-		return nil, err
-	}
+func ListCommittees(ctx context.Context, beacon *beaconchain.BeaconChain, start spec.Epoch, end spec.Epoch) (map[phase0.Slot]map[phase0.CommitteeIndex][]phase0.ValidatorIndex, error) {
+	result := make(map[phase0.Slot]map[phase0.CommitteeIndex][]phase0.ValidatorIndex)
 
-	result := make(map[spec.Slot]map[phase0.CommitteeIndex]map[int]phase0.ValidatorIndex)
+	for epoch := start; epoch <= end; epoch++ {
+		resp, err := beacon.GetBeaconCommitees(ctx, phase0.Epoch(epoch))
+		if err != nil {
+			return nil, err
+		}
 
-	for _, committee := range committees {
-		slot := uint64(committee.Slot)
-		for intraCommitteeValidatorIndex, globalValidatorIndex := range committee.Validators {
-			if validators.Contains(globalValidatorIndex) {
-				if _, ok := result[slot]; !ok {
-					result[slot] = make(map[phase0.CommitteeIndex]map[int]phase0.ValidatorIndex)
-				}
-				if _, ok := result[slot][committee.Index]; !ok {
-					result[slot][committee.Index] = make(map[int]phase0.ValidatorIndex)
-				}
-				result[slot][committee.Index][intraCommitteeValidatorIndex] = globalValidatorIndex
+		for _, committee := range resp {
+			if _, ok := result[committee.Slot]; !ok {
+				result[committee.Slot] = make(map[phase0.CommitteeIndex][]phase0.ValidatorIndex)
 			}
+			result[committee.Slot][committee.Index] = committee.Validators
 		}
 	}
 
@@ -140,8 +133,8 @@ func ListAttesterDuties(ctx context.Context, beacon *beaconchain.BeaconChain, ep
 	return result, nil
 }
 
-func ListEpochBlocks(ctx context.Context, beacon *beaconchain.BeaconChain, epoch spec.Epoch) (map[spec.Slot]*eth2spec.VersionedSignedBeaconBlock, error) {
-	result := make(map[spec.Slot]*eth2spec.VersionedSignedBeaconBlock, spec.SLOTS_PER_EPOCH)
+func ListEpochBlocks(ctx context.Context, beacon *beaconchain.BeaconChain, epoch spec.Epoch) (map[spec.Slot]*electra.SignedBeaconBlock, error) {
+	result := make(map[spec.Slot]*electra.SignedBeaconBlock, spec.SLOTS_PER_EPOCH)
 	low := spec.EpochLowestSlot(epoch)
 	high := spec.EpochHighestSlot(epoch)
 	for slot := low; slot <= high; slot++ {
@@ -201,7 +194,10 @@ func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg 
 	}
 
 	eventsProvider := beacon.Service().(eth2client.EventsProvider)
-	err = eventsProvider.Events(ctx, []string{"head"}, eventsHandlerFunc)
+	err = eventsProvider.Events(ctx, &api.EventsOpts{
+		Topics:  []string{"head"},
+		Handler: eventsHandlerFunc,
+	})
 	Must(err)
 }
 
@@ -216,7 +212,11 @@ func LoadKeys(pubkeysFiles []string) ([]string, error) {
 
 		scanner := bufio.NewScanner(file)
 		for scanner.Scan() {
-			plainKeys = append(plainKeys, scanner.Text())
+			line := strings.TrimSpace(scanner.Text())
+			if len(line) == 0 {
+				continue
+			}
+			plainKeys = append(plainKeys, line)
 		}
 
 		err = scanner.Err()
@@ -387,7 +387,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 	}
 
 	unfulfilledAttesterDuties := make(map[spec.Slot]Set[phase0.ValidatorIndex])
-	validatorFromIntraCommitteeValidator := make(map[spec.Slot]map[phase0.CommitteeIndex]map[int]phase0.ValidatorIndex)
+	committees := make(map[phase0.Slot]map[phase0.CommitteeIndex][]phase0.ValidatorIndex)
 	for epoch := range epochsChan {
 		log.Debug().Msgf("New epoch %v", epoch)
 		epochGauge.Set(float64(epoch))
@@ -405,11 +405,9 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 		log.Debug().Msgf("Epoch %v validators: %v/%v", epoch, len(validatorPubkeyFromIndex), len(plainKeys))
 
 		Measure(func() {
-			epochCommittees, err := ListCommittees(ctx, beacon, spec.Epoch(epoch), NewSet(slices.Collect(maps.Keys(validatorPubkeyFromIndex))...))
+			var err error
+			committees, err = ListCommittees(ctx, beacon, spec.Epoch(epoch-1), spec.Epoch(epoch))
 			Must(err)
-			for slot, slotGlobalFromIntra := range epochCommittees {
-				validatorFromIntraCommitteeValidator[slot] = slotGlobalFromIntra
-			}
 		}, "ListCommittees(epoch=%v)", epoch)
 		Measure(func() {
 			epochAttesterDuties, err := ListAttesterDuties(ctx, beacon, phase0.Epoch(epoch), slices.Collect(maps.Keys(validatorPubkeyFromIndex)))
@@ -439,32 +437,46 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 			log.Debug().Msgf("Number of MEV boosts is %v", len(bestBids))
 		}
 
-		var epochBlocks map[spec.Slot]*eth2spec.VersionedSignedBeaconBlock
+		var epochBlocks map[spec.Slot]*electra.SignedBeaconBlock
 		Measure(func() {
 			var err error
 			epochBlocks, err = ListEpochBlocks(ctx, beacon, spec.Epoch(epoch))
 			Must(err)
 		}, "ListEpochBlocks(epoch=%v)", epoch)
 
+		// https://eips.ethereum.org/EIPS/eip-7549
 		for _, block := range epochBlocks {
-			attestations, err := block.Attestations()
-			if err != nil {
-				log.Error().Err(err).Msg("Get block attestations")
-				continue
-			}
-			for _, attestation := range attestations {
-				for _, intraCommitteeValidatorIndex := range attestation.AggregationBits.BitIndices() {
-					attestedSlot := uint64(attestation.Data.Slot)
-					if _, ok := validatorFromIntraCommitteeValidator[attestedSlot]; !ok {
+			for _, attestation := range block.Message.Body.Attestations {
+				attesters := NewSet[phase0.ValidatorIndex]()
+
+				committeesLen := 0
+				for _, committeeIndex := range attestation.CommitteeBits.BitIndices() {
+					committeesLen += len(committees[attestation.Data.Slot][phase0.CommitteeIndex(committeeIndex)])
+				}
+				if attestation.AggregationBits.Len() != uint64(committeesLen) {
+					log.Error().Msgf("Sanity check violation: AggregationBits length mismatch: computed=%v actual=%v", committeesLen, attestation.AggregationBits.Len())
+				}
+
+				// https://github.com/ethereum/consensus-specs/blob/8410e4fa376b74f550d5981f4c42d6593401046c/specs/electra/beacon-chain.md#new-get_committee_indices
+				committeeOffset := 0
+				for _, committeeIndex := range attestation.CommitteeBits.BitIndices() {
+					// https://github.com/ethereum/consensus-specs/blob/8410e4fa376b74f550d5981f4c42d6593401046c/specs/electra/beacon-chain.md#modified-get_attesting_indices
+					committee := committees[attestation.Data.Slot][phase0.CommitteeIndex(committeeIndex)]
+					for i, validatorCommitteeIndex := range committee {
+						if attestation.AggregationBits.BitAt(uint64(committeeOffset + i)) {
+							if _, ok := validatorPubkeyFromIndex[validatorCommitteeIndex]; ok {
+								attesters.Add(validatorCommitteeIndex)
+							}
+						}
+					}
+					committeeOffset += len(committee)
+				}
+
+				attestedSlot := uint64(attestation.Data.Slot)
+				for validatorIndex := range attesters {
+					if _, ok := validatorPubkeyFromIndex[validatorIndex]; !ok {
 						continue
 					}
-					if _, ok := validatorFromIntraCommitteeValidator[attestedSlot][attestation.Data.Index]; !ok {
-						continue
-					}
-					if _, ok := validatorFromIntraCommitteeValidator[attestedSlot][attestation.Data.Index][intraCommitteeValidatorIndex]; !ok {
-						continue
-					}
-					validatorIndex := validatorFromIntraCommitteeValidator[attestedSlot][attestation.Data.Index][intraCommitteeValidatorIndex]
 
 					unfulfilledAttesterDuties[attestedSlot].Remove(validatorIndex)
 					if unfulfilledAttesterDuties[attestedSlot].IsEmpty() {
@@ -472,17 +484,11 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 					}
 					totalCanonicalAttestationsCounter.Inc()
 
-					blockSlot, err := block.Slot()
-					if err != nil {
-						log.Error().Err(err).Msg("Get block slot")
-						continue
-					}
-
 					// https://www.attestant.io/posts/defining-attestation-effectiveness/
 					earliestInclusionSlot := attestedSlot + 1
-					attestationDistance := blockSlot - phase0.Slot(earliestInclusionSlot)
+					attestationDistance := block.Message.Slot - phase0.Slot(earliestInclusionSlot)
 					// Do not penalize validator for skipped slots
-					for s := earliestInclusionSlot; s < uint64(blockSlot); s++ {
+					for s := earliestInclusionSlot; s < uint64(block.Message.Slot); s++ {
 						if _, ok := epochBlocks[s]; !ok {
 							attestationDistance--
 						}
@@ -490,15 +496,16 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 
 					if attestationDistance > 2 {
 						Report("⚠️ 🧾 Validator %v (%v) attested slot %v at slot %v, epoch %v, attestation distance is %v",
-							validatorIndex, validatorPubkeyFromIndex[validatorIndex], attestedSlot, blockSlot, epoch, attestationDistance)
+							validatorIndex, validatorPubkeyFromIndex[validatorIndex], attestedSlot, block.Message.Slot, epoch, attestationDistance)
 						totalDelayedAttestationsOverToleranceCounter.Inc()
 					} else if opts.Monitor.PrintSuccessful {
-						Info("✅ 🧾 Validator %v (%v) attested slot %v at slot %v, epoch %v", validatorIndex, validatorPubkeyFromIndex[validatorIndex], attestedSlot, blockSlot, epoch)
+						Info("✅ 🧾 Validator %v (%v) attested slot %v at slot %v, epoch %v", validatorIndex, validatorPubkeyFromIndex[validatorIndex], attestedSlot, block.Message.Slot, epoch)
 					}
 
 					totalCanonicalAttestationsCounter.Inc()
 					canonicalAttestationDistances.Observe(float64(attestationDistance))
 				}
+
 			}
 		}
 
@@ -507,7 +514,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 		// land in 1-2 *slots* after the attested one.
 		missedAttestationEpoch := epoch - 1
 		missedAttestationSlotHigh := spec.EpochHighestSlot(missedAttestationEpoch)
-		log.Debug().Msgf("Epoch %v unfulfilled attester duties: %v", epoch, unfulfilledAttesterDuties)
+		log.Debug().Msgf("Unfulfilled attester duties at the end of epoch %v (map[SLOT]{VALIDATOR_INDEX...}): %v", epoch, unfulfilledAttesterDuties)
 		for _, slot := range slices.Sorted(maps.Keys(unfulfilledAttesterDuties)) {
 			if slot > missedAttestationSlotHigh {
 				break
@@ -517,21 +524,15 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 				totalMissedAttestationsCounter.Inc()
 			}
 			delete(unfulfilledAttesterDuties, slot)
-			delete(validatorFromIntraCommitteeValidator, slot)
 		}
 
-		log.Debug().Msgf("Epoch %v proposer duties: %v", epoch, unfulfilledProposerDuties)
+		log.Trace().Msgf("Epoch %v proposer duties: %v", epoch, unfulfilledProposerDuties)
 		for slot, block := range epochBlocks {
 			validatorIndex, ok := unfulfilledProposerDuties[slot]
 			if !ok {
 				continue
 			}
-			proposerIndex, err := block.ProposerIndex()
-			if err != nil {
-				log.Error().Msgf("Unable to obtain proposer index for block")
-				continue
-			}
-			if proposerIndex != validatorIndex {
+			if block.Message.ProposerIndex != validatorIndex {
 				log.Error().Msgf("Block proposed by an unexpected validator")
 				continue
 			}
@@ -539,12 +540,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 			totalCanonicalProposalsCounter.Inc()
 			delete(unfulfilledProposerDuties, slot)
 
-			txns, err := block.ExecutionTransactions()
-			if err != nil {
-				log.Error().Msgf("Unable to obtain execution layer transactions for block")
-				continue
-			}
-			if len(txns) == 0 {
+			if len(block.Message.Body.ExecutionPayload.Transactions) == 0 {
 				validatorPublicKey := validatorPubkeyFromIndex[validatorIndex]
 				Report("⚠️ 🧱 Validator %v (%v) proposed a block containing no transactions at epoch %v and slot %v", validatorPublicKey, validatorIndex, epoch, slot)
 				lastProposedEmptyBlockSlotGauge.Set(float64(slot))
@@ -552,11 +548,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 			}
 
 			if len(mevRelays) > 0 {
-				execution_block_hash, err := block.ExecutionBlockHash()
-				if err != nil {
-					log.Error().Msgf("Failed to obtain execution block hash at slot %v", slot)
-					continue
-				}
+				execution_block_hash := block.Message.Body.ExecutionPayload.BlockHash
 				trace, ok := bestBids[slot]
 				if !ok {
 					totalVanillaBlocksCounter.Inc()
