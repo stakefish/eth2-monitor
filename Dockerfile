@@ -1,4 +1,4 @@
-FROM golang:alpine3.19 as builder
+FROM golang:alpine3.19 AS builder
 
 RUN apk update && \
     apk add --no-cache ca-certificates && \
@@ -19,7 +19,7 @@ COPY . .
 RUN go build -o /go/bin/eth2-monitor -ldflags '-extldflags "-static"'
 
 # second step to build minimal image
-FROM scratch
+FROM alpine:3.21.3
 
 # add common trusted certificates from the build stage
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
