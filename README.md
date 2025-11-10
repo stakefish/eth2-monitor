@@ -20,7 +20,7 @@ You can use pre-built binaries from [the latest published release][releases link
 
 You can use pre-built containers from Github public container registry.
 
-```
+```shell
 docker pull ghcr.io/stakefish/eth2-monitor
 ```
 
@@ -28,7 +28,7 @@ docker pull ghcr.io/stakefish/eth2-monitor
 
 If you choose to build from sources, use this command:
 
-``` shell
+```shell
 make
 ```
 
@@ -48,13 +48,13 @@ Most of the commands (except for slashings) require you to provide public keys o
 
 You can specify the validator public keys in the command line using `-k` option. You can use `-k` multiple times to specify more than one keys. Example:
 
-``` shell
+```shell
 eth2-monitor cmd -k a1daf19d432507b70fd83214aba105be66c81307d22b3d242cdecaaca5528c1b1e5e3cac5ef7f9e7456e9d202d0ec887
 ```
 
 You can use a file if you have a bunch of keys. The format is very simple: one public key per line. Example:
 
-``` shell
+```shell
 echo a1daf19d432507b70fd83214aba105be66c81307d22b3d242cdecaaca5528c1b1e5e3cac5ef7f9e7456e9d202d0ec887 > keys.txt
 eth2-monitor cmd keys.txt
 ```
@@ -63,7 +63,7 @@ All public keys are hex-encoded and case-insensitive. On the first run, the moni
 
 Here's a more involved example invocation:
 
-```
+```shell
 ./bin/eth2-monitor monitor --beacon-chain-api <BEACON_NODE_IP_ADDRESS>:<BEACON_API_PORT> --print-successful --log-level trace <VALIDATOR_PUBLIC_KEYS_FILE_PATH>
 ```
 
@@ -75,7 +75,7 @@ You can monitor the attestation inclusion distance for your validators and alert
 
 Example:
 
-``` shell
+```shell
 eth2-monitor monitor -d 1 keys.txt
 ```
 
@@ -91,7 +91,7 @@ blocks against what MEV relays produced.  If it determines there was a missed op
 the `totalVanillaBlocks` Prometheus counter will be incremeneted and a log message produced.
 
 Format of the JSON file is as follows:
-```
+```json
 [
     "https://0x8b5d2e73e2a3a55c6c87b8b6eb92e0149a125c852751db1422fa951e42a09b82c142c3ea98d0d9930b056a3bc9896b8f@bloxroute.max-profit.blxrbdn.com",
     "https://0x98650451ba02064f7b000f5768cf0cf4d4e492317d82871bdc87ef841a0743f69f0f1eea11168503240ac35d101c9135@mainnet-relay.securerpc.com",
@@ -112,8 +112,25 @@ To use the reward, use `--show-reward`. Please, note, it's highly inaccurate, sl
 
 Example:
 
-``` shell
+```shell
 eth2-monitor slashings --slack-url https://hooks.slack.com/services/YOUR_TOKEN
 ```
 
 At stakefish, we use it for [our Twitter bot](https://twitter.com/Eth2SlashBot).
+
+## Test environment
+
+Set up a test environment by docker-comppose.
+
+```shell
+cd test-env
+cp env.example .env
+cp mev-relays.json.example mev-relays.json
+cp validators.txt.example validators.txt
+```
+
+Please modify `.env`, `mev-relays.json` and `validators.txt` if needed
+
+```shell
+docker-compose up
+```
