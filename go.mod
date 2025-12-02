@@ -1,25 +1,20 @@
 module eth2-monitor
 
-go 1.23
+go 1.23.0
 
 require (
-	github.com/attestantio/go-eth2-client v0.25.0
-	github.com/dghubble/go-twitter v0.0.0-20220716041154-837915ec2f79
-	github.com/dghubble/oauth1 v0.7.1
+	github.com/attestantio/go-eth2-client v0.27.1
 	github.com/mattn/go-isatty v0.0.20
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.16.0
 	github.com/rs/zerolog v1.32.0
 	github.com/spf13/cobra v1.5.0
 	golang.org/x/sync v0.11.0
-	golang.org/x/text v0.22.0
 )
 
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/cenkalti/backoff/v4 v4.1.3 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
-	github.com/dghubble/sling v1.4.0 // indirect
 	github.com/emicklei/dot v1.6.4 // indirect
 	github.com/fatih/color v1.16.0 // indirect
 	github.com/ferranbt/fastssz v0.1.4 // indirect
@@ -29,7 +24,6 @@ require (
 	github.com/goccy/go-yaml v1.9.2 // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/golang/snappy v0.0.5-0.20220116011046-fa5810519dcb // indirect
-	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/holiman/uint256 v1.3.2 // indirect
 	github.com/huandu/go-clone v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.0.1 // indirect

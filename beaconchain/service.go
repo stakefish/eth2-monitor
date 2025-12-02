@@ -121,7 +121,16 @@ func (beacon *BeaconChain) GetBlock(ctx context.Context, slot phase0.Slot) (*ele
 		return nil, nil
 	}
 
-	return resp.Data.Electra, err
+	// Check Fulu first (Fusaka), then fall back to Electra
+	// Both use the same electra.SignedBeaconBlock structure
+	if resp.Data.Fulu != nil {
+		return resp.Data.Fulu, nil
+	}
+	if resp.Data.Electra != nil {
+		return resp.Data.Electra, nil
+	}
+
+	return nil, fmt.Errorf("unsupported block version at slot %v: neither Fulu nor Electra block found", slot)
 }
 
 func (beacon *BeaconChain) GetProposerDuties(ctx context.Context, epoch phase0.Epoch, indices []phase0.ValidatorIndex) ([]*apiv1.ProposerDuty, error) {

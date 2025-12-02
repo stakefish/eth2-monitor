@@ -1,0 +1,17 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'eth2-monitor'
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+scrape_configs:
+  - job_name: 'eth2-monitor'
+    static_configs:
+      - targets: ['eth2-monitor:1337']
+        labels:
+          service: 'eth2-monitor'

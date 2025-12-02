@@ -457,7 +457,6 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 					if unfulfilledAttesterDuties[attestedSlot].IsEmpty() {
 						delete(unfulfilledAttesterDuties, attestedSlot)
 					}
-					totalCanonicalAttestationsCounter.Inc()
 
 					// https://www.attestant.io/posts/defining-attestation-effectiveness/
 					earliestInclusionSlot := attestedSlot + 1
@@ -480,7 +479,6 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 					totalCanonicalAttestationsCounter.Inc()
 					canonicalAttestationDistances.Observe(float64(attestationDistance))
 				}
-
 			}
 		}
 

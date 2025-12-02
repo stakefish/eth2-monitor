@@ -145,3 +145,8 @@ log.*
 *.txt
 eth2-monitor
 !LICENSE.txt
+
+# Test environment data and runtime files
+test-env/data/
+test-env/mev-relays.json
+test-env/.env
