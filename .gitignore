@@ -150,3 +150,6 @@ eth2-monitor
 test-env/data/
 test-env/mev-relays.json
 test-env/.env
+
+.idea
+.serena
