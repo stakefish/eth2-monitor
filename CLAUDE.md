@@ -24,12 +24,12 @@ cmd/
   opts/opts.go       -- Global CLI flag variables (package-level vars)
 beaconchain/
   service.go         -- BeaconChain wrapper around go-eth2-client (HTTP)
-  service_test.go    -- Table-driven tests with mock block provider
 spec/
   consts.go          -- SLOTS_PER_EPOCH=32, SECONDS_PER_SLOT=12
   routines.go        -- Epoch/Slot conversion helpers
 pkg/
   monitoring.go      -- Core monitoring loop: epoch subscription, attestation/proposal checks
+  metrics.go         -- MonitorMetrics struct + NewMonitorMetrics(reg) factory; all Prometheus metrics
   reporting.go       -- Slack webhook + log reporting (Report/Info helpers)
   mev.go             -- MEV relay bid trace fetching (concurrent, paginated)
   cache.go           -- Disk-backed JSON cache for validator index lookups
@@ -39,12 +39,6 @@ pkg/
 test-env/
   docker-compose.yml -- Full local stack: eth2-monitor + Prometheus + Grafana
   grafana/           -- Pre-provisioned dashboards and datasources
-docs/
-  BEACON_API_USAGE.md  -- Detailed beacon API endpoint reference
-  ERIGON_CAPLIN_COMPATIBILITY.md -- Erigon Caplin compatibility notes
-  METRICS.md           -- Prometheus metrics documentation
-  ETHEREUM_HARDFORK_TIMELINE.md -- Ethereum hard fork timeline reference
-  attestant/           -- Attestant research articles (attestation effectiveness, MEV, etc.)
 Dockerfile           -- Multi-stage: golang:alpine builder -> alpine runtime, non-root user
 Makefile             -- Targets: `all` -> `build` -> `eth2-monitor`; output: bin/eth2-monitor (with git version ldflags)
 .tool-versions       -- Go version pinning (golang 1.23.6)
@@ -113,6 +107,10 @@ cd test-env && docker compose up --build
 | `ETH2_lastProposedEmptyBlockSlot` | Gauge | Last empty block slot |
 | `ETH2_lastVanillaBlockSlot` | Gauge | Last vanilla block slot |
 | `ETH2_lastVanillaBlockValidator` | Gauge | Last vanilla block validator |
+| `ETH2_duplicateAttestationsSkipped` | Counter | Attestations skipped due to (validator, slot) dedup |
+| `ETH2_rawAttestationDistances` | Histogram | Raw attestation distances before dedup (buckets 1-32) |
+| `ETH2_missedSlotsInEpoch` | Gauge | Missed slots in current epoch |
+| `ETH2_crossEpochAttestations` | Counter | Attestations included in a different epoch than attested |
 
 ## Code Conventions
 
@@ -141,10 +139,11 @@ cd test-env && docker compose up --build
 - **Attestation tracking is memory-sensitive** -- was reworked 3 times to fix OOM (PR #20); be careful adding per-validator state
 - **Prometheus counter names must be unique** -- duplicate registration panics at startup (happened with `total_canonical_attestations_counter` in PR #26)
 - **Dead code in `cmd/opts/opts.go`** -- `Slashings` struct and `Monitor.DistanceTolerance`/`UseAbsoluteDistance` fields are unused; no CLI flags wired, no code references. Legacy/future placeholders.
-- **Test/impl mismatch in GetBlock** -- `beaconchain/service_test.go` has an "electra block" test case expecting success, but `service.go` only handles Fulu blocks; this test fails against current code
 
 ## Architecture
 
 The monitor runs two goroutines communicating via an epoch channel:
 1. **SubscribeToEpochs** -- Listens to beacon head SSE events, detects epoch boundaries, sends epoch numbers
-2. **MonitorAttestationsAndProposals** -- Per epoch: resolves validator keys, fetches duties/blocks/bids, checks attestation inclusion distances, detects missed/empty/vanilla proposals, reports and records metrics
+2. **MonitorAttestationsAndProposals** -- Per epoch: resolves validator keys, fetches duties/blocks/bids, delegates attestation checking to `processAttestations()`, detects missed/empty/vanilla proposals, reports and records metrics
+
+Metrics are encapsulated in `MonitorMetrics` struct (`pkg/metrics.go`), created via `NewMonitorMetrics(reg)` which accepts a `prometheus.Registerer` — production uses `DefaultRegisterer`, tests use isolated registries.
