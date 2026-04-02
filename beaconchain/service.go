@@ -84,26 +84,6 @@ func (beacon *BeaconChain) GetValidatorIndexes(ctx context.Context, pubkeys []st
 	return result, nil
 }
 
-// Resolve slot number to a block
-func (beacon *BeaconChain) GetBlockHeader(ctx context.Context, slot phase0.Slot) (*apiv1.BeaconBlockHeader, error) {
-	provider := beacon.Service().(eth2client.BeaconBlockHeadersProvider)
-
-	resp, err := provider.BeaconBlockHeader(ctx, &api.BeaconBlockHeaderOpts{
-		Block: fmt.Sprintf("%v", slot),
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	if resp == nil {
-		// Missed slot
-		return nil, nil
-	}
-
-	return resp.Data, err
-}
-
 // Get block payload
 func (beacon *BeaconChain) GetBlock(ctx context.Context, slot phase0.Slot) (*electra.SignedBeaconBlock, error) {
 	provider := beacon.Service().(eth2client.SignedBeaconBlockProvider)
@@ -153,14 +133,3 @@ func (beacon *BeaconChain) GetAttesterDuties(ctx context.Context, epoch phase0.E
 	return resp.Data, err
 }
 
-func (beacon *BeaconChain) GetBeaconCommitees(ctx context.Context, epoch phase0.Epoch) ([]*apiv1.BeaconCommittee, error) {
-	provider := beacon.service.(eth2client.BeaconCommitteesProvider)
-	resp, err := provider.BeaconCommittees(ctx, &api.BeaconCommitteesOpts{
-		State: fmt.Sprintf("%d", spec.EpochLowestSlot(epoch)),
-		Epoch: &epoch,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return resp.Data, err
-}

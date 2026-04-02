@@ -6,7 +6,7 @@ Ethereum 2.0 validator performance monitor built by stakefish. Tracks attestatio
 
 ## Tech Stack
 
-- **Language:** Go 1.23
+- **Language:** Go 1.25
 - **CLI Framework:** Cobra (`github.com/spf13/cobra`)
 - **Beacon Chain Client:** `github.com/attestantio/go-eth2-client` v0.27.1 (HTTP transport)
 - **Logging:** zerolog (`github.com/rs/zerolog`)
@@ -41,7 +41,7 @@ test-env/
   grafana/           -- Pre-provisioned dashboards and datasources
 Dockerfile           -- Multi-stage: golang:alpine builder -> alpine runtime, non-root user
 Makefile             -- Targets: `all` -> `build` -> `eth2-monitor`; output: bin/eth2-monitor (with git version ldflags)
-.tool-versions       -- Go version pinning (golang 1.23.6)
+.tool-versions       -- Go version pinning (golang 1.25.8)
 .github/workflows/   -- GitHub Actions CI (build, lint, Docker publish)
 .gitlab-ci.yml       -- Legacy GitLab CI config
 ```
@@ -81,13 +81,11 @@ cd test-env && docker compose up --build
 ## Beacon Chain API Endpoints Used
 
 1. `POST /eth/v1/beacon/states/{state}/validators` -- Resolve pubkeys to validator indices
-2. `GET /eth/v1/beacon/headers/{block_id}` -- Check slot proposed/missed
-3. `GET /eth/v2/beacon/blocks/{block_id}` -- Fetch full signed blocks (Fulu/Fusaka fork)
-4. `GET /eth/v1/validator/duties/proposer/{epoch}` -- Proposer duties
-5. `POST /eth/v1/validator/duties/attester/{epoch}` -- Attester duties
-6. `GET /eth/v1/beacon/states/{state}/committees` -- Committee compositions
-7. `GET /eth/v1/beacon/states/{state}/finality_checkpoints` -- Justified epoch seed
-8. `GET /eth/v1/events?topics=head` -- SSE head events for epoch detection
+2. `GET /eth/v2/beacon/blocks/{block_id}` -- Fetch full signed blocks (Fulu/Fusaka fork)
+3. `GET /eth/v1/validator/duties/proposer/{epoch}` -- Proposer duties
+4. `POST /eth/v1/validator/duties/attester/{epoch}` -- Attester duties (fetched for prev/curr/next epoch; also builds committee lookup)
+5. `GET /eth/v1/beacon/states/{state}/finality_checkpoints` -- Justified epoch seed
+6. `GET /eth/v1/events?topics=head` -- SSE head events for epoch detection
 
 ## Prometheus Metrics (namespace: ETH2)
 
@@ -119,7 +117,7 @@ cd test-env && docker compose up --build
 - **Logging:** zerolog with `Msgf()` printf-style (not structured fields); Trace for per-slot, Debug for per-epoch, Warn for user-facing reports
 - **Reporting:** `pkg.Report()` and `pkg.Info()` log + send to Slack webhook
 - **Config:** Global mutable vars in `cmd/opts` package (not dependency-injected)
-- **Go features:** Generics (Set[E]), Go 1.23 iterators (iter.Seq, slices.Chunk)
+- **Go features:** Generics (Set[E]), Go iterators (iter.Seq, slices.Chunk)
 - **Testing:** Table-driven tests with mock interfaces
 - **Fork target:** GetBlock expects Fulu/Fusaka fork blocks only; returns `*electra.SignedBeaconBlock` because Fulu reuses the Electra block structure in go-eth2-client
 

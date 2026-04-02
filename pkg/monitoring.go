@@ -106,26 +106,6 @@ func ResolveValidatorKeys(ctx context.Context, beacon *beaconchain.BeaconChain, 
 	return result, nil
 }
 
-func ListCommittees(ctx context.Context, beacon *beaconchain.BeaconChain, start phase0.Epoch, end phase0.Epoch) (map[phase0.Slot]map[phase0.CommitteeIndex][]phase0.ValidatorIndex, error) {
-	result := make(map[phase0.Slot]map[phase0.CommitteeIndex][]phase0.ValidatorIndex)
-
-	for epoch := start; epoch <= end; epoch++ {
-		resp, err := beacon.GetBeaconCommitees(ctx, phase0.Epoch(epoch))
-		if err != nil {
-			return nil, err
-		}
-
-		for _, committee := range resp {
-			if _, ok := result[committee.Slot]; !ok {
-				result[committee.Slot] = make(map[phase0.CommitteeIndex][]phase0.ValidatorIndex)
-			}
-			result[committee.Slot][committee.Index] = committee.Validators
-		}
-	}
-
-	return result, nil
-}
-
 // ListProposerDuties returns block proposers scheduled for epoch.
 // To improve performance, it has to narrow the set of validators for which it checks duties.
 func ListProposerDuties(ctx context.Context, beacon *beaconchain.BeaconChain, epoch phase0.Epoch, validators []phase0.ValidatorIndex) (map[phase0.Slot]phase0.ValidatorIndex, error) {
@@ -409,7 +389,6 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 		trackedValidators := slices.Collect(maps.Keys(validatorPubkeyFromIndex))
 
 		// Fetch attester duties for 3 epochs (prev, current, next) and build committee lookup.
-		// This replaces ListCommittees which fetched full committee lists (~30s).
 		// AttesterDuty provides CommitteeLength and ValidatorCommitteeIndex for tracked validators only.
 		var allDuties []*v1.AttesterDuty
 		var committeeLookup map[phase0.Slot]map[phase0.CommitteeIndex]*CommitteeInfo
