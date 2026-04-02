@@ -28,6 +28,34 @@ import (
 
 const VALIDATOR_INDEX_INVALID = ^phase0.ValidatorIndex(0)
 
+// CommitteeInfo holds the committee length and tracked validator positions.
+// Built from AttesterDuty responses instead of fetching full committee lists.
+type CommitteeInfo struct {
+	Length     uint64                              // committee size (from duty.CommitteeLength)
+	Validators map[uint64]phase0.ValidatorIndex    // position → validatorIndex (tracked only)
+}
+
+// BuildCommitteeLookup creates a sparse committee map from attester duties,
+// containing only tracked validators and their positions.
+func BuildCommitteeLookup(duties []*v1.AttesterDuty, tracked map[phase0.ValidatorIndex]string) map[phase0.Slot]map[phase0.CommitteeIndex]*CommitteeInfo {
+	result := make(map[phase0.Slot]map[phase0.CommitteeIndex]*CommitteeInfo)
+	for _, duty := range duties {
+		if _, ok := tracked[duty.ValidatorIndex]; !ok {
+			continue
+		}
+		if result[duty.Slot] == nil {
+			result[duty.Slot] = make(map[phase0.CommitteeIndex]*CommitteeInfo)
+		}
+		info := result[duty.Slot][duty.CommitteeIndex]
+		if info == nil {
+			info = &CommitteeInfo{Length: duty.CommitteeLength, Validators: make(map[uint64]phase0.ValidatorIndex)}
+			result[duty.Slot][duty.CommitteeIndex] = info
+		}
+		info.Validators[duty.ValidatorCommitteeIndex] = duty.ValidatorIndex
+	}
+	return result
+}
+
 // ResolveValidatorKeys transforms validator public keys into their indexes.
 // It returns direct and reversed mapping.
 func ResolveValidatorKeys(ctx context.Context, beacon *beaconchain.BeaconChain, plainPubKeys []string, epoch phase0.Epoch) (map[phase0.ValidatorIndex]string, error) {
@@ -252,7 +280,7 @@ func LoadMEVRelays(mevRelaysFilePath string) ([]string, error) {
 // processAttestations processes attestations from epoch blocks, updating metrics and unfulfilled duties.
 func processAttestations(
 	epochBlocks map[phase0.Slot]*electra.SignedBeaconBlock,
-	committees map[phase0.Slot]map[phase0.CommitteeIndex][]phase0.ValidatorIndex,
+	committeeLookup map[phase0.Slot]map[phase0.CommitteeIndex]*CommitteeInfo,
 	validatorPubkeyFromIndex map[phase0.ValidatorIndex]string,
 	unfulfilledAttesterDuties map[phase0.Slot]Set[phase0.ValidatorIndex],
 	m *MonitorMetrics,
@@ -272,27 +300,37 @@ func processAttestations(
 		for _, attestation := range block.Message.Body.Attestations {
 			attesters := NewSet[phase0.ValidatorIndex]()
 
-			committeesLen := 0
+			// Sanity check: verify AggregationBits length matches committee lengths.
+			// Only check when we have info for ALL committees in the attestation.
+			committeesLen := uint64(0)
+			allCommitteesKnown := true
 			for _, committeeIndex := range attestation.CommitteeBits.BitIndices() {
-				committeesLen += len(committees[attestation.Data.Slot][phase0.CommitteeIndex(committeeIndex)])
+				slotCommittees := committeeLookup[attestation.Data.Slot]
+				if info := slotCommittees[phase0.CommitteeIndex(committeeIndex)]; info != nil {
+					committeesLen += info.Length
+				} else {
+					allCommitteesKnown = false
+				}
 			}
-			if attestation.AggregationBits.Len() != uint64(committeesLen) {
+			if allCommitteesKnown && committeesLen > 0 && attestation.AggregationBits.Len() != committeesLen {
 				log.Error().Msgf("Sanity check violation: AggregationBits length mismatch: computed=%v actual=%v", committeesLen, attestation.AggregationBits.Len())
 			}
 
 			// https://github.com/ethereum/consensus-specs/blob/8410e4fa376b74f550d5981f4c42d6593401046c/specs/electra/beacon-chain.md#new-get_committee_indices
-			committeeOffset := 0
+			committeeOffset := uint64(0)
 			for _, committeeIndex := range attestation.CommitteeBits.BitIndices() {
+				slotCommittees := committeeLookup[attestation.Data.Slot]
+				info := slotCommittees[phase0.CommitteeIndex(committeeIndex)]
+				if info == nil {
+					continue // no tracked validators in this committee
+				}
 				// https://github.com/ethereum/consensus-specs/blob/8410e4fa376b74f550d5981f4c42d6593401046c/specs/electra/beacon-chain.md#modified-get_attesting_indices
-				committee := committees[attestation.Data.Slot][phase0.CommitteeIndex(committeeIndex)]
-				for i, validatorCommitteeIndex := range committee {
-					if attestation.AggregationBits.BitAt(uint64(committeeOffset + i)) {
-						if _, ok := validatorPubkeyFromIndex[validatorCommitteeIndex]; ok {
-							attesters.Add(validatorCommitteeIndex)
-						}
+				for pos, validatorIndex := range info.Validators {
+					if attestation.AggregationBits.BitAt(committeeOffset + pos) {
+						attesters.Add(validatorIndex)
 					}
 				}
-				committeeOffset += len(committee)
+				committeeOffset += info.Length
 			}
 
 			attestedSlot := attestation.Data.Slot
@@ -317,6 +355,7 @@ func processAttestations(
 				// https://www.attestant.io/posts/defining-attestation-effectiveness/
 				earliestInclusionSlot := attestedSlot + 1
 				attestationDistance := block.Message.Slot - phase0.Slot(earliestInclusionSlot)
+				m.RawAttestationDistances.Observe(float64(attestationDistance))
 				// Do not penalize validator for skipped slots
 				for s := earliestInclusionSlot; s < block.Message.Slot; s++ {
 					if _, ok := epochBlocks[phase0.Slot(s)]; !ok {
@@ -351,7 +390,6 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 	m := NewMonitorMetrics(prometheus.DefaultRegisterer)
 
 	unfulfilledAttesterDuties := make(map[phase0.Slot]Set[phase0.ValidatorIndex])
-	committees := make(map[phase0.Slot]map[phase0.CommitteeIndex][]phase0.ValidatorIndex)
 	for epoch := range epochsChan {
 		log.Debug().Msgf("New epoch %v", epoch)
 		m.Epoch.Set(float64(epoch))
@@ -368,17 +406,29 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 		}
 		log.Debug().Msgf("Epoch %v validators: %v/%v", epoch, len(validatorPubkeyFromIndex), len(plainKeys))
 
+		trackedValidators := slices.Collect(maps.Keys(validatorPubkeyFromIndex))
+
+		// Fetch attester duties for 3 epochs (prev, current, next) and build committee lookup.
+		// This replaces ListCommittees which fetched full committee lists (~30s).
+		// AttesterDuty provides CommitteeLength and ValidatorCommitteeIndex for tracked validators only.
+		var allDuties []*v1.AttesterDuty
+		var committeeLookup map[phase0.Slot]map[phase0.CommitteeIndex]*CommitteeInfo
 		Measure(func() {
-			var err error
-			committees, err = ListCommittees(ctx, beacon, phase0.Epoch(epoch-1), phase0.Epoch(epoch))
-			Must(err)
-		}, "ListCommittees(epoch=%v)", epoch)
-		Measure(func() {
-			epochAttesterDuties, err := ListAttesterDuties(ctx, beacon, phase0.Epoch(epoch), slices.Collect(maps.Keys(validatorPubkeyFromIndex)))
-			Must(err)
-			for slot, attesters := range epochAttesterDuties {
-				unfulfilledAttesterDuties[slot] = attesters
+			for e := epoch - 1; e <= epoch+1; e++ {
+				duties, err := beacon.GetAttesterDuties(ctx, phase0.Epoch(e), trackedValidators)
+				Must(err)
+				allDuties = append(allDuties, duties...)
 			}
+			// Build unfulfilled duties for current epoch only
+			for _, duty := range allDuties {
+				if spec.EpochFromSlot(duty.Slot) == epoch {
+					if _, ok := unfulfilledAttesterDuties[duty.Slot]; !ok {
+						unfulfilledAttesterDuties[duty.Slot] = NewSet[phase0.ValidatorIndex]()
+					}
+					unfulfilledAttesterDuties[duty.Slot].Add(duty.ValidatorIndex)
+				}
+			}
+			committeeLookup = BuildCommitteeLookup(allDuties, validatorPubkeyFromIndex)
 		}, "ListAttesterDuties(epoch=%v)", epoch)
 
 		var unfulfilledProposerDuties map[phase0.Slot]phase0.ValidatorIndex
@@ -408,7 +458,16 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 			Must(err)
 		}, "ListEpochBlocks(epoch=%v)", epoch)
 
-		processAttestations(epochBlocks, committees, validatorPubkeyFromIndex, unfulfilledAttesterDuties, m, epoch)
+		// Count missed slots within the epoch range (exclude look-ahead blocks)
+		epochSlotsWithBlocks := 0
+		for slot := spec.EpochLowestSlot(epoch); slot <= spec.EpochHighestSlot(epoch); slot++ {
+			if _, ok := epochBlocks[slot]; ok {
+				epochSlotsWithBlocks++
+			}
+		}
+		m.MissedSlotsInEpoch.Set(float64(spec.SLOTS_PER_EPOCH - epochSlotsWithBlocks))
+
+		processAttestations(epochBlocks, committeeLookup, validatorPubkeyFromIndex, unfulfilledAttesterDuties, m, epoch)
 
 		// Attestation is assumed to be missed if it was not included within
 		// current epoch or one after the current.  Normally, attestations should
