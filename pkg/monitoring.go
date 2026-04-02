@@ -136,11 +136,17 @@ func ListEpochBlocks(ctx context.Context, beacon *beaconchain.BeaconChain, epoch
 	result := make(map[phase0.Slot]*electra.SignedBeaconBlock, spec.SLOTS_PER_EPOCH)
 	low := spec.EpochLowestSlot(epoch)
 	high := spec.EpochHighestSlot(epoch)
-	for slot := low; slot <= high; slot++ {
+
+	// H09 fix: fetch a few slots past the epoch end to catch cross-epoch attestations.
+	// Attestations from the last slots of an epoch are routinely included in the first
+	// slots of the next epoch. Without this look-ahead, those attestations appear "missed".
+	lookAhead := phase0.Slot(4)
+
+	for slot := low; slot <= high+lookAhead; slot++ {
 		block, err := beacon.GetBlock(ctx, phase0.Slot(slot))
 
 		if err != nil {
-			log.Error().Err(err)
+			log.Error().Err(err).Msg("failed to fetch block")
 			continue
 		}
 
@@ -243,129 +249,112 @@ func LoadMEVRelays(mevRelaysFilePath string) ([]string, error) {
 	return relays, nil
 }
 
+// processAttestations processes attestations from epoch blocks, updating metrics and unfulfilled duties.
+func processAttestations(
+	epochBlocks map[phase0.Slot]*electra.SignedBeaconBlock,
+	committees map[phase0.Slot]map[phase0.CommitteeIndex][]phase0.ValidatorIndex,
+	validatorPubkeyFromIndex map[phase0.ValidatorIndex]string,
+	unfulfilledAttesterDuties map[phase0.Slot]Set[phase0.ValidatorIndex],
+	m *MonitorMetrics,
+	epoch phase0.Epoch,
+) {
+	// Track seen (validator, slot) pairs for dedup (H11 fix)
+	type validatorSlotPair struct {
+		Validator phase0.ValidatorIndex
+		Slot      phase0.Slot
+	}
+	seenAttestations := make(map[validatorSlotPair]bool)
+
+	// H11 fix: iterate blocks in sorted slot order so earliest inclusion is processed first
+	// https://eips.ethereum.org/EIPS/eip-7549
+	for _, slot := range slices.Sorted(maps.Keys(epochBlocks)) {
+		block := epochBlocks[slot]
+		for _, attestation := range block.Message.Body.Attestations {
+			attesters := NewSet[phase0.ValidatorIndex]()
+
+			committeesLen := 0
+			for _, committeeIndex := range attestation.CommitteeBits.BitIndices() {
+				committeesLen += len(committees[attestation.Data.Slot][phase0.CommitteeIndex(committeeIndex)])
+			}
+			if attestation.AggregationBits.Len() != uint64(committeesLen) {
+				log.Error().Msgf("Sanity check violation: AggregationBits length mismatch: computed=%v actual=%v", committeesLen, attestation.AggregationBits.Len())
+			}
+
+			// https://github.com/ethereum/consensus-specs/blob/8410e4fa376b74f550d5981f4c42d6593401046c/specs/electra/beacon-chain.md#new-get_committee_indices
+			committeeOffset := 0
+			for _, committeeIndex := range attestation.CommitteeBits.BitIndices() {
+				// https://github.com/ethereum/consensus-specs/blob/8410e4fa376b74f550d5981f4c42d6593401046c/specs/electra/beacon-chain.md#modified-get_attesting_indices
+				committee := committees[attestation.Data.Slot][phase0.CommitteeIndex(committeeIndex)]
+				for i, validatorCommitteeIndex := range committee {
+					if attestation.AggregationBits.BitAt(uint64(committeeOffset + i)) {
+						if _, ok := validatorPubkeyFromIndex[validatorCommitteeIndex]; ok {
+							attesters.Add(validatorCommitteeIndex)
+						}
+					}
+				}
+				committeeOffset += len(committee)
+			}
+
+			attestedSlot := attestation.Data.Slot
+			for validatorIndex := range attesters {
+				if _, ok := validatorPubkeyFromIndex[validatorIndex]; !ok {
+					continue
+				}
+
+				// H11 fix: skip duplicate (validator, slot) pairs
+				pair := validatorSlotPair{Validator: validatorIndex, Slot: attestedSlot}
+				if seenAttestations[pair] {
+					m.DuplicateAttestationsSkipped.Inc()
+					continue
+				}
+				seenAttestations[pair] = true
+
+				unfulfilledAttesterDuties[attestedSlot].Remove(validatorIndex)
+				if unfulfilledAttesterDuties[attestedSlot].IsEmpty() {
+					delete(unfulfilledAttesterDuties, attestedSlot)
+				}
+
+				// https://www.attestant.io/posts/defining-attestation-effectiveness/
+				earliestInclusionSlot := attestedSlot + 1
+				attestationDistance := block.Message.Slot - phase0.Slot(earliestInclusionSlot)
+				// Do not penalize validator for skipped slots
+				for s := earliestInclusionSlot; s < block.Message.Slot; s++ {
+					if _, ok := epochBlocks[phase0.Slot(s)]; !ok {
+						attestationDistance--
+					}
+				}
+
+				if attestationDistance > 2 {
+					Report("⚠️ 🧾 Validator %v (%v) attested slot %v at slot %v, epoch %v, attestation distance is %v",
+						validatorIndex, validatorPubkeyFromIndex[validatorIndex], attestedSlot, block.Message.Slot, epoch, attestationDistance)
+					m.TotalDelayedOverTolerance.Inc()
+				} else if opts.Monitor.PrintSuccessful {
+					Info("✅ 🧾 Validator %v (%v) attested slot %v at slot %v, epoch %v", validatorIndex, validatorPubkeyFromIndex[validatorIndex], attestedSlot, block.Message.Slot, epoch)
+				}
+
+				m.TotalCanonicalAttestations.Inc()
+				m.CanonicalAttestationDistances.Observe(float64(attestationDistance))
+
+				// H09 fix: track cross-epoch attestations
+				if spec.EpochFromSlot(block.Message.Slot) != spec.EpochFromSlot(attestedSlot) {
+					m.CrossEpochAttestations.Inc()
+				}
+			}
+		}
+	}
+}
+
 // MonitorAttestationsAndProposals listens to the beacon chain head changes and checks new blocks and attestations.
 func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.BeaconChain, plainKeys []string, mevRelays []string, wg *sync.WaitGroup, epochsChan chan phase0.Epoch) {
 	defer wg.Done()
 
-	epochGauge := prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Namespace: "ETH2",
-			Name:      "epoch",
-			Help:      "Current justified epoch",
-		})
-	prometheus.MustRegister(epochGauge)
-
-	lastProposedEmptyBlockSlotGauge := prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Namespace: "ETH2",
-			Name:      "lastProposedEmptyBlockSlot",
-			Help:      "Slot of the last proposed block containing no transactions",
-		})
-	prometheus.MustRegister(lastProposedEmptyBlockSlotGauge)
-
-	totalMissedProposalsCounter := prometheus.NewCounter(
-		prometheus.CounterOpts{
-			Namespace: "ETH2",
-			Name:      "totalMissedProposals",
-			Help:      "Proposals missed since monitoring started",
-		})
-	prometheus.MustRegister(totalMissedProposalsCounter)
-
-	lastMissedProposalSlotGauge := prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Namespace: "ETH2",
-			Name:      "lastMissedProposalSlot",
-			Help:      "Slot of the last missed proposal",
-		})
-	prometheus.MustRegister(lastMissedProposalSlotGauge)
-
-	lastMissedProposalValidatorIndexGauge := prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Namespace: "ETH2",
-			Name:      "lastMissedProposalValidatorIndex",
-			Help:      "Validator index of the last missed proposal",
-		})
-	prometheus.MustRegister(lastMissedProposalValidatorIndexGauge)
-
-	totalCanonicalProposalsCounter := prometheus.NewCounter(
-		prometheus.CounterOpts{
-			Namespace: "ETH2",
-			Name:      "totalServedProposals",
-			Help:      "Canonical proposals since monitoring started",
-		})
-	prometheus.MustRegister(totalCanonicalProposalsCounter)
-
-	totalMissedAttestationsCounter := prometheus.NewCounter(
-		prometheus.CounterOpts{
-			Namespace: "ETH2",
-			Name:      "totalMissedAttestations",
-			Help:      "Attestations missed since monitoring started",
-		})
-	prometheus.MustRegister(totalMissedAttestationsCounter)
-
-	totalProposedEmptyBlocksCounter := prometheus.NewCounter(
-		prometheus.CounterOpts{
-			Namespace: "ETH2",
-			Name:      "totalProposedEmptyBlocks",
-			Help:      "Proposed blocks containing no transactions",
-		})
-	prometheus.MustRegister(totalProposedEmptyBlocksCounter)
-
-	totalVanillaBlocksCounter := prometheus.NewCounter(
-		prometheus.CounterOpts{
-			Namespace: "ETH2",
-			Name:      "totalVanillaBlocks",
-			Help:      "Proposed blocks not matching those built by MEV relays",
-		})
-	prometheus.MustRegister(totalVanillaBlocksCounter)
-
-	lastVanillaBlockSlotGauge := prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Namespace: "ETH2",
-			Name:      "lastVanillaBlockSlot",
-			Help:      "Slot of the last proposed vanilla block",
-		})
-	prometheus.MustRegister(lastVanillaBlockSlotGauge)
-
-	lastVanillaBlockValidatorGauge := prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Namespace: "ETH2",
-			Name:      "lastVanillaBlockValidator",
-			Help:      "Index of the last validator that proposed a vanilla block",
-		})
-	prometheus.MustRegister(lastVanillaBlockValidatorGauge)
-
-	totalCanonicalAttestationsCounter := prometheus.NewCounter(
-		prometheus.CounterOpts{
-			Namespace: "ETH2",
-			// TODO(deni): Rename to totalCanonicalAttestations
-			Name: "totalServedAttestations",
-			Help: "Canonical attestations since monitoring started",
-		})
-	prometheus.MustRegister(totalCanonicalAttestationsCounter)
-
-	totalDelayedAttestationsOverToleranceCounter := prometheus.NewCounter(
-		prometheus.CounterOpts{
-			Namespace: "ETH2",
-			Name:      "totalDelayedAttestationsOverTolerance",
-			Help:      "Attestation delayed over tolerance distance setting since monitoring started",
-		})
-	prometheus.MustRegister(totalDelayedAttestationsOverToleranceCounter)
-
-	// https://www.attestant.io/posts/defining-attestation-effectiveness/
-	canonicalAttestationDistances := prometheus.NewHistogram(prometheus.HistogramOpts{
-		Namespace: "ETH2",
-		Name:      "canonicalAttestationDistances",
-		Help:      "Histogram of canonical attestation distances.",
-		Buckets:   prometheus.LinearBuckets(1, 1, 32),
-	})
-	prometheus.MustRegister(canonicalAttestationDistances)
+	m := NewMonitorMetrics(prometheus.DefaultRegisterer)
 
 	unfulfilledAttesterDuties := make(map[phase0.Slot]Set[phase0.ValidatorIndex])
 	committees := make(map[phase0.Slot]map[phase0.CommitteeIndex][]phase0.ValidatorIndex)
 	for epoch := range epochsChan {
 		log.Debug().Msgf("New epoch %v", epoch)
-		epochGauge.Set(float64(epoch))
+		m.Epoch.Set(float64(epoch))
 
 		var validatorPubkeyFromIndex map[phase0.ValidatorIndex]string
 		Measure(func() {
@@ -405,7 +394,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 				var err error
 				bestBids, err = ListBestBids(ctx, 4*time.Second, mevRelays, epoch, validatorPubkeyFromIndex, unfulfilledProposerDuties)
 				if err != nil {
-					log.Error().Stack().Err(err)
+					log.Error().Stack().Err(err).Msg("failed to fetch MEV bid traces")
 					// Even if RequestEpochBidTraces() returned an error, there may still be valuable partial results in bidtraces, so process them!
 				}
 			}, "ListBestBids(epoch=%v)", epoch)
@@ -419,68 +408,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 			Must(err)
 		}, "ListEpochBlocks(epoch=%v)", epoch)
 
-		// https://eips.ethereum.org/EIPS/eip-7549
-		for _, block := range epochBlocks {
-			for _, attestation := range block.Message.Body.Attestations {
-				attesters := NewSet[phase0.ValidatorIndex]()
-
-				committeesLen := 0
-				for _, committeeIndex := range attestation.CommitteeBits.BitIndices() {
-					committeesLen += len(committees[attestation.Data.Slot][phase0.CommitteeIndex(committeeIndex)])
-				}
-				if attestation.AggregationBits.Len() != uint64(committeesLen) {
-					log.Error().Msgf("Sanity check violation: AggregationBits length mismatch: computed=%v actual=%v", committeesLen, attestation.AggregationBits.Len())
-				}
-
-				// https://github.com/ethereum/consensus-specs/blob/8410e4fa376b74f550d5981f4c42d6593401046c/specs/electra/beacon-chain.md#new-get_committee_indices
-				committeeOffset := 0
-				for _, committeeIndex := range attestation.CommitteeBits.BitIndices() {
-					// https://github.com/ethereum/consensus-specs/blob/8410e4fa376b74f550d5981f4c42d6593401046c/specs/electra/beacon-chain.md#modified-get_attesting_indices
-					committee := committees[attestation.Data.Slot][phase0.CommitteeIndex(committeeIndex)]
-					for i, validatorCommitteeIndex := range committee {
-						if attestation.AggregationBits.BitAt(uint64(committeeOffset + i)) {
-							if _, ok := validatorPubkeyFromIndex[validatorCommitteeIndex]; ok {
-								attesters.Add(validatorCommitteeIndex)
-							}
-						}
-					}
-					committeeOffset += len(committee)
-				}
-
-				attestedSlot := attestation.Data.Slot
-				for validatorIndex := range attesters {
-					if _, ok := validatorPubkeyFromIndex[validatorIndex]; !ok {
-						continue
-					}
-
-					unfulfilledAttesterDuties[attestedSlot].Remove(validatorIndex)
-					if unfulfilledAttesterDuties[attestedSlot].IsEmpty() {
-						delete(unfulfilledAttesterDuties, attestedSlot)
-					}
-
-					// https://www.attestant.io/posts/defining-attestation-effectiveness/
-					earliestInclusionSlot := attestedSlot + 1
-					attestationDistance := block.Message.Slot - phase0.Slot(earliestInclusionSlot)
-					// Do not penalize validator for skipped slots
-					for s := earliestInclusionSlot; s < block.Message.Slot; s++ {
-						if _, ok := epochBlocks[phase0.Slot(s)]; !ok {
-							attestationDistance--
-						}
-					}
-
-					if attestationDistance > 2 {
-						Report("⚠️ 🧾 Validator %v (%v) attested slot %v at slot %v, epoch %v, attestation distance is %v",
-							validatorIndex, validatorPubkeyFromIndex[validatorIndex], attestedSlot, block.Message.Slot, epoch, attestationDistance)
-						totalDelayedAttestationsOverToleranceCounter.Inc()
-					} else if opts.Monitor.PrintSuccessful {
-						Info("✅ 🧾 Validator %v (%v) attested slot %v at slot %v, epoch %v", validatorIndex, validatorPubkeyFromIndex[validatorIndex], attestedSlot, block.Message.Slot, epoch)
-					}
-
-					totalCanonicalAttestationsCounter.Inc()
-					canonicalAttestationDistances.Observe(float64(attestationDistance))
-				}
-			}
-		}
+		processAttestations(epochBlocks, committees, validatorPubkeyFromIndex, unfulfilledAttesterDuties, m, epoch)
 
 		// Attestation is assumed to be missed if it was not included within
 		// current epoch or one after the current.  Normally, attestations should
@@ -494,7 +422,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 			}
 			for validatorIndex := range unfulfilledAttesterDuties[slot].Elems() {
 				Report("❌ 🧾 Validator %v (%v) did not attest slot %v (epoch %v)", validatorIndex, validatorPubkeyFromIndex[validatorIndex], slot, epoch)
-				totalMissedAttestationsCounter.Inc()
+				m.TotalMissedAttestations.Inc()
 			}
 			delete(unfulfilledAttesterDuties, slot)
 		}
@@ -510,30 +438,30 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 				continue
 			}
 
-			totalCanonicalProposalsCounter.Inc()
+			m.TotalCanonicalProposals.Inc()
 			delete(unfulfilledProposerDuties, slot)
 
 			if len(block.Message.Body.ExecutionPayload.Transactions) == 0 {
 				validatorPublicKey := validatorPubkeyFromIndex[validatorIndex]
 				Report("⚠️ 🧱 Validator %v (%v) proposed a block containing no transactions at epoch %v and slot %v", validatorPublicKey, validatorIndex, epoch, slot)
-				lastProposedEmptyBlockSlotGauge.Set(float64(slot))
-				totalProposedEmptyBlocksCounter.Inc()
+				m.LastProposedEmptyBlockSlot.Set(float64(slot))
+				m.TotalProposedEmptyBlocks.Inc()
 			}
 
 			if len(mevRelays) > 0 {
 				execution_block_hash := block.Message.Body.ExecutionPayload.BlockHash
 				trace, ok := bestBids[slot]
 				if !ok {
-					totalVanillaBlocksCounter.Inc()
-					lastVanillaBlockSlotGauge.Set(float64(slot))
-					lastVanillaBlockValidatorGauge.Set(float64(validatorIndex))
+					m.TotalVanillaBlocks.Inc()
+					m.LastVanillaBlockSlot.Set(float64(slot))
+					m.LastVanillaBlockValidator.Set(float64(validatorIndex))
 					log.Error().Msgf("Missing bid trace for proposal slot %v, validator %v (%v)", slot, validatorIndex, validatorPubkeyFromIndex[validatorIndex])
 					continue
 				}
 				if execution_block_hash.String() != trace.BlockHash {
-					totalVanillaBlocksCounter.Inc()
-					lastVanillaBlockSlotGauge.Set(float64(slot))
-					lastVanillaBlockValidatorGauge.Set(float64(validatorIndex))
+					m.TotalVanillaBlocks.Inc()
+					m.LastVanillaBlockSlot.Set(float64(slot))
+					m.LastVanillaBlockValidator.Set(float64(validatorIndex))
 					log.Error().Msgf("Validator %v (%v) proposed a vanilla block %v at slot %v", validatorIndex, validatorPubkeyFromIndex[validatorIndex], execution_block_hash, slot)
 					continue
 				}
@@ -545,9 +473,9 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 		}
 		for slot, validatorIndex := range unfulfilledProposerDuties {
 			Report("❌ 🧱 Validator %v missed proposal at slot %v", validatorIndex, slot)
-			totalMissedProposalsCounter.Inc()
-			lastMissedProposalSlotGauge.Set(float64(slot))
-			lastMissedProposalValidatorIndexGauge.Set(float64(validatorIndex))
+			m.TotalMissedProposals.Inc()
+			m.LastMissedProposalSlot.Set(float64(slot))
+			m.LastMissedProposalValidator.Set(float64(validatorIndex))
 		}
 	}
 }
