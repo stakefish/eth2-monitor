@@ -188,11 +188,16 @@ func requestEpochBidTraces(ctx context.Context, timeout time.Duration, relays []
 					break
 				}
 				log.Error().Msgf("MEV relay request failed: %v", err)
+				// Sleep while watching relayCtx so a shutdown / per-relay
+				// timeout during backoff is observed immediately rather
+				// than after the full ~8s worst-case sleep. NewTimer +
+				// Stop avoids leaking the timer when the ctx case wins.
+				timer := time.NewTimer(delay)
 				select {
 				case <-relayCtx.Done():
+					timer.Stop()
 					return fmt.Errorf("timeout")
-				default:
-					time.Sleep(delay)
+				case <-timer.C:
 				}
 			}
 			mu.Lock()
