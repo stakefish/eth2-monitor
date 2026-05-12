@@ -326,3 +326,45 @@ func TestLoadMEVRelays_FiltersEmptyEntries(t *testing.T) {
 		}
 	}
 }
+
+// TestResumeEpoch_ColdStart — with no persisted epoch (LastEpoch == 0),
+// the resume point is exactly the justified epoch. A first-ever run
+// anchors at the justified floor.
+func TestResumeEpoch_ColdStart(t *testing.T) {
+	t.Parallel()
+	if got := resumeEpoch(100, 0); got != 100 {
+		t.Errorf("cold start: got %d, want 100 (justified)", got)
+	}
+}
+
+// TestResumeEpoch_WarmStartSkipsProcessedEpoch regresses the off-by-one
+// that re-emitted the persisted epoch on every restart. cache.LastEpoch
+// is the "highest epoch already processed" — the next emit must be
+// persisted+1, NOT persisted. Pre-fix code did max(persisted, justified)
+// which returned persisted for any restart at or past justified, spiking
+// cumulative counters by one epoch's worth of work on every restart.
+func TestResumeEpoch_WarmStartSkipsProcessedEpoch(t *testing.T) {
+	t.Parallel()
+	// persisted == justified: the canonical restart case. Both say
+	// "epoch 100 is the latest known"; we want to start at 101.
+	if got := resumeEpoch(100, 100); got != 101 {
+		t.Errorf("persisted == justified: got %d, want 101 (persisted+1)", got)
+	}
+	// persisted > justified: monitor processed past the justified line
+	// (chain hasn't justified up to head yet). Resume at persisted+1.
+	if got := resumeEpoch(100, 105); got != 106 {
+		t.Errorf("persisted > justified: got %d, want 106 (persisted+1)", got)
+	}
+}
+
+// TestResumeEpoch_StaleCacheSkipsAhead — when persisted is far behind
+// justified (monitor was down a long time), accept the gap and start
+// from justified rather than backfilling indefinitely. Replaying
+// finalised epochs is fast; backfilling thousands of epochs after a
+// multi-day outage isn't operationally useful.
+func TestResumeEpoch_StaleCacheSkipsAhead(t *testing.T) {
+	t.Parallel()
+	if got := resumeEpoch(1000, 10); got != 1000 {
+		t.Errorf("stale cache: got %d, want 1000 (justified, skipping gap)", got)
+	}
+}

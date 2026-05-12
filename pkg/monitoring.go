@@ -75,14 +75,7 @@ func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg 
 		panic("Finality(head) returned nil response/data; beacon client contract broken")
 	}
 
-	// Anchor at max(persisted, justified). The persisted value lets us
-	// resume after a crash/restart without re-processing already-counted
-	// epochs (which would spike cumulative counters); justified is the
-	// floor for cold starts.
-	lastEpoch := resp.Data.Justified.Epoch
-	if persisted := LoadCache().LastEpoch; persisted > lastEpoch {
-		lastEpoch = persisted
-	}
+	lastEpoch := resumeEpoch(resp.Data.Justified.Epoch, LoadCache().LastEpoch)
 
 	if len(opts.Monitor.ReplayEpoch) > 0 {
 		for _, epoch := range opts.Monitor.ReplayEpoch {
@@ -151,6 +144,37 @@ func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg 
 		return
 	}
 	Must(err)
+}
+
+// resumeEpoch picks the first epoch SubscribeToEpochs should emit on
+// startup. It encodes the relationship between cache.LastEpoch
+// ("highest epoch already processed") and the SSE handler's emit
+// convention ("[lastEpoch, thisEpoch)" — inclusive of the starting
+// value).
+//
+// Semantics:
+//   - Cold start (persisted == 0): return justified. The whole chain
+//     between the cold-start floor and the current head will replay
+//     once SSE catches up.
+//   - Warm start (persisted > 0): return persisted+1 unless justified
+//     has moved past it, in which case return justified and accept the
+//     gap. Replaying epochs that are already justified is cheap (data
+//     is stable, no re-attestations to wait on); backfilling
+//     arbitrarily-many missed epochs after a multi-day outage isn't.
+//
+// Pre-fix code set lastEpoch = max(persisted, justified), which re-emitted
+// the persisted epoch on restart and spiked cumulative counters by one
+// epoch's worth of attestations + proposals every time the monitor
+// restarted past its first run.
+func resumeEpoch(justified, persisted phase0.Epoch) phase0.Epoch {
+	if persisted == 0 {
+		return justified
+	}
+	resume := persisted + 1
+	if resume > justified {
+		return resume
+	}
+	return justified
 }
 
 // sendEpoch publishes one epoch on ch, honouring ctx cancellation. Returns
