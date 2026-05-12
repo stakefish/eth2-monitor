@@ -94,7 +94,11 @@ func ResolveValidatorKeys(ctx context.Context, beacon *beaconchain.BeaconChain, 
 	cache := LoadCache()
 	uncached := []string{}
 	for _, pubkey := range normalized {
-		if cachedIndex, ok := cache.Validators[pubkey]; ok && time.Until(cachedIndex.At) < 8*time.Hour {
+		// time.Since(at) is positive (now − at); the previous code used
+		// time.Until(at) which returns a negative duration for past times,
+		// always satisfying "< 8h" → cache never expired. Shortened to 30m
+		// to bound staleness exposure after a validator exit / key rotation.
+		if cachedIndex, ok := cache.Validators[pubkey]; ok && time.Since(cachedIndex.At) < 30*time.Minute {
 			if cachedIndex.Index != VALIDATOR_INDEX_INVALID {
 				result[cachedIndex.Index] = pubkey
 			}
@@ -131,18 +135,18 @@ func ResolveValidatorKeys(ctx context.Context, beacon *beaconchain.BeaconChain, 
 }
 
 // ListProposerDuties returns block proposers scheduled for epoch.
-// To improve performance, it has to narrow the set of validators for which it checks duties.
+// The beacon API returns at most SLOTS_PER_EPOCH duties regardless of the
+// indices filter (filtering is client-side in go-eth2-client), so chunking
+// inputs has no effect on response size.
 func ListProposerDuties(ctx context.Context, beacon *beaconchain.BeaconChain, epoch phase0.Epoch, validators []phase0.ValidatorIndex) (map[phase0.Slot]phase0.ValidatorIndex, error) {
-	result := make(map[phase0.Slot]phase0.ValidatorIndex)
-	for chunk := range slices.Chunk(validators, 250) {
-		duties, err := beacon.GetProposerDuties(ctx, epoch, chunk)
-		if err != nil {
-			return nil, err
-		}
+	duties, err := beacon.GetProposerDuties(ctx, epoch, validators)
+	if err != nil {
+		return nil, err
+	}
 
-		for _, duty := range duties {
-			result[duty.Slot] = phase0.ValidatorIndex(duty.ValidatorIndex)
-		}
+	result := make(map[phase0.Slot]phase0.ValidatorIndex, len(duties))
+	for _, duty := range duties {
+		result[duty.Slot] = phase0.ValidatorIndex(duty.ValidatorIndex)
 	}
 	return result, nil
 }
@@ -202,7 +206,14 @@ func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg 
 	resp, err := finalityProvider.Finality(ctx, &api.FinalityOpts{State: "head"})
 	Must(err)
 
+	// Anchor at max(persisted, justified). The persisted value lets us
+	// resume after a crash/restart without re-processing already-counted
+	// epochs (which would spike cumulative counters); justified is the
+	// floor for cold starts.
 	lastEpoch := resp.Data.Justified.Epoch
+	if persisted := LoadCache().LastEpoch; persisted > lastEpoch {
+		lastEpoch = persisted
+	}
 
 	if len(opts.Monitor.ReplayEpoch) > 0 {
 		for _, epoch := range opts.Monitor.ReplayEpoch {
@@ -286,6 +297,27 @@ func LoadMEVRelays(mevRelaysFilePath string) ([]string, error) {
 	}
 
 	return relays, nil
+}
+
+// isBlockEmpty returns true when the block body carries no execution-layer
+// payload of any value to the proposer: no EL transactions, no blobs, and no
+// post-Pectra execution_requests (deposits/withdrawals/consolidations). A
+// block carrying only blob commitments still earns the proposer the blob base
+// fee, so it isn't "empty" from a validator-economic perspective.
+func isBlockEmpty(body *electra.BeaconBlockBody) bool {
+	if len(body.ExecutionPayload.Transactions) > 0 {
+		return false
+	}
+	if len(body.BlobKZGCommitments) > 0 {
+		return false
+	}
+	if body.ExecutionRequests != nil &&
+		(len(body.ExecutionRequests.Deposits) > 0 ||
+			len(body.ExecutionRequests.Withdrawals) > 0 ||
+			len(body.ExecutionRequests.Consolidations) > 0) {
+		return false
+	}
+	return true
 }
 
 // processAttestations processes attestations from epoch blocks, updating metrics and unfulfilled duties.
@@ -436,16 +468,22 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 		log.Debug().Msgf("New epoch %v", epoch)
 		m.Epoch.Set(float64(epoch))
 
+		// Skip genesis: there's no E-1 to look back at, and several places
+		// below (duty/committee window fetch, missedAttestationEpoch) would
+		// underflow `epoch - 1` to max uint64.
+		if epoch == 0 {
+			log.Debug().Msg("Skipping epoch 0 (genesis)")
+			continue
+		}
+
 		// Prune dedup entries for slots older than the earliest reachable
 		// attestedSlot in this iteration's scan window
 		// (block range [Low(epoch), High(epoch)+lookAhead], attestedSlot
 		// is at least block-32, hence Low(epoch)-32 = Low(epoch-1)).
-		if epoch > 0 {
-			pruneCutoff := spec.EpochLowestSlot(epoch - 1)
-			for s := range seenAttestations {
-				if s < pruneCutoff {
-					delete(seenAttestations, s)
-				}
+		pruneCutoff := spec.EpochLowestSlot(epoch - 1)
+		for s := range seenAttestations {
+			if s < pruneCutoff {
+				delete(seenAttestations, s)
 			}
 		}
 
@@ -457,7 +495,11 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 		}, "ResolveValidatorKeys(epoch=%v)", epoch)
 
 		if len(validatorPubkeyFromIndex) == 0 {
-			panic("No active validators")
+			// Soft-fail: can happen on mass exit, key rotation gap, or
+			// beacon-node desync. Don't crash the monitor — skip this
+			// epoch and re-resolve next iteration.
+			log.Warn().Msgf("No active validators in epoch %v; skipping", epoch)
+			continue
 		}
 		log.Debug().Msgf("Epoch %v validators: %v/%v", epoch, len(validatorPubkeyFromIndex), len(plainKeys))
 
@@ -545,9 +587,12 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 
 		processAttestations(epochBlocks, committeeLookup, validatorPubkeyFromIndex, unfulfilledAttesterDuties, seenAttestations, m, epoch)
 
-		// Attestation is assumed to be missed if it was not included within
-		// current epoch or one after the current.  Normally, attestations should
-		// land in 1-2 *slots* after the attested one.
+		// Treat an attestation as missed if it isn't seen by the end of E+1.
+		// Pre-Deneb the spec capped inclusion at `data.slot + SLOTS_PER_EPOCH`,
+		// so E+1 was a hard limit. EIP-7045 removed that upper bound, so this is
+		// now a QoS heuristic: real attestations land in 1-2 slots, and any
+		// inclusion >32 slots later is operationally indistinguishable from a
+		// missed duty for validator performance reporting.
 		missedAttestationEpoch := epoch - 1
 		missedAttestationSlotHigh := spec.EpochHighestSlot(missedAttestationEpoch)
 		log.Debug().Msgf("Unfulfilled attester duties at the end of epoch %v (map[SLOT]{VALIDATOR_INDEX...}): %v", epoch, unfulfilledAttesterDuties)
@@ -563,7 +608,9 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 		}
 
 		log.Trace().Msgf("Epoch %v proposer duties: %v", epoch, unfulfilledProposerDuties)
-		for slot, block := range epochBlocks {
+		// Sort for deterministic Slack report ordering.
+		for _, slot := range slices.Sorted(maps.Keys(epochBlocks)) {
+			block := epochBlocks[slot]
 			validatorIndex, ok := unfulfilledProposerDuties[slot]
 			if !ok {
 				continue
@@ -576,9 +623,9 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 			m.TotalCanonicalProposals.Inc()
 			delete(unfulfilledProposerDuties, slot)
 
-			if len(block.Message.Body.ExecutionPayload.Transactions) == 0 {
+			if isBlockEmpty(block.Message.Body) {
 				validatorPublicKey := validatorPubkeyFromIndex[validatorIndex]
-				Report("⚠️ 🧱 Validator %v (%v) proposed a block containing no transactions at epoch %v and slot %v", validatorPublicKey, validatorIndex, epoch, slot)
+				Report("⚠️ 🧱 Validator %v (%v) proposed an empty block at epoch %v and slot %v", validatorPublicKey, validatorIndex, epoch, slot)
 				m.LastProposedEmptyBlockSlot.Set(float64(slot))
 				m.TotalProposedEmptyBlocks.Inc()
 			}
@@ -587,9 +634,10 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 				execution_block_hash := block.Message.Body.ExecutionPayload.BlockHash
 				trace, ok := bestBids[slot]
 				if !ok {
-					m.TotalVanillaBlocks.Inc()
-					m.LastVanillaBlockSlot.Set(float64(slot))
-					m.LastVanillaBlockValidator.Set(float64(validatorIndex))
+					// No bid trace found across configured relays. This could be a
+					// truly vanilla block, or it could be a relay-side failure —
+					// kept distinct from confirmed hash-mismatch vanilla blocks.
+					m.TotalMissingBidTraces.Inc()
 					log.Error().Msgf("Missing bid trace for proposal slot %v, validator %v (%v)", slot, validatorIndex, validatorPubkeyFromIndex[validatorIndex])
 					continue
 				}
@@ -606,11 +654,16 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 				}
 			}
 		}
-		for slot, validatorIndex := range unfulfilledProposerDuties {
+		for _, slot := range slices.Sorted(maps.Keys(unfulfilledProposerDuties)) {
+			validatorIndex := unfulfilledProposerDuties[slot]
 			Report("❌ 🧱 Validator %v missed proposal at slot %v", validatorIndex, slot)
 			m.TotalMissedProposals.Inc()
 			m.LastMissedProposalSlot.Set(float64(slot))
 			m.LastMissedProposalValidator.Set(float64(validatorIndex))
 		}
+
+		// Persist progress so a crash/restart can skip already-processed
+		// epochs and avoid spiking cumulative metric counters.
+		SaveCache(&LocalCache{LastEpoch: epoch})
 	}
 }

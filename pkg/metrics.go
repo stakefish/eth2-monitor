@@ -18,6 +18,7 @@ type MonitorMetrics struct {
 	TotalCanonicalProposals        prometheus.Counter
 	TotalProposedEmptyBlocks       prometheus.Counter
 	TotalVanillaBlocks             prometheus.Counter
+	TotalMissingBidTraces          prometheus.Counter
 	LastProposedEmptyBlockSlot     prometheus.Gauge
 	LastMissedProposalSlot         prometheus.Gauge
 	LastMissedProposalValidator    prometheus.Gauge
@@ -88,7 +89,12 @@ func NewMonitorMetrics(reg prometheus.Registerer) *MonitorMetrics {
 		TotalVanillaBlocks: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "ETH2",
 			Name:      "totalVanillaBlocks",
-			Help:      "Proposed blocks not matching those built by MEV relays",
+			Help:      "Proposed blocks whose execution_block_hash did not match any tracked MEV relay bid (hash-mismatch case only; see totalMissingBidTraces for the no-bid case)",
+		}),
+		TotalMissingBidTraces: prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: "ETH2",
+			Name:      "totalMissingBidTraces",
+			Help:      "Proposed blocks for which no MEV bid trace was found across configured relays — could be a truly vanilla block (validator built locally) or a relay-side failure",
 		}),
 		LastVanillaBlockSlot: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: "ETH2",
@@ -165,6 +171,7 @@ func NewMonitorMetrics(reg prometheus.Registerer) *MonitorMetrics {
 		m.TotalMissedAttestations,
 		m.TotalProposedEmptyBlocks,
 		m.TotalVanillaBlocks,
+		m.TotalMissingBidTraces,
 		m.LastVanillaBlockSlot,
 		m.LastVanillaBlockValidator,
 		m.TotalCanonicalAttestations,

@@ -18,6 +18,10 @@ type CachedIndex struct {
 
 type LocalCache struct {
 	Validators map[string]CachedIndex
+	// LastEpoch is the highest epoch the monitor has finished processing.
+	// On restart it's loaded and used to skip already-processed epochs so
+	// cumulative metric counters don't spike from re-processing.
+	LastEpoch phase0.Epoch
 }
 
 var (
@@ -57,6 +61,10 @@ func SaveCache(newCache *LocalCache) {
 	for pubkey, validator := range newCache.Validators {
 		validator := validator
 		cache.Validators[pubkey] = validator
+	}
+	// LastEpoch advances forward only — concurrent writers can't roll it back.
+	if newCache.LastEpoch > cache.LastEpoch {
+		cache.LastEpoch = newCache.LastEpoch
 	}
 
 	rawCache, err := json.MarshalIndent(cache, "", "  ")
