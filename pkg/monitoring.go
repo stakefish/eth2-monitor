@@ -265,22 +265,19 @@ func LoadMEVRelays(mevRelaysFilePath string) ([]string, error) {
 }
 
 // processAttestations processes attestations from epoch blocks, updating metrics and unfulfilled duties.
+// seenAttestations is persistent across epoch iterations so cross-call duplicates
+// (a block scanned both in epoch N's lookahead window and in epoch N+1's main range)
+// are counted exactly once.
 func processAttestations(
 	epochBlocks map[phase0.Slot]*electra.SignedBeaconBlock,
 	committeeLookup map[phase0.Slot]map[phase0.CommitteeIndex]*CommitteeInfo,
 	validatorPubkeyFromIndex map[phase0.ValidatorIndex]string,
 	unfulfilledAttesterDuties map[phase0.Slot]Set[phase0.ValidatorIndex],
+	seenAttestations map[phase0.Slot]Set[phase0.ValidatorIndex],
 	m *MonitorMetrics,
 	epoch phase0.Epoch,
 ) {
-	// Track seen (validator, slot) pairs for dedup (H11 fix)
-	type validatorSlotPair struct {
-		Validator phase0.ValidatorIndex
-		Slot      phase0.Slot
-	}
-	seenAttestations := make(map[validatorSlotPair]bool)
-
-	// H11 fix: iterate blocks in sorted slot order so earliest inclusion is processed first
+	// Iterate blocks in sorted slot order so earliest inclusion is processed first
 	// https://eips.ethereum.org/EIPS/eip-7549
 	for _, slot := range slices.Sorted(maps.Keys(epochBlocks)) {
 		block := epochBlocks[slot]
@@ -326,13 +323,18 @@ func processAttestations(
 					continue
 				}
 
-				// H11 fix: skip duplicate (validator, slot) pairs
-				pair := validatorSlotPair{Validator: validatorIndex, Slot: attestedSlot}
-				if seenAttestations[pair] {
+				// Skip duplicate (validator, slot) pairs. The dedup map is
+				// shared across epoch iterations, so this also catches the
+				// case where an attestation lands inside an epoch's lookahead
+				// window and is rescanned during the next epoch.
+				if seenAttestations[attestedSlot].Contains(validatorIndex) {
 					m.DuplicateAttestationsSkipped.Inc()
 					continue
 				}
-				seenAttestations[pair] = true
+				if seenAttestations[attestedSlot] == nil {
+					seenAttestations[attestedSlot] = NewSet[phase0.ValidatorIndex]()
+				}
+				seenAttestations[attestedSlot].Add(validatorIndex)
 
 				unfulfilledAttesterDuties[attestedSlot].Remove(validatorIndex)
 				if unfulfilledAttesterDuties[attestedSlot].IsEmpty() {
@@ -377,9 +379,26 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 	m := NewMonitorMetrics(prometheus.DefaultRegisterer)
 
 	unfulfilledAttesterDuties := make(map[phase0.Slot]Set[phase0.ValidatorIndex])
+	// Persistent dedup so an attestation observed both in epoch N's lookahead
+	// blocks and in epoch N+1's main range is only counted once. Pruned each
+	// iteration to bound memory.
+	seenAttestations := make(map[phase0.Slot]Set[phase0.ValidatorIndex])
 	for epoch := range epochsChan {
 		log.Debug().Msgf("New epoch %v", epoch)
 		m.Epoch.Set(float64(epoch))
+
+		// Prune dedup entries for slots older than the earliest reachable
+		// attestedSlot in this iteration's scan window
+		// (block range [Low(epoch), High(epoch)+lookAhead], attestedSlot
+		// is at least block-32, hence Low(epoch)-32 = Low(epoch-1)).
+		if epoch > 0 {
+			pruneCutoff := spec.EpochLowestSlot(epoch - 1)
+			for s := range seenAttestations {
+				if s < pruneCutoff {
+					delete(seenAttestations, s)
+				}
+			}
+		}
 
 		var validatorPubkeyFromIndex map[phase0.ValidatorIndex]string
 		Measure(func() {
@@ -453,7 +472,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 		}
 		m.MissedSlotsInEpoch.Set(float64(spec.SLOTS_PER_EPOCH - epochSlotsWithBlocks))
 
-		processAttestations(epochBlocks, committeeLookup, validatorPubkeyFromIndex, unfulfilledAttesterDuties, m, epoch)
+		processAttestations(epochBlocks, committeeLookup, validatorPubkeyFromIndex, unfulfilledAttesterDuties, seenAttestations, m, epoch)
 
 		// Attestation is assumed to be missed if it was not included within
 		// current epoch or one after the current.  Normally, attestations should
