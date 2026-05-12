@@ -279,8 +279,10 @@ func processAttestations(
 				m.TotalCanonicalAttestations.Inc()
 				m.CanonicalAttestationDistances.Observe(float64(attestationDistance))
 
-				// H09 fix: track cross-epoch attestations
-				if spec.EpochFromSlot(block.Message.Slot) != spec.EpochFromSlot(attestedSlot) {
+				// H09 fix: track cross-epoch attestations. Reuse the
+				// hoisted attestedSlotEpoch (it's spec.EpochFromSlot of
+				// attestedSlot) instead of recomputing.
+				if spec.EpochFromSlot(block.Message.Slot) != attestedSlotEpoch {
 					m.CrossEpochAttestations.Inc()
 				}
 			}
