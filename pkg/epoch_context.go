@@ -272,10 +272,19 @@ type blockFetcher interface {
 	GetBlock(ctx context.Context, slot phase0.Slot) (*electra.SignedBeaconBlock, error)
 }
 
+// ListEpochBlocks fetches every block in [epoch.lowSlot, epoch.highSlot+4],
+// where the trailing 4-slot lookahead lets cross-epoch attestation
+// inclusions surface in the same call. Persistent fetch errors are
+// logged at ERROR but treated as missed slots (rather than propagated)
+// so the orchestrator keeps the attestation-dedup invariant intact
+// across restarts.
 func ListEpochBlocks(ctx context.Context, beacon *beaconchain.BeaconChain, epoch phase0.Epoch) (map[phase0.Slot]*electra.SignedBeaconBlock, error) {
 	return listEpochBlocks(ctx, beacon, epoch)
 }
 
+// listEpochBlocks is the testable implementation of ListEpochBlocks,
+// parameterised on the blockFetcher interface so tests can inject
+// scripted transient/persistent errors without a fake beacon node.
 func listEpochBlocks(ctx context.Context, fetch blockFetcher, epoch phase0.Epoch) (map[phase0.Slot]*electra.SignedBeaconBlock, error) {
 	result := make(map[phase0.Slot]*electra.SignedBeaconBlock, spec.SLOTS_PER_EPOCH)
 	low := spec.EpochLowestSlot(epoch)
