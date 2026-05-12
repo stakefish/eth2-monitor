@@ -3,6 +3,7 @@ package pkg
 import (
 	"maps"
 	"slices"
+	"strings"
 
 	"eth2-monitor/cmd/opts"
 
@@ -112,7 +113,12 @@ func CheckProposal(
 			log.Error().Msgf("Missing bid trace for proposal slot %v, validator %v (%v)", slot, expectedValidator, pubkeys[expectedValidator])
 			return true
 		}
-		if executionBlockHash.String() != trace.BlockHash {
+		// Compare hashes case-insensitively. phase0.Hash32.String() emits
+		// lowercase 0x-prefixed hex, but trace.BlockHash from the relay
+		// JSON is not case-canonical per relay spec — a relay emitting
+		// uppercase or mixed-case hex would otherwise flag every
+		// MEV-built proposal as vanilla.
+		if !strings.EqualFold(executionBlockHash.String(), trace.BlockHash) {
 			m.TotalVanillaBlocks.Inc()
 			m.LastVanillaBlockSlot.Set(float64(slot))
 			m.LastVanillaBlockValidator.Set(float64(expectedValidator))

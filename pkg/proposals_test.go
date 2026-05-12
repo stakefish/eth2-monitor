@@ -1,6 +1,7 @@
 package pkg
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/attestantio/go-eth2-client/spec/bellatrix"
@@ -247,6 +248,47 @@ func TestCheckProposal_OptimalMEV(t *testing.T) {
 	}
 	if got := counterValue(t, m.TotalVanillaBlocks); got != 0 {
 		t.Errorf("TotalVanillaBlocks = %v, want 0", got)
+	}
+	if got := counterValue(t, m.TotalMissingBidTraces); got != 0 {
+		t.Errorf("TotalMissingBidTraces = %v, want 0", got)
+	}
+}
+
+// TestCheckProposal_BlockHashCaseInsensitive regresses the silent-vanilla
+// classification: our executionBlockHash.String() emits lowercase 0x-hex,
+// but trace.BlockHash from the relay JSON may be uppercase or mixed case.
+// Without case-insensitive compare, an uppercase relay response flags
+// every successful MEV proposal as vanilla (TotalVanillaBlocks++) even
+// though the bytes actually match.
+func TestCheckProposal_BlockHashCaseInsensitive(t *testing.T) {
+	const (
+		validator = phase0.ValidatorIndex(42)
+		slot      = phase0.Slot(100)
+	)
+	executionHash := phase0.Hash32{0xab, 0xcd, 0xef}
+	block := &electra.SignedBeaconBlock{
+		Message: &electra.BeaconBlock{
+			Slot:          slot,
+			ProposerIndex: validator,
+			Body: &electra.BeaconBlockBody{
+				ExecutionPayload: &deneb.ExecutionPayload{
+					BlockHash:    executionHash,
+					Transactions: []bellatrix.Transaction{[]byte{0x01}},
+				},
+			},
+		},
+	}
+	pubkeys := map[phase0.ValidatorIndex]string{validator: "pk"}
+	// Relay returns the same hash but UPPERCASE — same bytes, different case.
+	upper := "0x" + strings.ToUpper(executionHash.String()[2:])
+	bestBids := map[phase0.Slot]BidTrace{slot: {BlockHash: upper}}
+	m := NewMonitorMetrics(prometheus.NewRegistry())
+
+	if ok := CheckProposal(block, slot, validator, bestBids, true, pubkeys, 3, m); !ok {
+		t.Fatalf("CheckProposal returned false")
+	}
+	if got := counterValue(t, m.TotalVanillaBlocks); got != 0 {
+		t.Errorf("TotalVanillaBlocks = %v, want 0 (uppercase relay hash should match lowercase block hash byte-for-byte)", got)
 	}
 	if got := counterValue(t, m.TotalMissingBidTraces); got != 0 {
 		t.Errorf("TotalMissingBidTraces = %v, want 0", got)
