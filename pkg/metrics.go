@@ -62,7 +62,7 @@ func NewMonitorMetrics(reg prometheus.Registerer) *MonitorMetrics {
 		Epoch: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: "ETH2",
 			Name:      "epoch",
-			Help:      "Current justified epoch",
+			Help:      "Most recently processed epoch (the just-ended SSE-emitted epoch, typically head-1; not the justified epoch despite the historical metric name)",
 		}),
 		LastProposedEmptyBlockSlot: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: "ETH2",
