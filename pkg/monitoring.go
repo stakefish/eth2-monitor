@@ -201,8 +201,17 @@ func sendEpoch(ctx context.Context, ch chan<- phase0.Epoch, epoch phase0.Epoch) 
 //
 // Each pubkey file is opened, fully read, and closed before the next
 // one is opened — no FD pile-up across many files.
+//
+// The returned slice is a fresh allocation; the previous
+// `opts.Monitor.Pubkeys[:]` re-slice shared a backing array with the
+// package-level slice, so a later append into spare capacity could
+// have written into the global's cap window. Cobra's StringSliceVarP
+// happens to leave no exploitable slack today, but the aliased-slice
+// pattern is brittle (it would silently corrupt the global if the
+// capacity-doubling path ever changed). Clone up front so the function's
+// behaviour doesn't depend on cobra's internals.
 func LoadKeys(pubkeysFiles []string) ([]string, error) {
-	plainKeys := opts.Monitor.Pubkeys[:]
+	plainKeys := slices.Clone(opts.Monitor.Pubkeys)
 	for _, fname := range pubkeysFiles {
 		keys, err := readPubkeysFile(fname)
 		if err != nil {

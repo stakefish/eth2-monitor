@@ -215,6 +215,39 @@ func TestLoadKeys_MergesCLIAndFiles(t *testing.T) {
 	}
 }
 
+// TestLoadKeys_DoesNotAliasGlobalPubkeys regresses the slice-aliasing fix.
+// Pre-fix `plainKeys := opts.Monitor.Pubkeys[:]` shared a backing array
+// with the package-level slice, so an append into the slack capacity
+// of the global slice could silently write past its length boundary.
+// The fix uses slices.Clone so the returned slice owns its own storage.
+func TestLoadKeys_DoesNotAliasGlobalPubkeys(t *testing.T) {
+	prev := opts.Monitor.Pubkeys
+	t.Cleanup(func() { opts.Monitor.Pubkeys = prev })
+	// Force spare capacity in the global so the append in LoadKeys MIGHT
+	// reuse the backing array if the alias weren't broken. The cap=4
+	// arrangement mirrors what cobra's StringSliceVarP could produce
+	// after a power-of-two grow.
+	opts.Monitor.Pubkeys = append(make([]string, 0, 4), "0xGLOBAL0", "0xGLOBAL1")
+
+	dir := t.TempDir()
+	f := writeFile(t, dir, "extra.txt", "0xFROMFILE\n")
+
+	got, err := LoadKeys([]string{f})
+	if err != nil {
+		t.Fatalf("LoadKeys: %v", err)
+	}
+	if len(got) != 3 || got[2] != "0xFROMFILE" {
+		t.Fatalf("LoadKeys returned %v; want [0xGLOBAL0 0xGLOBAL1 0xFROMFILE]", got)
+	}
+	// Mutate the returned slice in the cap-slack window. With aliasing,
+	// this would also have changed the global's backing array; with the
+	// fix, the global is untouched.
+	got[2] = "0xMUTATED"
+	if len(opts.Monitor.Pubkeys) >= 3 || cap(opts.Monitor.Pubkeys) >= 4 && opts.Monitor.Pubkeys[:3][2] == "0xMUTATED" {
+		t.Errorf("LoadKeys returned slice aliases the global; mutation leaked: global=%v", opts.Monitor.Pubkeys)
+	}
+}
+
 // TestLoadKeys_MissingFile — surfaces an error rather than silently dropping.
 func TestLoadKeys_MissingFile(t *testing.T) {
 	prev := opts.Monitor.Pubkeys
