@@ -120,7 +120,7 @@ bin/eth2-monitor monitor --since-epoch 12000 ...
 | `ETH2_totalServedProposals` | Counter | Canonical proposals |
 | `ETH2_totalMissedAttestations` | Counter | Missed attestations |
 | `ETH2_totalServedAttestations` | Counter | Canonical attestations |
-| `ETH2_totalDelayedAttestationsOverTolerance` | Counter | Attestations with inclusion distance > 2 |
+| `ETH2_totalDelayedAttestationsOverTolerance` | Counter | Attestations whose shifted inclusion distance exceeds 2 (i.e. spec-distance > 3, included at attestedSlot+4 or later after missed-slot adjustment) |
 | `ETH2_canonicalAttestationDistances` | Histogram | Inclusion distance distribution after missed-slot adjustment. Distance is shifted: 0 = optimal (included at attestedSlot+1); Attestant's spec-distance = this + 1. Linear buckets 1..32 (so distance 0 lands in the ≤1 bucket). |
 | `ETH2_totalProposedEmptyBlocks` | Counter | Blocks with no execution-layer payload of value to the proposer (no EL transactions, no blobs, no post-Pectra exec requests) |
 | `ETH2_totalVanillaBlocks` | Counter | Blocks not matching MEV relay bids (hash mismatch case) |

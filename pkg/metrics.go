@@ -128,7 +128,7 @@ func NewMonitorMetrics(reg prometheus.Registerer) *MonitorMetrics {
 		TotalDelayedOverTolerance: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "ETH2",
 			Name:      "totalDelayedAttestationsOverTolerance",
-			Help:      "Attestation delayed over tolerance distance setting since monitoring started",
+			Help:      "Attestations whose shifted inclusion distance exceeds 2 (spec-distance > 3 in Attestant's convention) after missed-slot adjustment",
 		}),
 		// https://www.attestant.io/posts/defining-attestation-effectiveness/
 		CanonicalAttestationDistances: prometheus.NewHistogram(prometheus.HistogramOpts{
