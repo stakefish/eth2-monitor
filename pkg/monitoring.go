@@ -84,28 +84,39 @@ func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg 
 func LoadKeys(pubkeysFiles []string) ([]string, error) {
 	plainKeys := opts.Monitor.Pubkeys[:]
 	for _, fname := range pubkeysFiles {
-		file, err := os.Open(fname)
+		keys, err := readPubkeysFile(fname)
 		if err != nil {
 			return nil, err
 		}
-		defer func() { _ = file.Close() }()
-
-		scanner := bufio.NewScanner(file)
-		for scanner.Scan() {
-			line := strings.TrimSpace(scanner.Text())
-			if len(line) == 0 {
-				continue
-			}
-			plainKeys = append(plainKeys, line)
-		}
-
-		err = scanner.Err()
-		if err != nil {
-			return nil, err
-		}
+		plainKeys = append(plainKeys, keys...)
 	}
-
 	return plainKeys, nil
+}
+
+// readPubkeysFile reads one pubkey file end-to-end and closes the file before
+// returning. Splitting this out of LoadKeys ensures each fd is released as
+// soon as the file is consumed — the previous loop deferred Close inside the
+// loop body, so all N files stayed open until LoadKeys itself returned.
+func readPubkeysFile(fname string) ([]string, error) {
+	file, err := os.Open(fname)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = file.Close() }()
+
+	var keys []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		keys = append(keys, line)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return keys, nil
 }
 
 func LoadMEVRelays(mevRelaysFilePath string) ([]string, error) {
