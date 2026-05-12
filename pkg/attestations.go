@@ -176,11 +176,18 @@ func processAttestations(
 				}
 			}
 			if !allCommitteesKnown {
-				log.Warn().Msgf("Attestation at slot %v references committee with no lookup entry; skipping (block slot %v)", attestation.Data.Slot, block.Message.Slot)
+				log.Warn().
+					Uint64("attestedSlot", uint64(attestation.Data.Slot)).
+					Uint64("blockSlot", uint64(block.Message.Slot)).
+					Msg("attestation references committee with no lookup entry; skipping")
 				continue
 			}
 			if committeesLen > 0 && attestation.AggregationBits.Len() != committeesLen {
-				log.Error().Msgf("Sanity check violation: AggregationBits length mismatch at slot %v: computed=%v actual=%v", attestation.Data.Slot, committeesLen, attestation.AggregationBits.Len())
+				log.Error().
+					Uint64("attestedSlot", uint64(attestation.Data.Slot)).
+					Uint64("computed", committeesLen).
+					Uint64("actual", attestation.AggregationBits.Len()).
+					Msg("sanity check violation: AggregationBits length mismatch")
 				continue
 			}
 
