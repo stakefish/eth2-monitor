@@ -583,7 +583,16 @@ func TestProcessAttestationsSkipsNilMessageOrBody(t *testing.T) {
 				}
 			}()
 			epochBlocks := map[phase0.Slot]*electra.SignedBeaconBlock{32: tc.block}
-			processAttestations(epochBlocks, nil, nil, nil, nil, NewMonitorMetrics(prometheus.NewRegistry()), 1)
+			m := NewMonitorMetrics(prometheus.NewRegistry())
+			processAttestations(epochBlocks, nil, nil, nil, nil, m, 1)
+			// Pin the bail invariant: skipped block must not touch any
+			// per-attestation counter.
+			if got := counterValue(t, m.TotalCanonicalAttestations); got != 0 {
+				t.Errorf("%s: TotalCanonicalAttestations = %v, want 0", tc.name, got)
+			}
+			if got := counterValue(t, m.DuplicateAttestationsSkipped); got != 0 {
+				t.Errorf("%s: DuplicateAttestationsSkipped = %v, want 0", tc.name, got)
+			}
 		})
 	}
 }
