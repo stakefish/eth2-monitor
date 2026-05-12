@@ -148,7 +148,7 @@ func NewMonitorMetrics(reg prometheus.Registerer) *MonitorMetrics {
 		m.MissedSlotsInEpoch,
 		m.CrossEpochAttestations,
 	} {
-		reg.Register(c)
+		_ = reg.Register(c)
 	}
 
 	return m

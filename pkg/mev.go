@@ -61,7 +61,7 @@ func requestBidTracesPage(client *http.Client, baseurl string, slot phase0.Slot,
 		return nil, err
 	}
 
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	err = json.NewDecoder(resp.Body).Decode(&payloads)
 
@@ -71,12 +71,12 @@ func requestBidTracesPage(client *http.Client, baseurl string, slot phase0.Slot,
 	}
 
 	// Bid traces should be returned sorted by the slot number in a decreasing order.
-	for i, _ := range payloads {
+	for i := range payloads {
 		if i == 0 {
 			continue
 		}
 		if payloads[i].Slot >= payloads[i-1].Slot {
-			return nil, fmt.Errorf("Relay returned bid traces in a wrong order: %s", baseurl)
+			return nil, fmt.Errorf("relay returned bid traces in a wrong order: %s", baseurl)
 		}
 	}
 
@@ -100,7 +100,7 @@ func requestRelayEpochBidTraces(timeout time.Duration, baseurl string, epoch pha
 			return nil, err
 		}
 		if len(page) == 0 {
-			return nil, fmt.Errorf("Relay returned no bid traces for epoch %v: %s", epoch, baseurl)
+			return nil, fmt.Errorf("relay returned no bid traces for epoch %v: %s", epoch, baseurl)
 		}
 
 		for _, trace := range page {
@@ -125,7 +125,7 @@ func exptBackoff(base time.Duration, maxExponent uint) iter.Seq[time.Duration] {
 	return func(yield func(time.Duration) bool) {
 		step := base
 		for {
-			for _ = range maxExponent + 1 {
+			for range maxExponent + 1 {
 				jitter := time.Duration(rand.Uint()%baseMillis) * time.Millisecond
 				delay := step + jitter
 				if !yield(delay) {

@@ -49,5 +49,5 @@ func reportToSlack(message string) {
 	if err != nil {
 		log.Warn().Err(err).Msgf("http.Post failed while reporting %q; skip", message)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 }

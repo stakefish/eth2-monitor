@@ -36,7 +36,7 @@ func LoadCache() *LocalCache {
 		log.Debug().Err(err).Msg("LoadCache: os.Open failed; skip")
 		return cache
 	}
-	defer fd.Close()
+	defer func() { _ = fd.Close() }()
 
 	rawCache, err := io.ReadAll(fd)
 	if err != nil {
@@ -70,7 +70,7 @@ func SaveCache(newCache *LocalCache) {
 		log.Warn().Err(err).Msg("SaveCache: os.CreateTemp failed; skip")
 		return
 	}
-	defer os.Remove(tmpfile.Name())
+	defer func() { _ = os.Remove(tmpfile.Name()) }()
 
 	for bytesWritten := 0; bytesWritten < len(rawCache); {
 		nWritten, err := tmpfile.Write(rawCache[bytesWritten:])

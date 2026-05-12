@@ -43,7 +43,7 @@ func (s Set[E]) String() string {
 		if !first {
 			sb.WriteString(" ")
 		}
-		sb.WriteString(fmt.Sprint(v))
+		fmt.Fprint(&sb, v)
 		first = false
 	}
 	sb.WriteString("}")
