@@ -201,7 +201,14 @@ func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg 
 		thisEpoch := spec.EpochFromSlot(headEvent.Slot)
 		if thisEpoch > lastEpoch {
 			log.Trace().Msgf("New epoch %v at slot %v", thisEpoch, headEvent.Slot)
-			epochsChan <- phase0.Epoch(lastEpoch) // send the epoch that has just ended
+			// Emit every ended epoch in [lastEpoch, thisEpoch). Skipping
+			// any of them silently breaks attestation tracking: an
+			// attestation for the last slot of epoch N can only be
+			// included in blocks of epoch N+1, so failing to process
+			// N+1 causes false "did not attest" reports.
+			for e := lastEpoch; e < thisEpoch; e++ {
+				epochsChan <- e
+			}
 			lastEpoch = thisEpoch
 		}
 	}
