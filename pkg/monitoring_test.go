@@ -12,7 +12,54 @@ import (
 
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 )
+
+// TestMonitorAttestationsAndProposals_ShortCircuitsOnCancelledCtx pins the
+// early ctx.Err() bail at the top of the per-epoch loop. With ctx already
+// cancelled before the orchestrator starts, the first epoch received from
+// the channel must trigger an immediate return without dispatching any
+// per-epoch work (m.Epoch.Set, Prune, BuildEpochContext, etc.).
+//
+// We send one epoch into the channel and assert m.Epoch was NOT updated —
+// the gauge stays at its zero value. Beacon stays nil since we never
+// actually do any beacon work.
+func TestMonitorAttestationsAndProposals_ShortCircuitsOnCancelledCtx(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // pre-cancel
+
+	epochsChan := make(chan phase0.Epoch, 1)
+	epochsChan <- 99 // queue one epoch so the for-range has something to receive
+	close(epochsChan)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	m := NewMonitorMetrics(prometheus.NewRegistry())
+
+	go MonitorAttestationsAndProposals(ctx, cancel, nil, nil, nil, &wg, epochsChan, m)
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("orchestrator did not exit on pre-cancelled ctx within 2s")
+	}
+
+	// m.Epoch should NOT have been set — the ctx-err bail happens BEFORE
+	// m.Epoch.Set on the first iteration.
+	var metric dto.Metric
+	if err := m.Epoch.Write(&metric); err != nil {
+		t.Fatalf("Epoch.Write: %v", err)
+	}
+	if got := metric.GetGauge().GetValue(); got != 0 {
+		t.Errorf("m.Epoch = %v, want 0 (orchestrator should have bailed before any per-epoch work)", got)
+	}
+}
 
 // TestMonitorAttestationsAndProposals_CancelsCtxOnExit regresses the zombie
 // goroutine: when the orchestrator returns (here via a closed epochsChan),
