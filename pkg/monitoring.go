@@ -369,7 +369,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, cancel context.CancelF
 		// inclusions are operationally indistinguishable from missed duties).
 		FinalizeMissedAttestations(unfulfilledAttesterDuties, spec.EpochHighestSlot(epoch-1), ec.ValidatorPubkeyFromIndex, epoch, m)
 
-		log.Trace().Msgf("Epoch %v proposer duties: %v", epoch, ec.ProposerDuties)
+		log.Trace().Uint64("epoch", uint64(epoch)).Interface("proposerDuties", ec.ProposerDuties).Msg("epoch's proposer duties")
 		// Sort for deterministic Slack report ordering.
 		for _, slot := range slices.Sorted(maps.Keys(ec.Blocks)) {
 			block := ec.Blocks[slot]
