@@ -329,6 +329,48 @@ func TestCheckProposal_EmptyBlockAndMissingBid(t *testing.T) {
 	}
 }
 
+// TestCheckProposal_NilMessageOrBody regresses the structural nil-derefs.
+// SignedBeaconBlock.Message and BeaconBlock.Body are pointer fields. A
+// malformed JSON response could leave either nil. CheckProposal must
+// return false (so the orchestrator leaves the duty in unfulfilled and
+// FinalizeMissedProposals reports it) rather than crashing.
+func TestCheckProposal_NilMessageOrBody(t *testing.T) {
+	const (
+		validator = phase0.ValidatorIndex(42)
+		slot      = phase0.Slot(100)
+	)
+	m := NewMonitorMetrics(prometheus.NewRegistry())
+	pubkeys := map[phase0.ValidatorIndex]string{validator: "pk"}
+
+	for _, tc := range []struct {
+		name  string
+		block *electra.SignedBeaconBlock
+	}{
+		{
+			name:  "nil_message",
+			block: &electra.SignedBeaconBlock{Message: nil},
+		},
+		{
+			name: "nil_body",
+			block: &electra.SignedBeaconBlock{
+				Message: &electra.BeaconBlock{Slot: slot, Body: nil},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("CheckProposal panicked on %s: %v", tc.name, r)
+				}
+			}()
+			ok := CheckProposal(tc.block, slot, validator, nil, false, pubkeys, 3, m)
+			if ok {
+				t.Errorf("%s: CheckProposal returned true, want false", tc.name)
+			}
+		})
+	}
+}
+
 // TestIsBlockEmpty_NilExecutionPayload regresses the nil-deref. A
 // non-conforming JSON response could leave ExecutionPayload nil; the
 // previous code panicked on body.ExecutionPayload.Transactions.

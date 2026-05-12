@@ -100,6 +100,13 @@ func processAttestations(
 	// https://eips.ethereum.org/EIPS/eip-7549
 	for _, slot := range slices.Sorted(maps.Keys(epochBlocks)) {
 		block := epochBlocks[slot]
+		// Defensive: Message and Body are pointer fields. ListEpochBlocks
+		// filters out nil blocks but doesn't drill into the structure; a
+		// non-conforming response can still leave Message or Body nil.
+		if block.Message == nil || block.Message.Body == nil {
+			log.Warn().Uint64("slot", uint64(slot)).Msg("block at slot has nil Message or Body; skipping")
+			continue
+		}
 		for _, attestation := range block.Message.Body.Attestations {
 			// Defensive: AttestationData is a pointer field, so a malformed
 			// JSON response could leave it nil. Spec requires it on every

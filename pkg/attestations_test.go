@@ -492,6 +492,40 @@ func TestProcessAttestationsSkipsDistanceMetricForPreScanInclusion(t *testing.T)
 	}
 }
 
+// TestProcessAttestationsSkipsNilMessageOrBody regresses the
+// block.Message/Body nil-deref. The orchestrator only filters out
+// blocks where the entire pointer is nil; Message and Body inside
+// could still be nil from a malformed response.
+func TestProcessAttestationsSkipsNilMessageOrBody(t *testing.T) {
+	cases := []struct {
+		name  string
+		block *electra.SignedBeaconBlock
+	}{
+		{
+			name:  "nil_message",
+			block: &electra.SignedBeaconBlock{Message: nil},
+		},
+		{
+			name: "nil_body",
+			block: &electra.SignedBeaconBlock{
+				Message: &electra.BeaconBlock{Slot: 32, Body: nil},
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("processAttestations panicked on %s: %v", tc.name, r)
+				}
+			}()
+			epochBlocks := map[phase0.Slot]*electra.SignedBeaconBlock{32: tc.block}
+			processAttestations(epochBlocks, nil, nil, nil, nil, NewMonitorMetrics(prometheus.NewRegistry()), 1)
+		})
+	}
+}
+
 // TestProcessAttestationsSkipsNilDataAttestation regresses the nil-Data
 // defensive guard. attestation.Data is a *phase0.AttestationData; if a
 // malformed response leaves it nil, the previous code would nil-deref
