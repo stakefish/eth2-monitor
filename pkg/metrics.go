@@ -152,7 +152,7 @@ func NewMonitorMetrics(reg prometheus.Registerer) *MonitorMetrics {
 		MissedSlotsInEpoch: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: "ETH2",
 			Name:      "missedSlotsInEpoch",
-			Help:      "Number of missed slots in the current epoch",
+			Help:      "Missed slots in the most recently processed epoch (updated once per non-skip iteration; stays at the previous value during ctx-cancel, epoch=0, or soft-skip iterations)",
 		}),
 		CrossEpochAttestations: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "ETH2",
