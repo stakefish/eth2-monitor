@@ -3,8 +3,10 @@ package beaconchain
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"eth2-monitor/spec"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -78,7 +80,10 @@ func (beacon *BeaconChain) GetValidatorIndexes(ctx context.Context, pubkeys []st
 
 	result := map[string]phase0.ValidatorIndex{}
 	for index, validator := range resp.Data {
-		if validator.Status == apiv1.ValidatorStateActiveOngoing || validator.Status == apiv1.ValidatorStateActiveExiting || validator.Status == apiv1.ValidatorStateActiveSlashed {
+		// IsAttesting excludes active_slashed (a slashed validator has no
+		// further attestation/proposal duties even though it's still
+		// "active" by the epoch-bound is_active_validator definition).
+		if validator.Status.IsAttesting() {
 			// Includes the leading 0x
 			key := validator.Validator.PublicKey.String()
 			key = NormalizedPublicKey(key)
@@ -97,12 +102,14 @@ func (beacon *BeaconChain) GetBlock(ctx context.Context, slot phase0.Slot) (*ele
 	})
 
 	if err != nil {
+		// 404 means the slot was missed (no canonical block exists). The
+		// previous `resp == nil` check after this block was dead code —
+		// go-eth2-client returns (nil, *api.Error{404}), never (nil, nil).
+		var apiErr *api.Error
+		if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound {
+			return nil, nil
+		}
 		return nil, err
-	}
-
-	if resp == nil {
-		// Missed slot
-		return nil, nil
 	}
 
 	// Fulu uses the same electra.SignedBeaconBlock structure
