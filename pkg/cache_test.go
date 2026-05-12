@@ -138,12 +138,21 @@ func TestCache_TopLevelNullDoesNotCrash(t *testing.T) {
 		t.Error("LoadCache returned nil Validators after JSON null; re-init guard should have fired")
 	}
 
-	defer func() {
-		if r := recover(); r != nil {
-			t.Fatalf("SaveCache panicked after LoadCache(null): %v", r)
-		}
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("SaveCache panicked after LoadCache(null): %v", r)
+			}
+		}()
+		SaveCache(&LocalCache{Validators: map[string]CachedIndex{"pk": {Index: 1}}})
 	}()
-	SaveCache(&LocalCache{Validators: map[string]CachedIndex{"pk": {Index: 1}}})
+
+	// Also verify the merge actually landed on disk — a silent SaveCache
+	// failure that doesn't panic but writes nothing would still be a bug.
+	reloaded := LoadCache()
+	if got, ok := reloaded.Validators["pk"]; !ok || got.Index != 1 {
+		t.Errorf("merged entry pk:1 not persisted; got %v ok=%v", got, ok)
+	}
 }
 
 // TestCache_NullValidatorsDoesNotPanicSaveCache regresses the nil-map
