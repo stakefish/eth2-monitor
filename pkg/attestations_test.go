@@ -492,6 +492,26 @@ func TestProcessAttestationsSkipsDistanceMetricForPreScanInclusion(t *testing.T)
 	}
 }
 
+// TestPubkeyOrUnknown_MissingReturnsUnknown — when a validator's pubkey
+// isn't in the map (stale entry from a previous epoch, validator exited
+// mid-window), the helper must produce a visible sentinel so Reports
+// don't render as "Validator N ()".
+func TestPubkeyOrUnknown_MissingReturnsUnknown(t *testing.T) {
+	m := map[phase0.ValidatorIndex]string{42: "abc"}
+	if got := pubkeyOrUnknown(m, 42); got != "abc" {
+		t.Errorf("known validator: got %q, want %q", got, "abc")
+	}
+	if got := pubkeyOrUnknown(m, 99); got != "unknown" {
+		t.Errorf("missing validator: got %q, want %q", got, "unknown")
+	}
+	// Empty-string value (which a buggy cache could surface) is treated
+	// the same as missing — the empty parens were the original eyesore.
+	m[7] = ""
+	if got := pubkeyOrUnknown(m, 7); got != "unknown" {
+		t.Errorf("empty pubkey: got %q, want %q", got, "unknown")
+	}
+}
+
 // TestBuildCommitteeLookup_NilDutiesAreSkipped regresses the case where
 // the duties slice contains a nil pointer (malformed API response). The
 // loop must skip the nil entry without nil-derefing on duty.ValidatorIndex.

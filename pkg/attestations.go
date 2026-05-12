@@ -72,6 +72,18 @@ func BuildCommitteeLookup(
 	return result
 }
 
+// pubkeyOrUnknown returns the validator's lowercase-canonical pubkey if
+// known, or the literal "unknown" otherwise. Reports for stale validators
+// (exited / no longer tracked / not yet resolved) previously formatted as
+// "Validator 1234 ()" — empty parens read as a bug rather than missing
+// data. The sentinel makes the situation explicit.
+func pubkeyOrUnknown(pubkeys map[phase0.ValidatorIndex]string, idx phase0.ValidatorIndex) string {
+	if pk, ok := pubkeys[idx]; ok && pk != "" {
+		return pk
+	}
+	return "unknown"
+}
+
 // PruneSeenAttestations drops dedup entries older than cutoff, keeping only
 // entries that could still recur in a future iteration's scan window.
 //
@@ -232,10 +244,10 @@ func processAttestations(
 
 				if attestationDistance > 2 {
 					Report("⚠️ 🧾 Validator %v (%v) attested slot %v at slot %v, epoch %v, attestation distance is %v",
-						validatorIndex, validatorPubkeyFromIndex[validatorIndex], attestedSlot, block.Message.Slot, epoch, attestationDistance)
+						validatorIndex, pubkeyOrUnknown(validatorPubkeyFromIndex, validatorIndex), attestedSlot, block.Message.Slot, epoch, attestationDistance)
 					m.TotalDelayedOverTolerance.Inc()
 				} else if opts.Monitor.PrintSuccessful {
-					Info("✅ 🧾 Validator %v (%v) attested slot %v at slot %v, epoch %v", validatorIndex, validatorPubkeyFromIndex[validatorIndex], attestedSlot, block.Message.Slot, epoch)
+					Info("✅ 🧾 Validator %v (%v) attested slot %v at slot %v, epoch %v", validatorIndex, pubkeyOrUnknown(validatorPubkeyFromIndex, validatorIndex), attestedSlot, block.Message.Slot, epoch)
 				}
 
 				m.TotalCanonicalAttestations.Inc()
@@ -272,7 +284,7 @@ func FinalizeMissedAttestations(
 			break
 		}
 		for validatorIndex := range unfulfilled[slot].Elems() {
-			Report("❌ 🧾 Validator %v (%v) did not attest slot %v (epoch %v)", validatorIndex, pubkeys[validatorIndex], slot, epoch)
+			Report("❌ 🧾 Validator %v (%v) did not attest slot %v (epoch %v)", validatorIndex, pubkeyOrUnknown(pubkeys, validatorIndex), slot, epoch)
 			m.TotalMissedAttestations.Inc()
 		}
 		delete(unfulfilled, slot)

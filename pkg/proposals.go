@@ -106,7 +106,7 @@ func CheckProposal(
 
 	if isBlockEmpty(block.Message.Body) {
 		Report("⚠️ 🧱 Validator %v (%v) proposed an empty block at epoch %v and slot %v",
-			expectedValidator, pubkeys[expectedValidator], epoch, slot)
+			expectedValidator, pubkeyOrUnknown(pubkeys, expectedValidator), epoch, slot)
 		m.LastProposedEmptyBlockSlot.Set(float64(slot))
 		m.TotalProposedEmptyBlocks.Inc()
 	}
@@ -128,7 +128,7 @@ func CheckProposal(
 			// truly vanilla block, or it could be a relay-side failure —
 			// kept distinct from confirmed hash-mismatch vanilla blocks.
 			m.TotalMissingBidTraces.Inc()
-			log.Error().Msgf("Missing bid trace for proposal slot %v, validator %v (%v)", slot, expectedValidator, pubkeys[expectedValidator])
+			log.Error().Msgf("Missing bid trace for proposal slot %v, validator %v (%v)", slot, expectedValidator, pubkeyOrUnknown(pubkeys, expectedValidator))
 			return true
 		}
 		// Compare hashes case-insensitively. phase0.Hash32.String() emits
@@ -140,11 +140,11 @@ func CheckProposal(
 			m.TotalVanillaBlocks.Inc()
 			m.LastVanillaBlockSlot.Set(float64(slot))
 			m.LastVanillaBlockValidator.Set(float64(expectedValidator))
-			log.Error().Msgf("Validator %v (%v) proposed a vanilla block %v at slot %v", expectedValidator, pubkeys[expectedValidator], executionBlockHash, slot)
+			log.Error().Msgf("Validator %v (%v) proposed a vanilla block %v at slot %v", expectedValidator, pubkeyOrUnknown(pubkeys, expectedValidator), executionBlockHash, slot)
 			return true
 		}
 		if opts.Monitor.PrintSuccessful {
-			Info("✅ 🧾 Validator %v (%v) proposed optimal MEV execution block %v at slot %v, epoch %v", expectedValidator, pubkeys[expectedValidator], trace.BlockHash, slot, epoch)
+			Info("✅ 🧾 Validator %v (%v) proposed optimal MEV execution block %v at slot %v, epoch %v", expectedValidator, pubkeyOrUnknown(pubkeys, expectedValidator), trace.BlockHash, slot, epoch)
 		}
 	}
 
@@ -163,7 +163,7 @@ func FinalizeMissedProposals(
 	// settle on the highest-slot entry.
 	for _, slot := range slices.Sorted(maps.Keys(unfulfilledProposerDuties)) {
 		validatorIndex := unfulfilledProposerDuties[slot]
-		Report("❌ 🧱 Validator %v (%v) missed proposal at slot %v", validatorIndex, pubkeys[validatorIndex], slot)
+		Report("❌ 🧱 Validator %v (%v) missed proposal at slot %v", validatorIndex, pubkeyOrUnknown(pubkeys, validatorIndex), slot)
 		m.TotalMissedProposals.Inc()
 		m.LastMissedProposalSlot.Set(float64(slot))
 		m.LastMissedProposalValidator.Set(float64(validatorIndex))
