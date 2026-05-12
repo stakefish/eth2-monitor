@@ -132,7 +132,7 @@ bin/eth2-monitor monitor --since-epoch 12000 ...
 | `ETH2_lastVanillaBlockValidator` | Gauge | Last vanilla block validator |
 | `ETH2_duplicateAttestationsSkipped` | Counter | Attestations skipped due to (validator, slot) dedup |
 | `ETH2_rawAttestationDistances` | Histogram | Raw attestation distances before dedup (buckets 1-32) |
-| `ETH2_missedSlotsInEpoch` | Gauge | Missed slots in current epoch |
+| `ETH2_missedSlotsInEpoch` | Gauge | Missed slots in the most recently processed epoch (stays at the previous value during ctx-cancel / soft-skip iterations) |
 | `ETH2_crossEpochAttestations` | Counter | Attestations included in a different epoch than attested |
 | `ETH2_beaconAPIRequestsTotal` | CounterVec | Beacon API requests by `endpoint`, `method`, `status_class` (2xx/3xx/4xx/5xx/error) |
 | `ETH2_beaconAPIRequestDurationSeconds` | HistogramVec | Beacon API request latency by `endpoint`, `method` (DefBuckets) |
