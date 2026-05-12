@@ -324,10 +324,17 @@ func fetchBlockWithRetries(ctx context.Context, fetch blockFetcher, slot phase0.
 			break
 		}
 		backoff := time.Duration(200<<attempt) * time.Millisecond
+		// Use NewTimer instead of time.After so we can Stop the unfired
+		// timer when ctx.Done wins the select. time.After's timer keeps
+		// running until it fires naturally; a fleet-wide shutdown with
+		// many slots backing off would otherwise leak ~36 timers per
+		// orchestrator goroutine for up to ~800ms.
+		timer := time.NewTimer(backoff)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return nil, ctx.Err()
-		case <-time.After(backoff):
+		case <-timer.C:
 		}
 	}
 	return nil, lastErr
