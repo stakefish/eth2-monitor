@@ -80,6 +80,19 @@ func LoadCache() *LocalCache {
 	return cache
 }
 
+// SaveCache merges newCache into the on-disk cache and writes the result
+// atomically (write tmpfile → sync → close → rename → dir-fsync). On any
+// error path the tmpfile is cleaned up; the on-disk cache file is never
+// left in a partially-written state.
+//
+// Merge semantics:
+//   - Validators: every entry from newCache overwrites the on-disk entry
+//     for that pubkey. Missing keys are preserved.
+//   - LastEpoch: forward-only — only advances if newCache.LastEpoch is
+//     strictly greater than the on-disk value.
+//
+// SaveCache(nil) is a silent no-op. Single-goroutine usage assumed;
+// concurrent calls race on the read-modify-write cycle.
 func SaveCache(newCache *LocalCache) {
 	if newCache == nil {
 		// Public API — a future caller passing nil would otherwise
