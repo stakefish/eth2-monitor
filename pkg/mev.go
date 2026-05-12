@@ -121,7 +121,14 @@ func requestRelayEpochBidTraces(timeout time.Duration, baseurl string, epoch pha
 }
 
 func exptBackoff(base time.Duration, maxExponent uint) iter.Seq[time.Duration] {
+	// baseMillis is the modulus for the jitter draw. Anything less than 1
+	// would panic on `rand.Uint() % 0`; clamp so callers that pass sub-ms
+	// bases (or someone refactors the call site) get zero-jitter instead
+	// of a crash deep in a goroutine.
 	baseMillis := uint(base / time.Millisecond)
+	if baseMillis < 1 {
+		baseMillis = 1
+	}
 	return func(yield func(time.Duration) bool) {
 		step := base
 		for {
