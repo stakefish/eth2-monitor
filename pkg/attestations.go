@@ -322,7 +322,7 @@ func FinalizeMissedAttestations(
 	epoch phase0.Epoch,
 	m *MonitorMetrics,
 ) {
-	log.Debug().Msgf("Unfulfilled attester duties at the end of epoch %v (map[SLOT]{VALIDATOR_INDEX...}): %v", epoch, unfulfilled)
+	log.Debug().Uint64("epoch", uint64(epoch)).Interface("unfulfilled", unfulfilled).Msg("unfulfilled attester duties (map[SLOT]{VALIDATOR_INDEX...}) at iteration end")
 	for _, slot := range slices.Sorted(maps.Keys(unfulfilled)) {
 		if slot > missedEpochHighSlot {
 			break
