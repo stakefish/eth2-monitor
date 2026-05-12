@@ -194,8 +194,21 @@ func (e *EpochContext) SlotsWithBlocks() int {
 	return count
 }
 
-// ResolveValidatorKeys transforms validator public keys into their indexes.
-// It returns direct and reversed mapping.
+// ResolveValidatorKeys turns plain-text pubkeys into validator indices,
+// returning a map[index]→pubkey of the currently-attesting validators.
+//
+// Caching:
+//   - Cache hits are entries with At within the 30-minute TTL window.
+//     Stale entries (or first-run misses) are re-fetched from the beacon
+//     API in chunks of 100 pubkeys.
+//   - Pubkeys with no beacon response (exited / pending / unknown) are
+//     cached as VALIDATOR_INDEX_INVALID for the same TTL so we don't
+//     re-query every iteration. A newly-active validator becomes visible
+//     within ~30 minutes of activation.
+//
+// The cache is persisted via SaveCache after a successful API round-trip;
+// partial chunk failures discard the in-memory writes (next call retries
+// from scratch).
 func ResolveValidatorKeys(ctx context.Context, beacon *beaconchain.BeaconChain, plainPubKeys []string, epoch phase0.Epoch) (map[phase0.ValidatorIndex]string, error) {
 	normalized := make([]string, len(plainPubKeys))
 	for i, key := range plainPubKeys {
