@@ -67,7 +67,7 @@ func requestBidTracesPage(client *http.Client, baseurl string, slot phase0.Slot,
 	var payloads []BidTrace
 
 	url := fmt.Sprintf("%s/relay/v1/data/bidtraces/proposer_payload_delivered?cursor=%d&limit=%d", baseurl, slot, limit)
-	log.Debug().Msgf("Calling %v", url)
+	log.Debug().Str("url", url).Msg("calling relay")
 
 	resp, err := client.Get(url)
 
