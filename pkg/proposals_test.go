@@ -372,7 +372,6 @@ func TestCheckProposal_NilMessageOrBody(t *testing.T) {
 		validator = phase0.ValidatorIndex(42)
 		slot      = phase0.Slot(100)
 	)
-	m := NewMonitorMetrics(prometheus.NewRegistry())
 	pubkeys := map[phase0.ValidatorIndex]string{validator: "pk"}
 
 	for _, tc := range []struct {
@@ -391,6 +390,9 @@ func TestCheckProposal_NilMessageOrBody(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			// Fresh metrics per subtest so counter-bleed between cases
+			// can't mask a regression.
+			m := NewMonitorMetrics(prometheus.NewRegistry())
 			defer func() {
 				if r := recover(); r != nil {
 					t.Fatalf("CheckProposal panicked on %s: %v", tc.name, r)
@@ -399,6 +401,17 @@ func TestCheckProposal_NilMessageOrBody(t *testing.T) {
 			ok := CheckProposal(tc.block, slot, validator, nil, false, pubkeys, 3, m)
 			if ok {
 				t.Errorf("%s: CheckProposal returned true, want false", tc.name)
+			}
+			// Same nil-bail invariant as TestCheckProposal_NilBlock —
+			// no proposal-side counters should have moved.
+			if got := counterValue(t, m.TotalCanonicalProposals); got != 0 {
+				t.Errorf("%s: TotalCanonicalProposals = %v, want 0", tc.name, got)
+			}
+			if got := counterValue(t, m.TotalProposedEmptyBlocks); got != 0 {
+				t.Errorf("%s: TotalProposedEmptyBlocks = %v, want 0", tc.name, got)
+			}
+			if got := counterValue(t, m.TotalMissingBidTraces); got != 0 {
+				t.Errorf("%s: TotalMissingBidTraces = %v, want 0", tc.name, got)
 			}
 		})
 	}
