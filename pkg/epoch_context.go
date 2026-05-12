@@ -282,30 +282,70 @@ func ListAttesterDuties(ctx context.Context, beacon *beaconchain.BeaconChain, ep
 	return result, nil
 }
 
+// blockFetcher is the narrow GetBlock surface ListEpochBlocks depends on,
+// extracted so tests can inject transient errors without standing up a fake
+// beacon node. *beaconchain.BeaconChain satisfies it via its GetBlock method.
+type blockFetcher interface {
+	GetBlock(ctx context.Context, slot phase0.Slot) (*electra.SignedBeaconBlock, error)
+}
+
 func ListEpochBlocks(ctx context.Context, beacon *beaconchain.BeaconChain, epoch phase0.Epoch) (map[phase0.Slot]*electra.SignedBeaconBlock, error) {
+	return listEpochBlocks(ctx, beacon, epoch)
+}
+
+func listEpochBlocks(ctx context.Context, fetch blockFetcher, epoch phase0.Epoch) (map[phase0.Slot]*electra.SignedBeaconBlock, error) {
 	result := make(map[phase0.Slot]*electra.SignedBeaconBlock, spec.SLOTS_PER_EPOCH)
 	low := spec.EpochLowestSlot(epoch)
 	high := spec.EpochHighestSlot(epoch)
 
-	// H09 fix: fetch a few slots past the epoch end to catch cross-epoch attestations.
-	// Attestations from the last slots of an epoch are routinely included in the first
-	// slots of the next epoch. Without this look-ahead, those attestations appear "missed".
+	// Fetch a few slots past the epoch end so attestations included in the
+	// first blocks of E+1 are visible while processing E. Without this look-
+	// ahead, attestations for E's last slots would appear missed.
 	lookAhead := phase0.Slot(4)
 
 	for slot := low; slot <= high+lookAhead; slot++ {
-		block, err := beacon.GetBlock(ctx, phase0.Slot(slot))
-
+		block, err := fetchBlockWithRetries(ctx, fetch, slot, 3)
 		if err != nil {
-			log.Error().Err(err).Msg("failed to fetch block")
+			// Treat persistent fetch errors as missed slots to keep the
+			// monitor running, but log at ERROR so operators can alert on
+			// repeated occurrences. The alternative (return the error and
+			// crash the orchestrator) would break attestation-dedup
+			// contiguity by skipping ahead on restart.
+			log.Error().Err(err).Uint64("slot", uint64(slot)).Msg("failed to fetch block after retries; treating as missed")
 			continue
 		}
-
 		if block == nil {
-			// Missed slot
+			// Genuine missed slot (GetBlock translates a 404 to (nil, nil)).
 			continue
 		}
-
 		result[slot] = block
 	}
 	return result, nil
+}
+
+// fetchBlockWithRetries calls fetch.GetBlock up to maxAttempts times,
+// backing off between failures. A nil block with a nil error is treated as
+// success (404 → genuinely missed slot) and is returned immediately.
+//
+// Honours ctx cancellation: any sleep is short-circuited so shutdown is
+// instant rather than blocked on backoff.
+func fetchBlockWithRetries(ctx context.Context, fetch blockFetcher, slot phase0.Slot, maxAttempts int) (*electra.SignedBeaconBlock, error) {
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		block, err := fetch.GetBlock(ctx, slot)
+		if err == nil {
+			return block, nil
+		}
+		lastErr = err
+		if attempt == maxAttempts-1 {
+			break
+		}
+		backoff := time.Duration(200<<attempt) * time.Millisecond
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(backoff):
+		}
+	}
+	return nil, lastErr
 }
