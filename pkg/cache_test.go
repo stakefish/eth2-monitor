@@ -208,13 +208,15 @@ func TestCache_MissingFileEmpty(t *testing.T) {
 }
 
 // TestCache_TmpfileCleanupOnSuccess — after a successful SaveCache the
-// transient tmpfile should not be lying around in $TMPDIR.
+// transient tmpfile should not be lying around next to the cache file.
+// (SaveCache now creates the tmpfile in path.Dir(cacheFilePath) so the
+// rename is guaranteed to be on one filesystem.)
 func TestCache_TmpfileCleanupOnSuccess(t *testing.T) {
 	withTempCachePath(t)
 
 	SaveCache(&LocalCache{LastEpoch: 1})
 
-	matches, err := filepath.Glob(filepath.Join(os.TempDir(), "stakefish-eth2-monitor-cache.*.json"))
+	matches, err := filepath.Glob(filepath.Join(filepath.Dir(cacheFilePath), "stakefish-eth2-monitor-cache.*.json"))
 	if err != nil {
 		t.Fatalf("Glob: %v", err)
 	}

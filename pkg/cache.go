@@ -88,7 +88,13 @@ func SaveCache(newCache *LocalCache) {
 		return
 	}
 
-	tmpfile, err := os.CreateTemp("", "stakefish-eth2-monitor-cache.*.json")
+	// Create the tmpfile in the SAME directory as cacheFilePath so the
+	// subsequent os.Rename is guaranteed to be on one filesystem (Rename
+	// returns EXDEV otherwise). Today both default to $TMPDIR, but a
+	// future caller overriding cacheFilePath (or a setup where /tmp is a
+	// tmpfs but the cache lives elsewhere) would otherwise silently fail
+	// every save.
+	tmpfile, err := os.CreateTemp(path.Dir(cacheFilePath), "stakefish-eth2-monitor-cache.*.json")
 	if err != nil {
 		log.Warn().Err(err).Msg("SaveCache: os.CreateTemp failed; skip")
 		return
