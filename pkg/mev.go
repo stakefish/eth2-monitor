@@ -244,7 +244,11 @@ func requestEpochBidTraces(ctx context.Context, timeout time.Duration, relays []
 				select {
 				case <-relayCtx.Done():
 					timer.Stop()
-					return fmt.Errorf("timeout")
+					// Wrap the underlying ctx error (DeadlineExceeded
+					// for the per-relay timeout, Canceled for parent
+					// shutdown) so callers can errors.Is against
+					// context.Canceled / DeadlineExceeded.
+					return fmt.Errorf("relay %s timeout: %w", baseurl, relayCtx.Err())
 				case <-timer.C:
 				}
 			}
