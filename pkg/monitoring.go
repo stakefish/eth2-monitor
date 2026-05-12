@@ -34,7 +34,10 @@ func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg 
 	// silent channel, and wg.Wait() in main deadlocks until SIGKILL.
 	defer close(epochsChan)
 
-	finalityProvider := beacon.Service().(eth2client.FinalityProvider)
+	finalityProvider, ok := beacon.Service().(eth2client.FinalityProvider)
+	if !ok {
+		panic("beacon.Service() does not satisfy eth2client.FinalityProvider; library breaking change")
+	}
 	resp, err := finalityProvider.Finality(ctx, &api.FinalityOpts{State: "head"})
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		// Startup ctx cancellation — unusual but possible if the parent
@@ -111,7 +114,10 @@ func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg 
 		}
 	}
 
-	eventsProvider := beacon.Service().(eth2client.EventsProvider)
+	eventsProvider, ok := beacon.Service().(eth2client.EventsProvider)
+	if !ok {
+		panic("beacon.Service() does not satisfy eth2client.EventsProvider; library breaking change")
+	}
 	err = eventsProvider.Events(ctx, &api.EventsOpts{
 		Topics:  []string{"head"},
 		Handler: eventsHandlerFunc,
