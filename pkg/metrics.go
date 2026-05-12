@@ -2,6 +2,7 @@ package pkg
 
 import (
 	"errors"
+	"fmt"
 
 	"eth2-monitor/beaconchain"
 
@@ -187,7 +188,7 @@ func NewMonitorMetrics(reg prometheus.Registerer) *MonitorMetrics {
 		if errors.As(err, &already) {
 			return
 		}
-		log.Error().Err(err).Msgf("NewMonitorMetrics: failed to register collector %T", c)
+		log.Error().Err(err).Str("collector", fmt.Sprintf("%T", c)).Msg("NewMonitorMetrics: failed to register collector")
 	}
 	for _, c := range []prometheus.Collector{
 		m.Epoch,
