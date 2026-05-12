@@ -119,7 +119,7 @@ func CheckProposal(
 			// usable" rather than crashing — the operator still gets a
 			// metric bump and a log line.
 			m.TotalMissingBidTraces.Inc()
-			log.Error().Msgf("Block at slot %v has nil ExecutionPayload; cannot compare to bid trace (validator %v)", slot, expectedValidator)
+			log.Error().Msgf("Block at slot %v has nil ExecutionPayload; cannot compare to bid trace (validator %v %v)", slot, expectedValidator, pubkeyOrUnknown(pubkeys, expectedValidator))
 			return true
 		}
 		executionBlockHash := block.Message.Body.ExecutionPayload.BlockHash
