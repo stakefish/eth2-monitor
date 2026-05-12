@@ -142,12 +142,15 @@ func requestEpochBidTraces(ctx context.Context, timeout time.Duration, relays []
 	var mu sync.Mutex
 	result := make(map[string][]BidTrace)
 
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
 	var g errgroup.Group
 	for _, baseurl := range relays {
 		g.Go(func() error {
+			// Per-relay timeout: a single slow relay no longer starves
+			// the others. The parent ctx still cancels everyone on
+			// shutdown.
+			relayCtx, cancel := context.WithTimeout(ctx, timeout)
+			defer cancel()
+
 			var traces []BidTrace
 			for delay := range exptBackoff(time.Duration(500)*time.Millisecond, 4) {
 				var err error
@@ -157,7 +160,7 @@ func requestEpochBidTraces(ctx context.Context, timeout time.Duration, relays []
 				}
 				log.Error().Msgf("MEV relay request failed: %v", err)
 				select {
-				case <-ctx.Done():
+				case <-relayCtx.Done():
 					return fmt.Errorf("timeout")
 				default:
 					time.Sleep(delay)
