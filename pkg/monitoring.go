@@ -26,6 +26,12 @@ import (
 // listen to real-time changes.
 func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg *sync.WaitGroup, epochsChan chan phase0.Epoch) {
 	defer wg.Done()
+	// Closing the channel on exit is critical: MonitorAttestationsAndProposals
+	// blocks on `for range epochsChan` and only unblocks when the channel is
+	// closed. Without this defer, an SSE-path Must(err) panic (or any normal
+	// return from the SSE Events call) leaves the orchestrator hanging on a
+	// silent channel, and wg.Wait() in main deadlocks until SIGKILL.
+	defer close(epochsChan)
 
 	finalityProvider := beacon.Service().(eth2client.FinalityProvider)
 	resp, err := finalityProvider.Finality(ctx, &api.FinalityOpts{State: "head"})
@@ -46,7 +52,6 @@ func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg 
 				return
 			}
 		}
-		close(epochsChan)
 		return
 	}
 	if opts.Monitor.SinceEpoch != ^uint64(0) {
@@ -55,7 +60,6 @@ func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg 
 				return
 			}
 		}
-		close(epochsChan)
 		return
 	}
 
