@@ -43,11 +43,15 @@ func reportToSlack(message string) {
 	buf, err := json.Marshal(body)
 	if err != nil {
 		log.Warn().Err(err).Msgf("json.Marshal failed while reporting %q; skip", message)
+		return
 	}
 
-	resp, err := http.Post(opts.SlackURL, "application/json", bytes.NewBuffer([]byte(buf)))
+	resp, err := http.Post(opts.SlackURL, "application/json", bytes.NewBuffer(buf))
 	if err != nil {
+		// http.Post returns (nil, err) on transport-level failures, so we
+		// can't defer Close on the response. Bail before that.
 		log.Warn().Err(err).Msgf("http.Post failed while reporting %q; skip", message)
+		return
 	}
 	defer func() { _ = resp.Body.Close() }()
 }
