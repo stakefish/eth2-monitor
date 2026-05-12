@@ -158,7 +158,7 @@ func BuildEpochContext(
 				log.Error().Stack().Err(err).Msg("failed to fetch MEV bid traces")
 			}
 		}, "ListBestBids(epoch=%v)", epoch)
-		log.Debug().Msgf("Number of MEV boosts is %v", len(bestBids))
+		log.Debug().Uint64("epoch", uint64(epoch)).Int("count", len(bestBids)).Msg("MEV bid traces fetched")
 	}
 
 	var (
