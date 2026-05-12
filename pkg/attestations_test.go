@@ -8,42 +8,71 @@ import (
 	"github.com/attestantio/go-eth2-client/spec/electra"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/prometheus/client_golang/prometheus"
-	dto "github.com/prometheus/client_model/go"
 )
 
-// counterValue extracts the current value of a Prometheus counter.
-func counterValue(t *testing.T, c prometheus.Counter) float64 {
-	t.Helper()
-	var metric dto.Metric
-	if err := c.Write(&metric); err != nil {
-		t.Fatalf("counter.Write: %v", err)
+// TestFinalizeMissedAttestations — slots ≤ cutoff get cleared from
+// unfulfilled and counted as missed; slots > cutoff stay (they may still be
+// observed in a future iteration).
+func TestFinalizeMissedAttestations(t *testing.T) {
+	const (
+		v1 = phase0.ValidatorIndex(11)
+		v2 = phase0.ValidatorIndex(22)
+		v3 = phase0.ValidatorIndex(33)
+	)
+	cutoff := phase0.Slot(63) // end of epoch 1, SLOTS_PER_EPOCH=32
+	unfulfilled := map[phase0.Slot]Set[phase0.ValidatorIndex]{
+		31: NewSet(v1),                            // ≤ cutoff: missed
+		63: NewSet(v2),                            // == cutoff: missed (boundary)
+		64: NewSet(v3),                            // > cutoff: retained
+		32: NewSet(phase0.ValidatorIndex(44), v1), // ≤ cutoff, two validators: both missed
 	}
-	return metric.GetCounter().GetValue()
+	pubkeys := map[phase0.ValidatorIndex]string{
+		v1:                          "pk1",
+		v2:                          "pk2",
+		v3:                          "pk3",
+		phase0.ValidatorIndex(44):   "pk44",
+	}
+	m := NewMonitorMetrics(prometheus.NewRegistry())
+
+	FinalizeMissedAttestations(unfulfilled, cutoff, pubkeys, 2, m)
+
+	// Three missed-attestation reports: v1@31, v44@32 + v1@32, v2@63 = 4 total
+	if got := counterValue(t, m.TotalMissedAttestations); got != 4 {
+		t.Errorf("TotalMissedAttestations = %v, want 4 (validators at slots ≤ cutoff)", got)
+	}
+	for _, s := range []phase0.Slot{31, 32, 63} {
+		if _, still := unfulfilled[s]; still {
+			t.Errorf("slot %v still in unfulfilled after finalize; expected delete", s)
+		}
+	}
+	if _, still := unfulfilled[64]; !still {
+		t.Errorf("slot 64 (> cutoff) was deleted; should be retained for future observation")
+	}
 }
 
-// histogramSampleCount extracts the total sample count from a Prometheus histogram.
-func histogramSampleCount(t *testing.T, h prometheus.Histogram) uint64 {
-	t.Helper()
-	var metric dto.Metric
-	if err := h.Write(&metric); err != nil {
-		t.Fatalf("histogram.Write: %v", err)
+// TestPruneSeenAttestations — entries strictly below cutoff dropped; entries
+// at cutoff or above retained. The current code uses `< cutoff`, not
+// `<= cutoff`; this test pins that exact boundary.
+func TestPruneSeenAttestations(t *testing.T) {
+	cutoff := phase0.Slot(32)
+	seen := map[phase0.Slot]Set[phase0.ValidatorIndex]{
+		0:  NewSet(phase0.ValidatorIndex(1)), // < cutoff: pruned
+		31: NewSet(phase0.ValidatorIndex(2)), // < cutoff: pruned
+		32: NewSet(phase0.ValidatorIndex(3)), // == cutoff: kept (strict <)
+		63: NewSet(phase0.ValidatorIndex(4)), // > cutoff: kept
 	}
-	return metric.GetHistogram().GetSampleCount()
-}
 
-// buildSingleValidatorAttestation creates a minimal Electra attestation where exactly
-// one validator (at position 0 in committee 0) attested for attestedSlot.
-func buildSingleValidatorAttestation(attestedSlot phase0.Slot) *electra.Attestation {
-	aggBits := bitfield.NewBitlist(1)
-	aggBits.SetBitAt(0, true)
+	PruneSeenAttestations(seen, cutoff)
 
-	committeeBits := bitfield.NewBitvector64()
-	committeeBits.SetBitAt(0, true)
-
-	return &electra.Attestation{
-		AggregationBits: aggBits,
-		Data:            &phase0.AttestationData{Slot: attestedSlot},
-		CommitteeBits:   committeeBits,
+	for _, s := range []phase0.Slot{0, 31} {
+		if _, ok := seen[s]; ok {
+			t.Errorf("slot %v not pruned; expected delete (strictly < %v)", s, cutoff)
+		}
+	}
+	for _, s := range []phase0.Slot{32, 63} {
+		if _, ok := seen[s]; !ok {
+			t.Errorf("slot %v incorrectly pruned; expected retain (slot >= %v)", s, cutoff)
+		}
 	}
 }
 

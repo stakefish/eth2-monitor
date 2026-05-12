@@ -31,15 +31,20 @@ spec/
   consts.go          -- SLOTS_PER_EPOCH=32, SECONDS_PER_SLOT=12
   routines.go        -- Epoch/Slot conversion helpers
 pkg/
-  monitoring.go      -- Core monitoring loop: epoch subscription, attestation/proposal checks
-  metrics.go         -- MonitorMetrics struct + NewMonitorMetrics(reg) factory; all Prometheus metrics
-  reporting.go       -- Slack webhook + log reporting (Report/Info helpers)
-  mev.go             -- MEV relay bid trace fetching (concurrent, paginated)
-  cache.go           -- Disk-backed JSON cache for validator index lookups
-  set.go             -- Generic Set[E comparable] collection
-  profiling.go       -- Measure() timing utility
-  utilities.go       -- Must() panic-on-error helper
-  monitoring_test.go -- Tests for the per-epoch monitor loop + attestation processing
+  monitoring.go        -- Orchestrator loop + SubscribeToEpochs + LoadKeys/LoadMEVRelays
+  epoch_context.go     -- Per-epoch state fetch: EpochContext + BuildEpochContext + ResolveValidatorKeys + ListProposerDuties / ListAttesterDuties / ListEpochBlocks + SlotsWithBlocks
+  attestations.go      -- Attestation-issue detection: processAttestations + BuildCommitteeLookup + PruneSeenAttestations + FinalizeMissedAttestations + CommitteeInfo
+  proposals.go         -- Proposal-issue detection: isBlockEmpty + CheckProposal + FinalizeMissedProposals
+  metrics.go           -- MonitorMetrics struct + NewMonitorMetrics(reg) factory; all Prometheus metrics
+  reporting.go         -- Slack webhook + log reporting (Report/Info helpers)
+  mev.go               -- MEV relay bid trace fetching (concurrent, paginated)
+  cache.go             -- Disk-backed JSON cache for validator index lookups
+  set.go               -- Generic Set[E comparable] collection
+  profiling.go         -- Measure() timing utility
+  utilities.go         -- Must() panic-on-error helper
+  attestations_test.go -- Tests for processAttestations, BuildCommitteeLookup, FinalizeMissedAttestations, PruneSeenAttestations
+  proposals_test.go    -- Tests for isBlockEmpty, CheckProposal, FinalizeMissedProposals
+  test_helpers_test.go -- Shared test helpers (counterValue, gaugeValue, histogramSampleCount, buildSingleValidatorAttestation)
 test-env/
   docker-compose.yml -- Full local stack: eth2-monitor + Prometheus + Grafana
   grafana/           -- Pre-provisioned dashboards and datasources
@@ -160,11 +165,12 @@ bin/eth2-monitor monitor --since-epoch 12000 ...
 - **`vendor/` is not in git** -- `.gitignore` has `/vendor/` and the directory is genuinely untracked (`git ls-files vendor/` is empty). After a fresh clone vendor/ is absent; `go build` falls back to the module cache. Run `go mod vendor` only if you want a vendored local build. Older docs/comments that imply vendor/ is checked in are stale.
 - **Attestation tracking is memory-sensitive** -- was reworked 3 times to fix OOM (PR #20); be careful adding per-validator state
 - **Prometheus counter names must be unique** -- duplicate registration panics at startup (happened with `total_canonical_attestations_counter` in PR #26)
+- **`CheckProposal` returns false on proposer-index mismatch** -- when the block at a duty slot was proposed by an unexpected validator, `CheckProposal` short-circuits and returns false; the orchestrator MUST leave that slot in `ec.ProposerDuties` so `FinalizeMissedProposals` later reports it as missed. A naïve unconditional `delete(ec.ProposerDuties, slot)` after the call silently swallows the report (regression-trapped by `TestCheckProposal_ProposerMismatch`).
 
 ## Architecture
 
 The monitor runs two goroutines communicating via an epoch channel:
 1. **SubscribeToEpochs** -- Listens to beacon head SSE events, detects epoch boundaries, sends epoch numbers
-2. **MonitorAttestationsAndProposals** -- Per epoch: resolves validator keys, fetches duties/blocks/bids, delegates attestation checking to `processAttestations()`, detects missed/empty/vanilla proposals, reports and records metrics
+2. **MonitorAttestationsAndProposals** -- Slim orchestrator. Per epoch: `PruneSeenAttestations` → `BuildEpochContext` (single call that fetches validator keys, attester/proposer duties, committee lengths, blocks, and MEV bids) → seed `unfulfilledAttesterDuties` for current epoch → `processAttestations` → `FinalizeMissedAttestations` (E-1 cutoff) → walk blocks calling `CheckProposal` per slot → `FinalizeMissedProposals` → `SaveCache`. Each per-concern delegate owns one issue class (attestation vs proposal vs lifecycle) so tests can drive them in isolation.
 
 Metrics are encapsulated in `MonitorMetrics` struct (`pkg/metrics.go`), created via `NewMonitorMetrics(reg)` which accepts a `prometheus.Registerer` — production uses `DefaultRegisterer`, tests use isolated registries.
