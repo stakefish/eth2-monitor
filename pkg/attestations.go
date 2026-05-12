@@ -41,7 +41,13 @@ func BuildCommitteeLookup(
 	for slot, byIdx := range committeeLengths {
 		entry := make(map[phase0.CommitteeIndex]*CommitteeInfo, len(byIdx))
 		for idx, length := range byIdx {
-			entry[idx] = &CommitteeInfo{Length: length, Validators: make(map[uint64]phase0.ValidatorIndex)}
+			// Validators starts nil — lazily allocated when a tracked duty
+			// for this committee is overlayed below. Most committees on a
+			// busy network don't contain any tracked validator, so eagerly
+			// allocating ~6000 empty maps per orchestrator iteration was
+			// pure GC pressure. processAttestations ranges over the field;
+			// `range nil map` is a no-op, so the read side stays safe.
+			entry[idx] = &CommitteeInfo{Length: length}
 		}
 		result[slot] = entry
 	}
@@ -64,8 +70,11 @@ func BuildCommitteeLookup(
 			// duty's reported length so the tracked validator is still
 			// considered. Offsets remain correct as long as committeeLengths
 			// covers the rest.
-			info = &CommitteeInfo{Length: duty.CommitteeLength, Validators: make(map[uint64]phase0.ValidatorIndex)}
+			info = &CommitteeInfo{Length: duty.CommitteeLength}
 			result[duty.Slot][duty.CommitteeIndex] = info
+		}
+		if info.Validators == nil {
+			info.Validators = make(map[uint64]phase0.ValidatorIndex)
 		}
 		info.Validators[duty.ValidatorCommitteeIndex] = duty.ValidatorIndex
 	}
