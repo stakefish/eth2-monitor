@@ -6,14 +6,14 @@ Ethereum 2.0 validator performance monitor built by stakefish. Tracks attestatio
 
 ## Tech Stack
 
-- **Language:** Go 1.25 (go.mod: 1.25.10; `.tool-versions`: 1.25.8; CI: 1.23.x -- mismatch is real, see CI gotcha below)
+- **Language:** Go 1.25 (go.mod: 1.25.10; `.tool-versions`: 1.25.8; CI: 1.25.x)
 - **CLI Framework:** Cobra (`github.com/spf13/cobra`)
-- **Beacon Chain Client:** `github.com/attestantio/go-eth2-client` v0.27.1 (HTTP transport)
+- **Beacon Chain Client:** `github.com/attestantio/go-eth2-client` v0.28.1 (HTTP transport)
 - **Logging:** zerolog (`github.com/rs/zerolog`)
 - **Metrics:** Prometheus (`github.com/prometheus/client_golang`)
 - **Error Wrapping:** `github.com/pkg/errors`
 - **Concurrency:** `golang.org/x/sync` (errgroup)
-- **Dependencies:** vendored (`vendor/`)
+- **Dependencies:** Go modules; `vendor/` is gitignored and not tracked. Dockerfile uses `go mod download` (module cache); local `go build` will use `vendor/` if you've run `go mod vendor`.
 
 ## Codebase Structure
 
@@ -69,11 +69,22 @@ go test ./...
 cd test-env && docker compose up --build
 ```
 
+## Debugging Workflows
+
+```bash
+# Re-run a single past epoch with full per-slot detail (epochs must be processed
+# in order; see "Attestation dedup requires consecutive epoch processing" below)
+bin/eth2-monitor monitor --replay-epoch 12345 --print-successful -l trace \
+  --beacon-chain-api http://localhost:3500 -k 0xPUBKEY...
+
+# Resume from a specific epoch (e.g. after a long downtime)
+bin/eth2-monitor monitor --since-epoch 12000 ...
+```
+
 ## CLI Flags
 
 **Global:**
 - `--beacon-chain-api` (default: `localhost:3500`) -- Beacon Chain REST API
-- `--beacon-node` (default: `localhost:4000`) -- Prysm GRPC (legacy)
 - `--metrics-port` (default: `1337`) -- Prometheus metrics port
 - `--log-level` / `-l` (default: `info`)
 - `--slack-url` / `--slack-username` -- Slack webhook notifications
@@ -134,24 +145,21 @@ cd test-env && docker compose up --build
 
 ## CI
 
-- **Linting:** `golangci/golangci-lint-action@v8` via GitHub Actions (`golangci-lint.yml`, runs on PRs); no tool version pinned in the workflow
-- **Build:** Multi-arch build via GitHub Actions (`main.yml`, runs on push/PR)
+- **Linting:** golangci-lint `v2.12.2` (pinned in `golangci-lint.yml:27`) via `golangci/golangci-lint-action@v8`, runs on PRs
+- **Tests:** `test` job in `main.yml` runs `go test ./...`; `build` depends on it so a failing test blocks the release
+- **Build:** Multi-arch (amd64 + arm64; linux/darwin/freebsd/windows) via `main.yml`, runs on push/PR
 - **Release:** Auto-publishes binaries + Docker image to GHCR on git tags (`softprops/action-gh-release` + `docker/build-push-action`)
-- **Known bug:** `main.yml` line 52 loops `arm64 arm64` instead of `amd64 arm64` -- only builds arm64, skips amd64
-- No automated test runner in CI -- run `go test ./...` locally
 
 ## Gotchas
 
 - **GetBlock fails on pre-Fusaka slots** -- returns error `"unsupported block version"` for any slot before the Fulu fork
 - **Validator cache has no TTL** -- `pkg/cache.go` persists the `Validators` map plus `LastEpoch` to disk JSON (`$TMPDIR/stakefish-eth2-monitor-cache.json`). The `CachedIndex.At` timestamp is written but never read; entries live forever. On restart `LastEpoch` gates skip-ahead so cumulative counters don't double-count re-processed epochs. Delete the file to force a clean run.
-- **MEV relays file is JSON, not one-per-line** -- the `--mev-relays` flag help text says "one-per-line" but `LoadMEVRelays` (`pkg/monitoring.go:286`) does `json.Unmarshal`. Real format: `["https://relay1...", "https://relay2..."]`.
-- **Caplin `amount`/`index` JSON quoting** -- `beaconchain/caplin_compat.go` installs an HTTP transport that rewrites unquoted numeric JSON fields *only* on `/eth/v2/beacon/blocks/` responses. Other Caplin endpoints aren't patched -- hit them via Caplin and unmarshal errors return raw.
-- **Slashed validators silently excluded from monitoring** -- `GetValidatorIndexes` filters via `IsAttesting()`. Slashed validators stop appearing in duties and reports until they fully exit -- surprising during incident response when "where is validator X?" has no log line.
+- **Caplin `amount`/`index` JSON quoting** -- `beaconchain/caplin_compat.go` installs an HTTP transport that rewrites *only* the `"amount":N` and `"index":N` fields (regex `unquotedNumericField`) on `/eth/v2/beacon/blocks/` JSON responses. Other Caplin endpoints, other unquoted uint64 fields (e.g. anything under `solid/`), and SSZ responses are untouched -- those still need a fix upstream in go-eth2-client.
+- **Slashed validators silently excluded from monitoring** -- `GetValidatorIndexes` filters via `IsAttesting()`, which is false for `active_slashed` *and* for any post-exit state. Once a key is slashed it never reappears in duties or reports (slashed and exited are both filtered) -- surprising during incident response when "where is validator X?" has no log line.
 - **Attestation dedup requires consecutive epoch processing** -- `processAttestations` keys `seenAttestations` on `(validator, slot)` and the cross-epoch lookahead window assumes E and E+1 are processed in order. Skipping an epoch (SSE jump, replay-epoch gap) produces false missed-attestation reports.
-- **vendor/ is tracked despite .gitignore** -- the gitignore has `/vendor/` but the directory was force-added; run `go mod vendor` after dependency changes
+- **`vendor/` is not in git** -- `.gitignore` has `/vendor/` and the directory is genuinely untracked (`git ls-files vendor/` is empty). After a fresh clone vendor/ is absent; `go build` falls back to the module cache. Run `go mod vendor` only if you want a vendored local build. Older docs/comments that imply vendor/ is checked in are stale.
 - **Attestation tracking is memory-sensitive** -- was reworked 3 times to fix OOM (PR #20); be careful adding per-validator state
 - **Prometheus counter names must be unique** -- duplicate registration panics at startup (happened with `total_canonical_attestations_counter` in PR #26)
-- **Dead code in `cmd/opts/opts.go`** -- `Slashings` struct and `Monitor.DistanceTolerance`/`UseAbsoluteDistance` fields are unused; no CLI flags wired, no code references. Legacy/future placeholders.
 
 ## Architecture
 

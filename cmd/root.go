@@ -108,7 +108,6 @@ func Execute() error {
 
 func init() {
 	rootCmd.PersistentFlags().StringVarP(&opts.LogLevel, "log-level", "l", "info", "log level (error, warn, info, debug, trace)")
-	rootCmd.PersistentFlags().StringVar(&opts.BeaconNode, "beacon-node", "localhost:4000", "Prysm beacon node GRPC address")
 	rootCmd.PersistentFlags().StringVar(&opts.BeaconChainAPI, "beacon-chain-api", "localhost:3500", "Beacon Chain API HTTP address")
 	rootCmd.PersistentFlags().StringVar(&opts.MetricsPort, "metrics-port", "1337", "Metrics port to expose metrics for Prometheus")
 	rootCmd.PersistentFlags().StringVar(&opts.SlackURL, "slack-url", "", "Slack Webhook URL")
@@ -120,7 +119,7 @@ func init() {
 	monitorCmd.PersistentFlags().UintSliceVar(&opts.Monitor.ReplayEpoch, "replay-epoch", nil, "replay epoch for debug purposes")
 	monitorCmd.PersistentFlags().Uint64Var(&opts.Monitor.SinceEpoch, "since-epoch", ^uint64(0), "replay epochs from the specified one")
 	monitorCmd.PersistentFlags().StringSliceVarP(&opts.Monitor.Pubkeys, "pubkey", "k", nil, "validator public key")
-	monitorCmd.PersistentFlags().StringVar(&opts.Monitor.MEVRelaysFilePath, "mev-relays", "", "file path containing a one-per-line list of MEV relays to use in monitoring vanilla blocks")
+	monitorCmd.PersistentFlags().StringVar(&opts.Monitor.MEVRelaysFilePath, "mev-relays", "", "path to a JSON file containing an array of MEV relay URLs to monitor vanilla blocks against")
 	monitorCmd.PersistentFlags().Lookup("since-epoch").DefValue = "follows justified epoch"
 	monitorCmd.PersistentFlags().SortFlags = false
 	rootCmd.AddCommand(monitorCmd)
