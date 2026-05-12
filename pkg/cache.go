@@ -32,6 +32,17 @@ type LocalCache struct {
 // alone.
 var cacheFilePath = path.Join(os.TempDir(), "stakefish-eth2-monitor-cache.json")
 
+// LoadCache reads the persisted cache from cacheFilePath and returns it.
+// Always returns a non-nil *LocalCache with a non-nil Validators map —
+// callers can read and write without nil-checks.
+//
+// Degraded paths (file missing, ReadAll error, json.Unmarshal error,
+// JSON-null Validators) all return a fresh empty cache. Each degraded
+// path logs at Debug or Error so operators can diagnose persistent
+// corruption.
+//
+// Read is capped at 64 MiB to prevent allocator exhaustion on a hostile
+// or corrupted cache file.
 func LoadCache() *LocalCache {
 	cache := &LocalCache{
 		Validators: make(map[string]CachedIndex),
