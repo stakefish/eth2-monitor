@@ -18,6 +18,14 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+// BidTrace mirrors the schema of mev-boost-relay's
+// /relay/v1/data/bidtraces/proposer_payload_delivered response entries.
+//
+// All numeric fields use ,string JSON tags because the relay-api spec
+// emits them as quoted decimals (consistent with the broader Beacon API
+// convention). Pubkeys and hashes are not case-canonical per spec, so
+// comparisons against them in ListBestBids / CheckProposal use
+// strings.EqualFold rather than byte equality.
 type BidTrace struct {
 	Slot                 uint64 `json:"slot,string"`
 	ParentHash           string `json:"parent_hash"`
