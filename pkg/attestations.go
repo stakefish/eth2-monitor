@@ -47,6 +47,11 @@ func BuildCommitteeLookup(
 	}
 
 	for _, duty := range duties {
+		// duties is []*v1.AttesterDuty — slice of pointers; defensively
+		// skip nil entries that a malformed API response could leave.
+		if duty == nil {
+			continue
+		}
 		if _, ok := tracked[duty.ValidatorIndex]; !ok {
 			continue
 		}

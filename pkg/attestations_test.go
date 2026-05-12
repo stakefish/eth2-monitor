@@ -492,6 +492,24 @@ func TestProcessAttestationsSkipsDistanceMetricForPreScanInclusion(t *testing.T)
 	}
 }
 
+// TestBuildCommitteeLookup_NilDutiesAreSkipped regresses the case where
+// the duties slice contains a nil pointer (malformed API response). The
+// loop must skip the nil entry without nil-derefing on duty.ValidatorIndex.
+func TestBuildCommitteeLookup_NilDutiesAreSkipped(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("BuildCommitteeLookup panicked on nil duty: %v", r)
+		}
+	}()
+	duties := []*v1.AttesterDuty{nil, {Slot: 5, ValidatorIndex: 1, CommitteeIndex: 0, CommitteeLength: 4, ValidatorCommitteeIndex: 0}}
+	lengths := map[phase0.Slot]map[phase0.CommitteeIndex]uint64{5: {0: 4}}
+	tracked := map[phase0.ValidatorIndex]string{1: "pk"}
+	got := BuildCommitteeLookup(duties, lengths, tracked)
+	if got[5][0] == nil || got[5][0].Validators[0] != 1 {
+		t.Errorf("non-nil duty should still populate the tracked validator's position; got %+v", got)
+	}
+}
+
 // TestProcessAttestationsSkipsNilAttestationEntry regresses the case
 // where the Attestations slice itself contains a nil pointer (malformed
 // JSON or future spec change). The for-range would otherwise yield a

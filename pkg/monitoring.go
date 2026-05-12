@@ -232,6 +232,11 @@ func MonitorAttestationsAndProposals(ctx context.Context, cancel context.CancelF
 
 		// Seed unfulfilled duties for the *current* epoch only.
 		for _, duty := range ec.AttesterDuties {
+			// AttesterDuties is []*v1.AttesterDuty — slice of pointers.
+			// A non-conforming API response could leave entries nil.
+			if duty == nil {
+				continue
+			}
 			if spec.EpochFromSlot(duty.Slot) != epoch {
 				continue
 			}
