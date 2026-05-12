@@ -9,21 +9,21 @@ import (
 // MonitorMetrics holds all Prometheus metrics for the attestation/proposal monitor.
 // Pass prometheus.DefaultRegisterer for production, prometheus.NewRegistry() for tests.
 type MonitorMetrics struct {
-	Epoch                          prometheus.Gauge
-	TotalCanonicalAttestations     prometheus.Counter
-	TotalDelayedOverTolerance      prometheus.Counter
-	TotalMissedAttestations        prometheus.Counter
-	CanonicalAttestationDistances  prometheus.Histogram
-	TotalMissedProposals           prometheus.Counter
-	TotalCanonicalProposals        prometheus.Counter
-	TotalProposedEmptyBlocks       prometheus.Counter
-	TotalVanillaBlocks             prometheus.Counter
-	TotalMissingBidTraces          prometheus.Counter
-	LastProposedEmptyBlockSlot     prometheus.Gauge
-	LastMissedProposalSlot         prometheus.Gauge
-	LastMissedProposalValidator    prometheus.Gauge
-	LastVanillaBlockSlot           prometheus.Gauge
-	LastVanillaBlockValidator      prometheus.Gauge
+	Epoch                         prometheus.Gauge
+	TotalCanonicalAttestations    prometheus.Counter
+	TotalDelayedOverTolerance     prometheus.Counter
+	TotalMissedAttestations       prometheus.Counter
+	CanonicalAttestationDistances prometheus.Histogram
+	TotalMissedProposals          prometheus.Counter
+	TotalCanonicalProposals       prometheus.Counter
+	TotalProposedEmptyBlocks      prometheus.Counter
+	TotalVanillaBlocks            prometheus.Counter
+	TotalMissingBidTraces         prometheus.Counter
+	LastProposedEmptyBlockSlot    prometheus.Gauge
+	LastMissedProposalSlot        prometheus.Gauge
+	LastMissedProposalValidator   prometheus.Gauge
+	LastVanillaBlockSlot          prometheus.Gauge
+	LastVanillaBlockValidator     prometheus.Gauge
 	// New metrics from THE_FIX:
 	DuplicateAttestationsSkipped prometheus.Counter
 	RawAttestationDistances      prometheus.Histogram

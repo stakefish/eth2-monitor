@@ -235,7 +235,7 @@ func TestListBestBids_SkipsUntrackedSlots(t *testing.T) {
 		context.Background(), 2*time.Second,
 		[]string{relay.server.URL},
 		epoch,
-		map[phase0.ValidatorIndex]string{}, // empty: no tracked pubkeys
+		map[phase0.ValidatorIndex]string{},      // empty: no tracked pubkeys
 		map[phase0.Slot]phase0.ValidatorIndex{}, // empty: no proposals
 	)
 	if err != nil {

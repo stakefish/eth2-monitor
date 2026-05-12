@@ -49,11 +49,11 @@ func isBlockEmpty(body *electra.BeaconBlockBody) bool {
 //
 //   - Canonical proposal observed:  TotalCanonicalProposals++
 //   - Block is empty:               TotalProposedEmptyBlocks++,
-//                                   LastProposedEmptyBlockSlot.Set(slot)
+//     LastProposedEmptyBlockSlot.Set(slot)
 //   - MEV enabled + no bid trace:   TotalMissingBidTraces++
 //   - MEV enabled + hash mismatch:  TotalVanillaBlocks++,
-//                                   LastVanillaBlockSlot.Set(slot),
-//                                   LastVanillaBlockValidator.Set(validator)
+//     LastVanillaBlockSlot.Set(slot),
+//     LastVanillaBlockValidator.Set(validator)
 func CheckProposal(
 	block *electra.SignedBeaconBlock,
 	slot phase0.Slot,

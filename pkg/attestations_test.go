@@ -27,10 +27,10 @@ func TestFinalizeMissedAttestations(t *testing.T) {
 		32: NewSet(phase0.ValidatorIndex(44), v1), // ≤ cutoff, two validators: both missed
 	}
 	pubkeys := map[phase0.ValidatorIndex]string{
-		v1:                          "pk1",
-		v2:                          "pk2",
-		v3:                          "pk3",
-		phase0.ValidatorIndex(44):   "pk44",
+		v1:                        "pk1",
+		v2:                        "pk2",
+		v3:                        "pk3",
+		phase0.ValidatorIndex(44): "pk44",
 	}
 	m := NewMonitorMetrics(prometheus.NewRegistry())
 
