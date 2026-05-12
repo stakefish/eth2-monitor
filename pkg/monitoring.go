@@ -64,7 +64,14 @@ func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg 
 	}
 
 	eventsHandlerFunc := func(event *v1.Event) {
-		headEvent := event.Data.(*v1.HeadEvent)
+		// Type assertion to a pointer can surface a nil if the underlying
+		// value was nil; a malformed SSE event would otherwise nil-deref
+		// the handler. Two-value form lets us skip gracefully.
+		headEvent, ok := event.Data.(*v1.HeadEvent)
+		if !ok || headEvent == nil {
+			log.Warn().Interface("data", event.Data).Msg("head SSE event was not a *v1.HeadEvent; skipping")
+			return
+		}
 		log.Trace().Msgf("New head slot %v block %v", headEvent.Slot, headEvent.Block.String())
 		thisEpoch := spec.EpochFromSlot(headEvent.Slot)
 		if thisEpoch > lastEpoch {
