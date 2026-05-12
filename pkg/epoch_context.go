@@ -81,7 +81,11 @@ func BuildEpochContext(
 		// epoch and re-resolves next iteration.
 		return nil, nil
 	}
-	log.Debug().Msgf("Epoch %v validators: %v/%v", epoch, len(validatorPubkeyFromIndex), len(plainKeys))
+	log.Debug().
+		Uint64("epoch", uint64(epoch)).
+		Int("active", len(validatorPubkeyFromIndex)).
+		Int("configured", len(plainKeys)).
+		Msg("resolved validators")
 
 	trackedValidators := slices.Collect(maps.Keys(validatorPubkeyFromIndex))
 
