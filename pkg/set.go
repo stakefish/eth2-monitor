@@ -6,8 +6,15 @@ import (
 	"strings"
 )
 
+// Set is a generic comparable-keyed set backed by an underlying map.
+// Nil-receiver contract: Contains, IsEmpty, Remove, Elems, and String
+// are safe on a nil Set (treated as empty); Add panics on a nil Set
+// because Go nil maps can't be grown. Always construct with NewSet
+// before Add. The tests pin this contract in set_test.go.
 type Set[E comparable] map[E]struct{}
 
+// NewSet returns an initialised (non-nil) Set containing the given values.
+// Duplicate values in vals collapse to one entry.
 func NewSet[E comparable](vals ...E) Set[E] {
 	s := Set[E]{}
 	for _, v := range vals {
