@@ -23,6 +23,13 @@ import (
 // future fork change, missing field) could leave it nil. Crashing the
 // orchestrator on bad data is worse than recording it as an empty proposal.
 func isBlockEmpty(body *electra.BeaconBlockBody) bool {
+	if body == nil {
+		// A nil body cannot carry any execution-layer payload by definition;
+		// callers reach this through the same data-validity check as
+		// CheckProposal, but guarding here too means a stray nil from a
+		// future caller won't deref body.BlobKZGCommitments below.
+		return true
+	}
 	if body.ExecutionPayload != nil && len(body.ExecutionPayload.Transactions) > 0 {
 		return false
 	}

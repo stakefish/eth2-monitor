@@ -371,6 +371,19 @@ func TestCheckProposal_NilMessageOrBody(t *testing.T) {
 	}
 }
 
+// TestIsBlockEmpty_NilBody — a nil body is treated as empty rather than
+// crashing on body.BlobKZGCommitments / body.ExecutionRequests deref.
+func TestIsBlockEmpty_NilBody(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("isBlockEmpty panicked on nil body: %v", r)
+		}
+	}()
+	if !isBlockEmpty(nil) {
+		t.Error("nil body should classify as empty")
+	}
+}
+
 // TestIsBlockEmpty_NilExecutionPayload regresses the nil-deref. A
 // non-conforming JSON response could leave ExecutionPayload nil; the
 // previous code panicked on body.ExecutionPayload.Transactions.
