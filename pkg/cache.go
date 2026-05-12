@@ -24,9 +24,13 @@ type LocalCache struct {
 	LastEpoch phase0.Epoch
 }
 
-var (
-	cacheFilePath = path.Join(os.TempDir(), "stakefish-eth2-monitor-cache.json")
-)
+// cacheFilePath is the on-disk location of the persisted validator-index
+// cache. Initialised once at package load to a stable path under
+// $TMPDIR; tests override it via withTempCachePath. Reassigning to an
+// empty string would make SaveCache's tmpfile-creation step fail
+// silently — callers should set a valid absolute path or leave it
+// alone.
+var cacheFilePath = path.Join(os.TempDir(), "stakefish-eth2-monitor-cache.json")
 
 func LoadCache() *LocalCache {
 	cache := &LocalCache{
