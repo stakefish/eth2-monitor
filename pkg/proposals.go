@@ -16,8 +16,13 @@ import (
 // post-Pectra execution_requests (deposits/withdrawals/consolidations). A
 // block carrying only blob commitments still earns the proposer the blob base
 // fee, so it isn't "empty" from a validator-economic perspective.
+//
+// Treats a nil ExecutionPayload as empty: post-Bellatrix the field is
+// mandatory per spec, but a non-conforming JSON response (Caplin quirk,
+// future fork change, missing field) could leave it nil. Crashing the
+// orchestrator on bad data is worse than recording it as an empty proposal.
 func isBlockEmpty(body *electra.BeaconBlockBody) bool {
-	if len(body.ExecutionPayload.Transactions) > 0 {
+	if body.ExecutionPayload != nil && len(body.ExecutionPayload.Transactions) > 0 {
 		return false
 	}
 	if len(body.BlobKZGCommitments) > 0 {
@@ -88,6 +93,15 @@ func CheckProposal(
 	}
 
 	if mevEnabled {
+		if block.Message.Body.ExecutionPayload == nil {
+			// Without an execution payload there's nothing to compare against
+			// the relay-delivered hash. Treat the slot as "no bid trace
+			// usable" rather than crashing — the operator still gets a
+			// metric bump and a log line.
+			m.TotalMissingBidTraces.Inc()
+			log.Error().Msgf("Block at slot %v has nil ExecutionPayload; cannot compare to bid trace (validator %v)", slot, expectedValidator)
+			return true
+		}
 		executionBlockHash := block.Message.Body.ExecutionPayload.BlockHash
 		trace, ok := bestBids[slot]
 		if !ok {

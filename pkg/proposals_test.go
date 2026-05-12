@@ -287,6 +287,53 @@ func TestCheckProposal_EmptyBlockAndMissingBid(t *testing.T) {
 	}
 }
 
+// TestIsBlockEmpty_NilExecutionPayload regresses the nil-deref. A
+// non-conforming JSON response could leave ExecutionPayload nil; the
+// previous code panicked on body.ExecutionPayload.Transactions.
+func TestIsBlockEmpty_NilExecutionPayload(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("isBlockEmpty panicked on nil ExecutionPayload: %v", r)
+		}
+	}()
+	body := &electra.BeaconBlockBody{ExecutionPayload: nil}
+	if !isBlockEmpty(body) {
+		t.Error("nil ExecutionPayload should classify as empty")
+	}
+}
+
+// TestCheckProposal_NilExecutionPayloadOnMEVRun regresses the second
+// nil-deref site: with MEV enabled and a nil ExecutionPayload, the previous
+// code crashed reading BlockHash. We now record TotalMissingBidTraces and
+// return true so the orchestrator continues.
+func TestCheckProposal_NilExecutionPayloadOnMEVRun(t *testing.T) {
+	const (
+		validator = phase0.ValidatorIndex(42)
+		slot      = phase0.Slot(100)
+	)
+	block := &electra.SignedBeaconBlock{
+		Message: &electra.BeaconBlock{
+			Slot:          slot,
+			ProposerIndex: validator,
+			Body:          &electra.BeaconBlockBody{ExecutionPayload: nil},
+		},
+	}
+	pubkeys := map[phase0.ValidatorIndex]string{validator: "pk"}
+	m := NewMonitorMetrics(prometheus.NewRegistry())
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("CheckProposal panicked on nil ExecutionPayload: %v", r)
+		}
+	}()
+	if ok := CheckProposal(block, slot, validator, map[phase0.Slot]BidTrace{}, true, pubkeys, 3, m); !ok {
+		t.Fatal("CheckProposal returned false; should still return true so orchestrator counts proposal as canonical")
+	}
+	if got := counterValue(t, m.TotalMissingBidTraces); got != 1 {
+		t.Errorf("TotalMissingBidTraces = %v, want 1 (nil payload should bump the missing-bid counter)", got)
+	}
+}
+
 // TestCheckProposal_ProposerMismatch — block at this slot was proposed by a
 // different validator than the duty assigned. CheckProposal must return false
 // (so the caller leaves the duty in unfulfilledProposerDuties, where
