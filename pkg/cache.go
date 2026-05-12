@@ -84,7 +84,10 @@ func LoadCache() *LocalCache {
 	const maxCacheBytes = 64 << 20
 	rawCache, err := io.ReadAll(io.LimitReader(fd, maxCacheBytes))
 	if err != nil {
-		log.Debug().Err(err).Msg("LoadCache: io.ReadAll failed; skip")
+		// ReadAll on a regular file shouldn't fail under normal operation
+		// (the file existed when we opened it). A failure here suggests
+		// disk/inode trouble; surface above Info so operators see it.
+		log.Warn().Err(err).Msg("LoadCache: io.ReadAll failed; using empty cache")
 		return cache
 	}
 	err = json.Unmarshal(rawCache, cache)
