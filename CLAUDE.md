@@ -109,6 +109,8 @@ cd test-env && docker compose up --build
 | `ETH2_rawAttestationDistances` | Histogram | Raw attestation distances before dedup (buckets 1-32) |
 | `ETH2_missedSlotsInEpoch` | Gauge | Missed slots in current epoch |
 | `ETH2_crossEpochAttestations` | Counter | Attestations included in a different epoch than attested |
+| `ETH2_beaconAPIRequestsTotal` | CounterVec | Beacon API requests by `endpoint`, `method`, `status_class` (2xx/3xx/4xx/5xx/error) |
+| `ETH2_beaconAPIRequestDurationSeconds` | HistogramVec | Beacon API request latency by `endpoint`, `method` (DefBuckets) |
 
 ## Code Conventions
 

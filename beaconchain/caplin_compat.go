@@ -58,7 +58,7 @@ func (c *caplinAmountFixer) RoundTrip(req *http.Request) (*http.Response, error)
 	return resp, nil
 }
 
-func newCaplinCompatClient(timeout time.Duration) *http.Client {
+func newCaplinCompatClient(timeout time.Duration, m *RequestMetrics) *http.Client {
 	base := &http.Transport{
 		DialContext: (&net.Dialer{
 			Timeout:   timeout,
@@ -70,5 +70,10 @@ func newCaplinCompatClient(timeout time.Duration) *http.Client {
 		MaxIdleConnsPerHost: 64,
 		IdleConnTimeout:     600 * time.Second,
 	}
-	return &http.Client{Transport: &caplinAmountFixer{base: base}}
+	var transport http.RoundTripper = &caplinAmountFixer{base: base}
+	if m != nil {
+		// Outermost so the timer covers the caplin rewrite work too.
+		transport = &instrumentingTransport{base: transport, m: m}
+	}
+	return &http.Client{Transport: transport}
 }

@@ -18,6 +18,7 @@ import (
 
 	"net/http"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -57,7 +58,9 @@ var (
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			beacon, err := beaconchain.New(ctx, opts.BeaconChainAPI, time.Minute)
+			metrics := pkg.NewMonitorMetrics(prometheus.DefaultRegisterer)
+
+			beacon, err := beaconchain.New(ctx, opts.BeaconChainAPI, time.Minute, metrics.BeaconRequestMetrics())
 			pkg.Must(err)
 
 			plainPubkeys, err := pkg.LoadKeys(args)
@@ -79,7 +82,7 @@ var (
 			var wg sync.WaitGroup
 			wg.Add(2)
 			go pkg.SubscribeToEpochs(ctx, beacon, &wg, epochsChan)
-			go pkg.MonitorAttestationsAndProposals(ctx, beacon, plainPubkeys, mevRelays, &wg, epochsChan)
+			go pkg.MonitorAttestationsAndProposals(ctx, beacon, plainPubkeys, mevRelays, &wg, epochsChan, metrics)
 
 			//Create Prometheus Metrics Client
 			http.Handle("/metrics", promhttp.Handler())

@@ -22,8 +22,6 @@ import (
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
-
-	"github.com/prometheus/client_golang/prometheus"
 )
 
 const VALIDATOR_INDEX_INVALID = ^phase0.ValidatorIndex(0)
@@ -426,10 +424,8 @@ func processAttestations(
 }
 
 // MonitorAttestationsAndProposals listens to the beacon chain head changes and checks new blocks and attestations.
-func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.BeaconChain, plainKeys []string, mevRelays []string, wg *sync.WaitGroup, epochsChan chan phase0.Epoch) {
+func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.BeaconChain, plainKeys []string, mevRelays []string, wg *sync.WaitGroup, epochsChan chan phase0.Epoch, m *MonitorMetrics) {
 	defer wg.Done()
-
-	m := NewMonitorMetrics(prometheus.DefaultRegisterer)
 
 	unfulfilledAttesterDuties := make(map[phase0.Slot]Set[phase0.ValidatorIndex])
 	// Persistent dedup so an attestation observed both in epoch N's lookahead

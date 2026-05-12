@@ -21,11 +21,11 @@ type BeaconChain struct {
 	timeout time.Duration
 }
 
-func New(ctx context.Context, address string, timeout time.Duration) (*BeaconChain, error) {
+func New(ctx context.Context, address string, timeout time.Duration, m *RequestMetrics) (*BeaconChain, error) {
 	service, err := eth2http.New(ctx,
 		eth2http.WithAddress(address),
 		eth2http.WithTimeout(time.Minute),
-		eth2http.WithHTTPClient(newCaplinCompatClient(time.Minute)),
+		eth2http.WithHTTPClient(newCaplinCompatClient(time.Minute, m)),
 	)
 
 	if err != nil {
