@@ -118,6 +118,48 @@ func TestCache_TornFileGracefulFallback(t *testing.T) {
 	}
 }
 
+// TestCache_NullValidatorsDoesNotPanicSaveCache regresses the nil-map
+// panic. An on-disk cache containing `"Validators": null` (manual edit
+// or a previous format) used to make json.Unmarshal set
+// cache.Validators to nil; SaveCache's merge loop then panicked with
+// "assignment to entry in nil map" on the first write.
+//
+// Note: phase0.Epoch's UnmarshalJSON requires a quoted decimal string,
+// so the seed JSON uses "5" rather than 5 — without this the parse
+// would fail and LoadCache's error-path reset would mask the bug.
+func TestCache_NullValidatorsDoesNotPanicSaveCache(t *testing.T) {
+	withTempCachePath(t)
+
+	if err := os.WriteFile(cacheFilePath, []byte(`{"Validators": null, "LastEpoch": "5"}`), 0o600); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	loaded := LoadCache()
+	if loaded.Validators == nil {
+		t.Fatal("LoadCache returned nil Validators despite the post-Unmarshal re-init")
+	}
+	if loaded.LastEpoch != 5 {
+		t.Errorf("LastEpoch round-trip via null-Validators path = %v, want 5", loaded.LastEpoch)
+	}
+
+	// SaveCache must not panic when merging a non-empty new cache on top
+	// of the just-loaded state.
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("SaveCache panicked after LoadCache returned null Validators: %v", r)
+		}
+	}()
+	SaveCache(&LocalCache{
+		Validators: map[string]CachedIndex{"pk1": {Index: 1}},
+		LastEpoch:  6,
+	})
+
+	// Round-trip: the merged entry must be visible on next load.
+	if _, ok := LoadCache().Validators["pk1"]; !ok {
+		t.Error("entry written after null-Validators load was not persisted")
+	}
+}
+
 // TestCache_PartialUnmarshalDoesNotLeak — regression for the "returns
 // partial cache while logging 'empty cache'" mismatch. Seed a JSON file
 // that decodes far enough to populate one Validators entry, then fails.

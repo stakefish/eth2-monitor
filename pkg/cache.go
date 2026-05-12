@@ -60,6 +60,14 @@ func LoadCache() *LocalCache {
 		}
 	}
 
+	// JSON `null` overrides the pre-initialised empty map with nil. Re-init
+	// so SaveCache's merge loop doesn't panic on the first write. Trigger
+	// path: an external edit or older-format cache file containing
+	// `"Validators": null`.
+	if cache.Validators == nil {
+		cache.Validators = make(map[string]CachedIndex)
+	}
+
 	return cache
 }
 
