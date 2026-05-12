@@ -99,7 +99,11 @@ func SaveCache(newCache *LocalCache) {
 
 	rawCache, err := json.MarshalIndent(cache, "", "  ")
 	if err != nil {
-		log.Debug().Err(err).Msg("SaveCache: json.MarshalIndent failed; skip")
+		// Upgraded from Debug — MarshalIndent of our struct can essentially
+		// never fail (no circular refs, all simple types), but if it
+		// somehow does the save is completely lost and operators need to
+		// see it at default log level.
+		log.Error().Err(err).Msg("SaveCache: json.MarshalIndent failed; skip")
 		return
 	}
 
