@@ -150,6 +150,13 @@ func sendEpoch(ctx context.Context, ch chan<- phase0.Epoch, epoch phase0.Epoch) 
 	}
 }
 
+// LoadKeys returns the union of pubkeys from --pubkey CLI flags
+// (opts.Monitor.Pubkeys) and the contents of every file path in
+// pubkeysFiles. Each line is whitespace-trimmed; blank lines are
+// skipped. Returns an error on missing file or scanner failure.
+//
+// Each pubkey file is opened, fully read, and closed before the next
+// one is opened — no FD pile-up across many files.
 func LoadKeys(pubkeysFiles []string) ([]string, error) {
 	plainKeys := opts.Monitor.Pubkeys[:]
 	for _, fname := range pubkeysFiles {
@@ -188,6 +195,10 @@ func readPubkeysFile(fname string) ([]string, error) {
 	return keys, nil
 }
 
+// LoadMEVRelays reads a JSON array of relay base URLs from disk.
+// Empty / whitespace-only entries are dropped at load time so they
+// don't spawn wasted retry goroutines in requestEpochBidTraces.
+// Returns an error on missing file or JSON parse failure.
 func LoadMEVRelays(mevRelaysFilePath string) ([]string, error) {
 	relays := []string{}
 
