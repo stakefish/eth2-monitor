@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
-	"path"
+	"path/filepath"
 	"time"
 
 	"github.com/attestantio/go-eth2-client/spec/phase0"
@@ -43,7 +43,7 @@ type LocalCache struct {
 // empty string would make SaveCache's tmpfile-creation step fail
 // silently — callers should set a valid absolute path or leave it
 // alone.
-var cacheFilePath = path.Join(os.TempDir(), "stakefish-eth2-monitor-cache.json")
+var cacheFilePath = filepath.Join(os.TempDir(), "stakefish-eth2-monitor-cache.json")
 
 // LoadCache reads the persisted cache from cacheFilePath and returns it.
 // Always returns a non-nil *LocalCache with a non-nil Validators map —
@@ -150,7 +150,7 @@ func SaveCache(newCache *LocalCache) {
 	// future caller overriding cacheFilePath (or a setup where /tmp is a
 	// tmpfs but the cache lives elsewhere) would otherwise silently fail
 	// every save.
-	tmpfile, err := os.CreateTemp(path.Dir(cacheFilePath), "stakefish-eth2-monitor-cache.*.json")
+	tmpfile, err := os.CreateTemp(filepath.Dir(cacheFilePath), "stakefish-eth2-monitor-cache.*.json")
 	if err != nil {
 		log.Warn().Err(err).Msg("SaveCache: os.CreateTemp failed; skip")
 		return
@@ -198,7 +198,7 @@ func SaveCache(newCache *LocalCache) {
 	// cacheFilePath pointing at the old inode (or no entry) despite the
 	// file content being durable. Best-effort: ENOTDIR / EPERM on exotic
 	// filesystems is logged but doesn't block forward progress.
-	if dir, err := os.Open(path.Dir(cacheFilePath)); err == nil {
+	if dir, err := os.Open(filepath.Dir(cacheFilePath)); err == nil {
 		if syncErr := dir.Sync(); syncErr != nil {
 			// Some filesystems (e.g. older tmpfs configurations, certain
 			// fuse mounts) reject dir-fsync. Surface at Debug — the file
