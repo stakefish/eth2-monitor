@@ -11,17 +11,30 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// CachedIndex is one validator's resolved index plus the time of resolution.
+// At is used by ResolveValidatorKeys to enforce a 30-minute TTL — entries
+// older than that get re-fetched from the beacon API so validator-state
+// changes (exit, key rotation) eventually surface.
+//
+// Index == VALIDATOR_INDEX_INVALID is a sentinel for "beacon reported no
+// index for this pubkey"; cached for the TTL window so we don't re-query
+// every iteration.
 type CachedIndex struct {
 	Index phase0.ValidatorIndex
 	At    time.Time
 }
 
+// LocalCache is the on-disk state persisted between runs.
+//
+// Validators maps lowercase no-0x-prefix pubkeys to resolved indices.
+// LoadCache always returns a non-nil Validators map even on error paths.
+//
+// LastEpoch is the highest epoch the monitor has finished processing.
+// On restart it's loaded and used to skip already-processed epochs so
+// cumulative metric counters don't spike from re-processing.
 type LocalCache struct {
 	Validators map[string]CachedIndex
-	// LastEpoch is the highest epoch the monitor has finished processing.
-	// On restart it's loaded and used to skip already-processed epochs so
-	// cumulative metric counters don't spike from re-processing.
-	LastEpoch phase0.Epoch
+	LastEpoch  phase0.Epoch
 }
 
 // cacheFilePath is the on-disk location of the persisted validator-index
