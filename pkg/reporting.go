@@ -66,7 +66,7 @@ func reportToSlack(message string) {
 
 	buf, err := json.Marshal(body)
 	if err != nil {
-		log.Warn().Err(err).Msgf("json.Marshal failed while reporting %q; skip", message)
+		log.Warn().Err(err).Str("message", message).Msg("json.Marshal failed while reporting; skip")
 		return
 	}
 
@@ -74,7 +74,7 @@ func reportToSlack(message string) {
 	if err != nil {
 		// http.Post returns (nil, err) on transport-level failures, so we
 		// can't defer Close on the response. Bail before that.
-		log.Warn().Err(err).Msgf("http.Post failed while reporting %q; skip", message)
+		log.Warn().Err(err).Str("message", message).Msg("http.Post failed while reporting; skip")
 		return
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -84,6 +84,6 @@ func reportToSlack(message string) {
 	// Slack may still have rejected it — surface that so operators can
 	// tell "Report wasn't called" from "Report was called but Slack said no".
 	if resp.StatusCode/100 != 2 {
-		log.Warn().Int("status", resp.StatusCode).Msgf("Slack rejected report %q", message)
+		log.Warn().Int("status", resp.StatusCode).Str("message", message).Msg("Slack rejected report")
 	}
 }
