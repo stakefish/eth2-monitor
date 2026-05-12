@@ -1,9 +1,12 @@
 package pkg
 
 import (
+	"errors"
+
 	"eth2-monitor/beaconchain"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/rs/zerolog/log"
 )
 
 // MonitorMetrics holds all Prometheus metrics for the attestation/proposal monitor.
@@ -159,8 +162,23 @@ func NewMonitorMetrics(reg prometheus.Registerer) *MonitorMetrics {
 		}, []string{"endpoint", "method"}),
 	}
 
-	// Use Register (not MustRegister) to allow re-registration in integration tests.
-	// In production, this only runs once. In tests, the default registry may already have metrics.
+	// Use Register (not MustRegister) so a name collision doesn't crash
+	// the binary at startup; the AlreadyRegisteredError case is expected
+	// in tests that share registries. Any *other* registration error is a
+	// real bug (invalid metric shape, name conflict with a different-typed
+	// collector, etc.) and must surface — silently dropping it would mean
+	// the metric disappears from /metrics with no warning to operators.
+	register := func(c prometheus.Collector) {
+		err := reg.Register(c)
+		if err == nil {
+			return
+		}
+		var already prometheus.AlreadyRegisteredError
+		if errors.As(err, &already) {
+			return
+		}
+		log.Error().Err(err).Msgf("NewMonitorMetrics: failed to register collector %T", c)
+	}
 	for _, c := range []prometheus.Collector{
 		m.Epoch,
 		m.LastProposedEmptyBlockSlot,
@@ -184,7 +202,7 @@ func NewMonitorMetrics(reg prometheus.Registerer) *MonitorMetrics {
 		m.BeaconAPIRequests,
 		m.BeaconAPIDuration,
 	} {
-		_ = reg.Register(c)
+		register(c)
 	}
 
 	return m
