@@ -36,6 +36,13 @@ func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg 
 
 	finalityProvider := beacon.Service().(eth2client.FinalityProvider)
 	resp, err := finalityProvider.Finality(ctx, &api.FinalityOpts{State: "head"})
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		// Startup ctx cancellation — unusual but possible if the parent
+		// signals shutdown before we finished bootstrapping. Exit cleanly
+		// rather than panic so defers run as normal-exit semantics.
+		log.Info().Err(err).Msg("SubscribeToEpochs stopping during Finality bootstrap (ctx cancel)")
+		return
+	}
 	Must(err)
 	// Defensive: even with err == nil, a misbehaving client could return
 	// resp == nil or resp.Data == nil. Crashing here on startup loses the
