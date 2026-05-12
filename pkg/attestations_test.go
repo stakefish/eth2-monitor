@@ -552,6 +552,13 @@ func TestProcessAttestationsSkipsNilAttestationEntry(t *testing.T) {
 		}
 	}()
 	processAttestations(epochBlocks, nil, nil, nil, nil, m, 1)
+	// Pin the skip invariant: no counter should fire for the nil entry.
+	if got := counterValue(t, m.TotalCanonicalAttestations); got != 0 {
+		t.Errorf("TotalCanonicalAttestations = %v, want 0 (nil attestation entry must be skipped)", got)
+	}
+	if got := counterValue(t, m.DuplicateAttestationsSkipped); got != 0 {
+		t.Errorf("DuplicateAttestationsSkipped = %v, want 0", got)
+	}
 }
 
 // TestProcessAttestationsSkipsNilMessageOrBody regresses the
