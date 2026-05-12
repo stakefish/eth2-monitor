@@ -59,7 +59,6 @@ func SaveCache(newCache *LocalCache) {
 	// Merge with the current cache.
 	cache := LoadCache()
 	for pubkey, validator := range newCache.Validators {
-		validator := validator
 		cache.Validators[pubkey] = validator
 	}
 	// LastEpoch advances forward only — concurrent writers can't roll it back.
@@ -78,18 +77,31 @@ func SaveCache(newCache *LocalCache) {
 		log.Warn().Err(err).Msg("SaveCache: os.CreateTemp failed; skip")
 		return
 	}
-	defer func() { _ = os.Remove(tmpfile.Name()) }()
+	tmpPath := tmpfile.Name()
+	// Remove the tmpfile on any error path; once Rename succeeds this Remove
+	// targets a path that no longer exists and is a harmless no-op.
+	defer func() { _ = os.Remove(tmpPath) }()
 
-	for bytesWritten := 0; bytesWritten < len(rawCache); {
-		nWritten, err := tmpfile.Write(rawCache[bytesWritten:])
-		if err != nil && err != io.ErrShortWrite {
-			log.Debug().Err(err).Msg("SaveCache: tmpfile.Write failed; skip")
-			break
-		}
-		bytesWritten += nWritten
+	if _, err := tmpfile.Write(rawCache); err != nil {
+		_ = tmpfile.Close()
+		log.Warn().Err(err).Msg("SaveCache: tmpfile.Write failed; skip")
+		return
 	}
-	err = os.Rename(tmpfile.Name(), cacheFilePath)
-	if err != nil {
+	// Sync + Close before Rename so the rename swaps in a file whose
+	// contents are guaranteed on disk. Without Sync a crash between
+	// Write and Rename can leave torn JSON, which LoadCache logs as a
+	// json.Unmarshal error and silently returns an empty cache — forcing
+	// every validator index to be re-resolved on the next restart.
+	if err := tmpfile.Sync(); err != nil {
+		_ = tmpfile.Close()
+		log.Warn().Err(err).Msg("SaveCache: tmpfile.Sync failed; skip")
+		return
+	}
+	if err := tmpfile.Close(); err != nil {
+		log.Warn().Err(err).Msg("SaveCache: tmpfile.Close failed; skip")
+		return
+	}
+	if err := os.Rename(tmpPath, cacheFilePath); err != nil {
 		log.Error().Err(err).Msg("SaveCache: os.Rename failed; skip")
 	}
 }
