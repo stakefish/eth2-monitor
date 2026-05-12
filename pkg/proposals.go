@@ -161,6 +161,9 @@ func CheckProposal(
 // FinalizeMissedProposals reports each remaining unfulfilled proposer duty as
 // a missed proposal and updates the Last* gauges. Caller is expected to have
 // already deleted slots whose proposals were confirmed via CheckProposal.
+// The epoch argument is the current epoch being processed; it appears in
+// the Slack Report message for operator correlation (the slot alone forces
+// a slot/32 calculation against the alert text).
 //
 // Iteration is sorted by slot ascending, so the Last* gauges settle on the
 // highest unfulfilled slot's value. Reports go to Slack inline — for a chain
