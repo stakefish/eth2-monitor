@@ -101,6 +101,14 @@ func processAttestations(
 	for _, slot := range slices.Sorted(maps.Keys(epochBlocks)) {
 		block := epochBlocks[slot]
 		for _, attestation := range block.Message.Body.Attestations {
+			// Defensive: AttestationData is a pointer field, so a malformed
+			// JSON response could leave it nil. Spec requires it on every
+			// canonical attestation; crashing the orchestrator on bad data
+			// is worse than skipping the offending entry.
+			if attestation.Data == nil {
+				log.Warn().Uint64("blockSlot", uint64(block.Message.Slot)).Msg("attestation has nil Data field; skipping")
+				continue
+			}
 			attesters := NewSet[phase0.ValidatorIndex]()
 
 			// We need the length of EVERY committee referenced by this

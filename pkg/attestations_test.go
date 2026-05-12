@@ -492,6 +492,53 @@ func TestProcessAttestationsSkipsDistanceMetricForPreScanInclusion(t *testing.T)
 	}
 }
 
+// TestProcessAttestationsSkipsNilDataAttestation regresses the nil-Data
+// defensive guard. attestation.Data is a *phase0.AttestationData; if a
+// malformed response leaves it nil, the previous code would nil-deref
+// reading attestation.Data.Slot. The skip must keep state consistent
+// (no metric bumps, no spurious unfulfilled clears).
+func TestProcessAttestationsSkipsNilDataAttestation(t *testing.T) {
+	const (
+		validatorIndex = phase0.ValidatorIndex(800)
+		slot           = phase0.Slot(32)
+	)
+
+	// Attestation with nil Data.
+	att := &electra.Attestation{
+		AggregationBits: bitfield.NewBitlist(1),
+		Data:            nil, // the regression trigger
+		CommitteeBits:   bitfield.NewBitvector64(),
+	}
+
+	block := &electra.SignedBeaconBlock{
+		Message: &electra.BeaconBlock{
+			Slot: slot,
+			Body: &electra.BeaconBlockBody{Attestations: []*electra.Attestation{att}},
+		},
+	}
+	epochBlocks := map[phase0.Slot]*electra.SignedBeaconBlock{slot: block}
+
+	unfulfilled := map[phase0.Slot]Set[phase0.ValidatorIndex]{
+		slot: NewSet(validatorIndex),
+	}
+	seen := make(map[phase0.Slot]Set[phase0.ValidatorIndex])
+	m := NewMonitorMetrics(prometheus.NewRegistry())
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("processAttestations panicked on nil Data: %v", r)
+		}
+	}()
+	processAttestations(epochBlocks, nil, map[phase0.ValidatorIndex]string{validatorIndex: "pk"}, unfulfilled, seen, m, 1)
+
+	if got := counterValue(t, m.TotalCanonicalAttestations); got != 0 {
+		t.Errorf("TotalCanonicalAttestations = %v, want 0 (nil Data must be skipped)", got)
+	}
+	if _, still := unfulfilled[slot]; !still {
+		t.Error("unfulfilled was cleared even though attestation was skipped on nil Data")
+	}
+}
+
 // TestProcessAttestationsSkipsMalformedAttestation is the regression test for
 // the unsigned-subtraction underflow. Per spec attestation.data.slot < block.slot;
 // if a malformed attestation surfaces with data.slot == block.slot then
