@@ -257,6 +257,16 @@ func MonitorAttestationsAndProposals(ctx context.Context, cancel context.CancelF
 	// iteration to bound memory.
 	seenAttestations := make(map[phase0.Slot]Set[phase0.ValidatorIndex])
 	for epoch := range epochsChan {
+		// Short-circuit on ctx cancel before doing any per-epoch work. The
+		// BuildEpochContext path also detects this, but bailing at the top
+		// of the loop avoids the m.Epoch.Set + Prune + Build round-trip
+		// when we already know we're shutting down. Cuts shutdown latency
+		// from "one full iteration" to "next loop entry".
+		if err := ctx.Err(); err != nil {
+			log.Info().Err(err).Msg("orchestrator stopping on ctx cancel")
+			return
+		}
+
 		log.Debug().Msgf("New epoch %v", epoch)
 		m.Epoch.Set(float64(epoch))
 
