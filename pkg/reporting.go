@@ -45,6 +45,11 @@ func Info(format string, args ...interface{}) {
 	reportToSlack(message)
 }
 
+// reportToSlack POSTs the message to the configured Slack webhook.
+// No-op if opts.SlackURL is empty. Bounded by slackClient.Timeout (5s).
+// Logs at WARN on transport failure, json.Marshal failure, or non-2xx
+// status — the synchronous log call in Report/Info is the canonical
+// record, so a dropped Slack call is never silent.
 func reportToSlack(message string) {
 	if opts.SlackURL == "" {
 		return
