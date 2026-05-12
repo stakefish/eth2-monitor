@@ -64,6 +64,12 @@ func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg 
 	}
 
 	eventsHandlerFunc := func(event *v1.Event) {
+		// go-eth2-client shouldn't call us with a nil event, but a future
+		// transport change could; cheap to guard against.
+		if event == nil {
+			log.Warn().Msg("head SSE handler received nil event; skipping")
+			return
+		}
 		// Type assertion to a pointer can surface a nil if the underlying
 		// value was nil; a malformed SSE event would otherwise nil-deref
 		// the handler. Two-value form lets us skip gracefully.
