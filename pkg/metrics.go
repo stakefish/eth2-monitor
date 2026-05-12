@@ -46,7 +46,17 @@ func (m *MonitorMetrics) BeaconRequestMetrics() *beaconchain.RequestMetrics {
 	}
 }
 
-// NewMonitorMetrics creates and registers all metrics with the given registerer.
+// NewMonitorMetrics creates and registers every metric on reg.
+//
+// Registration error handling:
+//   - AlreadyRegisteredError is silent (integration tests re-call with a
+//     shared registry; production calls NewMonitorMetrics exactly once).
+//   - Any other registration failure is logged at ERROR — the metric
+//     is still placed on the returned struct but won't appear in
+//     /metrics scrapes; operators see the log so they can diagnose.
+//
+// Pass prometheus.DefaultRegisterer in production, prometheus.NewRegistry()
+// in tests for isolation.
 func NewMonitorMetrics(reg prometheus.Registerer) *MonitorMetrics {
 	m := &MonitorMetrics{
 		Epoch: prometheus.NewGauge(prometheus.GaugeOpts{
