@@ -90,12 +90,13 @@ func CheckProposal(
 		return false
 	}
 	if block.Message.ProposerIndex != expectedValidator {
-		// Surface the slot + both validator indices so an operator hitting
-		// this in the field can diagnose without grepping around the
-		// timestamp. Typically signals a stale cached proposer duty (reorg
-		// invalidated assignment) — the bare "unexpected validator" message
-		// it replaces gave no actionable context.
+		// Surface epoch + slot + both validator indices so an operator
+		// hitting this in the field can diagnose without grepping around
+		// the timestamp. Typically signals a stale cached proposer duty
+		// (reorg invalidated assignment) — the bare "unexpected validator"
+		// message it replaces gave no actionable context.
 		log.Error().
+			Uint64("epoch", uint64(epoch)).
 			Uint64("slot", uint64(slot)).
 			Uint64("expected_validator", uint64(expectedValidator)).
 			Uint64("actual_validator", uint64(block.Message.ProposerIndex)).
