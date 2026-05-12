@@ -391,6 +391,78 @@ func TestProcessAttestationsLookaheadDoesNotMaskAttestation(t *testing.T) {
 	}
 }
 
+// TestProcessAttestationsSkipsDistanceMetricForPreScanInclusion is the regression
+// test for the inflated-distance bug. When the container starts fresh at epoch E
+// (no prev-epoch processing), it still fetches AttesterDuties for E-1 and may see
+// cross-epoch attestations from prev epoch's slots in current scan blocks. The
+// "actual" first inclusion of those attestations is often in prev-epoch blocks
+// that we never fetched. The naive distance computation would therefore report
+// a large distance against a much later block in our scan and a missed-slot
+// adjustment that treats out-of-scan blocks as missed — producing false
+// "delayed attestation" warnings.
+//
+// Scenario (mimics the live bug):
+//   - SLOTS_PER_EPOCH = 32
+//   - attestedSlot = 30 (in epoch 0; earliest inclusion at slot 31)
+//   - inclusionSlot = 34 (in epoch 1; epoch 1's scan window starts at slot 32)
+//   - actual first inclusion (per chain) would have been at slot 31 — but we
+//     never fetched that block because we're processing epoch 1
+//
+// processAttestations should NOT emit a delayed-attestation warning or
+// CanonicalAttestationDistances sample for this attestation, because the
+// earliest-possible-inclusion slot (31) is before our scan window (32).
+func TestProcessAttestationsSkipsDistanceMetricForPreScanInclusion(t *testing.T) {
+	const (
+		validatorIndex = phase0.ValidatorIndex(500)
+		committeeIndex = phase0.CommitteeIndex(0)
+		attestedSlot   = phase0.Slot(30) // in epoch 0; earliest inclusion at slot 31 (also in epoch 0)
+		inclusionSlot  = phase0.Slot(34) // in epoch 1; first block in epoch 1's scan
+	)
+
+	block := &electra.SignedBeaconBlock{
+		Message: &electra.BeaconBlock{
+			Slot: inclusionSlot,
+			Body: &electra.BeaconBlockBody{
+				Attestations: []*electra.Attestation{
+					buildSingleValidatorAttestation(attestedSlot),
+				},
+			},
+		},
+	}
+	epochBlocks := map[phase0.Slot]*electra.SignedBeaconBlock{inclusionSlot: block}
+
+	committeeLookup := map[phase0.Slot]map[phase0.CommitteeIndex]*CommitteeInfo{
+		attestedSlot: {
+			committeeIndex: {
+				Length:     1,
+				Validators: map[uint64]phase0.ValidatorIndex{0: validatorIndex},
+			},
+		},
+	}
+	validatorPubkeyFromIndex := map[phase0.ValidatorIndex]string{
+		validatorIndex: "pubkey",
+	}
+	unfulfilledAttesterDuties := map[phase0.Slot]Set[phase0.ValidatorIndex]{}
+	seenAttestations := make(map[phase0.Slot]Set[phase0.ValidatorIndex])
+	m := NewMonitorMetrics(prometheus.NewRegistry())
+
+	// Process as epoch 1 (epoch's lowest slot = 32 > earliestInclusion = 31).
+	processAttestations(epochBlocks, committeeLookup, validatorPubkeyFromIndex, unfulfilledAttesterDuties, seenAttestations, m, 1)
+
+	if got := counterValue(t, m.TotalCanonicalAttestations); got != 0 {
+		t.Fatalf("TotalCanonicalAttestations = %v, want 0 (distance metric must be skipped for pre-scan inclusion)", got)
+	}
+	if got := counterValue(t, m.TotalDelayedOverTolerance); got != 0 {
+		t.Fatalf("TotalDelayedOverTolerance = %v, want 0 (must not emit delayed warning when actual inclusion is before scan)", got)
+	}
+	if got := histogramSampleCount(t, m.CanonicalAttestationDistances); got != 0 {
+		t.Fatalf("CanonicalAttestationDistances samples = %v, want 0", got)
+	}
+	if !seenAttestations[attestedSlot].Contains(validatorIndex) {
+		t.Errorf("seenAttestations must still record the observation so future iterations dedup correctly")
+	}
+}
+
 // TestProcessAttestationsDedupsWithinCall confirms the in-call branch still fires
 // for a block that lists the same validator/slot in two attestations
 // (rare but possible; the pre-existing within-call dedup must keep working).

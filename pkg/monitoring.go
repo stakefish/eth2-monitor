@@ -380,6 +380,22 @@ func processAttestations(
 
 				// https://www.attestant.io/posts/defining-attestation-effectiveness/
 				earliestInclusionSlot := attestedSlot + 1
+
+				// If the earliest possible inclusion slot is before our scan
+				// window, we cannot reliably compute the inclusion distance:
+				// the attestation may have been included in a block we never
+				// fetched, and any "missed slot" adjustment below would
+				// treat those un-fetched slots as missed (under-counting the
+				// real distance). For a long-running monitor this case is
+				// covered by the previous epoch's iteration, which records
+				// the correct distance there; the duplicate-observation
+				// dedup above prevents double counting. On a fresh start
+				// the metric is genuinely unknown — skip it rather than
+				// emit a misleading "delayed attestation" warning.
+				if earliestInclusionSlot < spec.EpochLowestSlot(epoch) {
+					continue
+				}
+
 				attestationDistance := block.Message.Slot - phase0.Slot(earliestInclusionSlot)
 				m.RawAttestationDistances.Observe(float64(attestationDistance))
 				// Do not penalize validator for skipped slots
