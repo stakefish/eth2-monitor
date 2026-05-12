@@ -109,6 +109,14 @@ func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg 
 		Topics:  []string{"head"},
 		Handler: eventsHandlerFunc,
 	})
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		// Clean shutdown: ctx was cancelled (operator signal, orchestrator
+		// triggering cancel on exit, parent timeout). Return without
+		// panicking so defer close(epochsChan) + defer wg.Done propagate
+		// normal exit semantics rather than crashing the process.
+		log.Info().Err(err).Msg("SubscribeToEpochs stopping on ctx cancel")
+		return
+	}
 	Must(err)
 }
 
