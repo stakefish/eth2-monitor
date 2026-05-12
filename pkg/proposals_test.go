@@ -504,7 +504,7 @@ func TestFinalizeMissedProposals(t *testing.T) {
 	pubkeys := map[phase0.ValidatorIndex]string{v50: "pk50", v100: "pk100", v200: "pk200"}
 	m := NewMonitorMetrics(prometheus.NewRegistry())
 
-	FinalizeMissedProposals(unfulfilled, pubkeys, m)
+	FinalizeMissedProposals(unfulfilled, pubkeys, 7, m)
 
 	if got := counterValue(t, m.TotalMissedProposals); got != 3 {
 		t.Errorf("TotalMissedProposals = %v, want 3", got)

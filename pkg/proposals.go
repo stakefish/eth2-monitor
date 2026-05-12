@@ -170,13 +170,14 @@ func CheckProposal(
 func FinalizeMissedProposals(
 	unfulfilledProposerDuties map[phase0.Slot]phase0.ValidatorIndex,
 	pubkeys map[phase0.ValidatorIndex]string,
+	epoch phase0.Epoch,
 	m *MonitorMetrics,
 ) {
 	// Sort for deterministic Slack report ordering and so the Last* gauges
 	// settle on the highest-slot entry.
 	for _, slot := range slices.Sorted(maps.Keys(unfulfilledProposerDuties)) {
 		validatorIndex := unfulfilledProposerDuties[slot]
-		Report("❌ 🧱 Validator %v (%v) missed proposal at slot %v", validatorIndex, pubkeyOrUnknown(pubkeys, validatorIndex), slot)
+		Report("❌ 🧱 Validator %v (%v) missed proposal at slot %v (epoch %v)", validatorIndex, pubkeyOrUnknown(pubkeys, validatorIndex), slot, epoch)
 		m.TotalMissedProposals.Inc()
 		m.LastMissedProposalSlot.Set(float64(slot))
 		m.LastMissedProposalValidator.Set(float64(validatorIndex))

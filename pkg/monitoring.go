@@ -385,7 +385,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, cancel context.CancelF
 			// FinalizeMissedProposals reports it as missed (matches the
 			// previous code's continue-without-delete path).
 		}
-		FinalizeMissedProposals(ec.ProposerDuties, ec.ValidatorPubkeyFromIndex, m)
+		FinalizeMissedProposals(ec.ProposerDuties, ec.ValidatorPubkeyFromIndex, epoch, m)
 
 		// Persist progress so a crash/restart can skip already-processed
 		// epochs and avoid spiking cumulative metric counters.
