@@ -61,7 +61,7 @@ func LoadCache() *LocalCache {
 		Validators: make(map[string]CachedIndex),
 	}
 
-	log.Trace().Msgf("Validator Index Cache Path %v", cacheFilePath)
+	log.Trace().Str("path", cacheFilePath).Msg("loading validator index cache")
 
 	fd, err := os.Open(cacheFilePath)
 	if err != nil {
