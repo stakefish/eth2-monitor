@@ -118,6 +118,39 @@ func TestCache_TornFileGracefulFallback(t *testing.T) {
 	}
 }
 
+// TestCache_PartialUnmarshalDoesNotLeak — regression for the "returns
+// partial cache while logging 'empty cache'" mismatch. Seed a JSON file
+// that decodes far enough to populate one Validators entry, then fails.
+// LoadCache must NOT propagate that partial entry — otherwise SaveCache
+// would later persist it and lock the corruption in.
+//
+// The malformed JSON below has a syntactically valid Validators map with
+// one entry, followed by a malformed LastEpoch field (string where uint
+// is expected). Go's json.Unmarshal populates the valid map first, then
+// errors on the malformed field — exactly the partial-population case.
+func TestCache_PartialUnmarshalDoesNotLeak(t *testing.T) {
+	withTempCachePath(t)
+
+	bad := `{
+		"Validators": {"pk-leaked": {"Index": 7, "At": "2024-01-01T00:00:00Z"}},
+		"LastEpoch": "not-a-number"
+	}`
+	if err := os.WriteFile(cacheFilePath, []byte(bad), 0o600); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	loaded := LoadCache()
+	if loaded == nil {
+		t.Fatal("LoadCache returned nil")
+	}
+	if _, leaked := loaded.Validators["pk-leaked"]; leaked {
+		t.Error("partial Unmarshal leaked an entry into the returned cache; should be reset to empty")
+	}
+	if loaded.LastEpoch != 0 {
+		t.Errorf("LastEpoch = %v, want 0 on corrupt cache", loaded.LastEpoch)
+	}
+}
+
 // TestCache_MissingFileEmpty — first-run case: no cache file exists yet.
 // LoadCache must return an empty-but-valid cache.
 func TestCache_MissingFileEmpty(t *testing.T) {

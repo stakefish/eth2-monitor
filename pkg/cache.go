@@ -49,7 +49,15 @@ func LoadCache() *LocalCache {
 	}
 	err = json.Unmarshal(rawCache, cache)
 	if err != nil {
+		// json.Unmarshal may have partially populated cache before failing
+		// (e.g. valid entries up to a torn-write boundary, then garbage).
+		// Returning that partial state would let a subsequent SaveCache
+		// persist the half-decoded data, locking in the corruption. Reset
+		// to a clean LocalCache so the caller (and the log) agree.
 		log.Error().Err(err).Msg("LoadCache: json.Unmarshal failed; returning empty cache")
+		return &LocalCache{
+			Validators: make(map[string]CachedIndex),
+		}
 	}
 
 	return cache
