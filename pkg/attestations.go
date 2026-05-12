@@ -288,6 +288,11 @@ func processAttestations(
 // a QoS heuristic: real attestations land in 1-2 slots, and any inclusion >32
 // slots later is operationally indistinguishable from a missed duty for
 // validator performance reporting.
+//
+// Reports are delivered to Slack inline via Report — for a mass-incident
+// scenario with many missed validators, the per-call ~5s timeout serialises
+// and stalls the orchestrator. Acceptable in normal operation; documented
+// limitation under load.
 func FinalizeMissedAttestations(
 	unfulfilled map[phase0.Slot]Set[phase0.ValidatorIndex],
 	missedEpochHighSlot phase0.Slot,
