@@ -65,7 +65,16 @@ func CheckProposal(
 	m *MonitorMetrics,
 ) bool {
 	if block.Message.ProposerIndex != expectedValidator {
-		log.Error().Msgf("Block proposed by an unexpected validator")
+		// Surface the slot + both validator indices so an operator hitting
+		// this in the field can diagnose without grepping around the
+		// timestamp. Typically signals a stale cached proposer duty (reorg
+		// invalidated assignment) — the bare "unexpected validator" message
+		// it replaces gave no actionable context.
+		log.Error().
+			Uint64("slot", uint64(slot)).
+			Uint64("expected_validator", uint64(expectedValidator)).
+			Uint64("actual_validator", uint64(block.Message.ProposerIndex)).
+			Msg("Block proposed by an unexpected validator (stale duty?)")
 		return false
 	}
 
