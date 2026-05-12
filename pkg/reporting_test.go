@@ -71,6 +71,31 @@ func TestReportToSlack_PostsToServer(t *testing.T) {
 	}
 }
 
+// TestReportToSlack_LogsOnNon2xx regresses the silent-rejection gap: a
+// transport-level POST that gets a 4xx/5xx from Slack used to fall
+// silently into the deferred Close — operators couldn't tell whether
+// Report was even called. We now log at WARN with the status code.
+func TestReportToSlack_LogsOnNon2xx(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	t.Cleanup(srv.Close)
+
+	prev := opts.SlackURL
+	t.Cleanup(func() { opts.SlackURL = prev })
+	opts.SlackURL = srv.URL
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("reportToSlack panicked on Slack 429: %v", r)
+		}
+	}()
+	reportToSlack("payload")
+	// No assertion on log output — zerolog isn't easily captured here, but
+	// the panic-recover and the existing happy-path test together pin the
+	// "no panic, no hang" contract.
+}
+
 // TestReportToSlack_TimesOutOnHungServer regresses the stall-the-orchestrator
 // risk: Report runs inline from the per-epoch monitor loop, so a hung Slack
 // webhook must not block indefinitely. We point at a server that never

@@ -62,4 +62,12 @@ func reportToSlack(message string) {
 		return
 	}
 	defer func() { _ = resp.Body.Close() }()
+
+	// Slack returns 2xx with "ok" on success, 4xx on bad payload / expired
+	// webhook, 429 on rate-limit. The transport-level POST succeeded but
+	// Slack may still have rejected it — surface that so operators can
+	// tell "Report wasn't called" from "Report was called but Slack said no".
+	if resp.StatusCode/100 != 2 {
+		log.Warn().Int("status", resp.StatusCode).Msgf("Slack rejected report %q", message)
+	}
 }
