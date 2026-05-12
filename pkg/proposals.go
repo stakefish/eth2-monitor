@@ -63,11 +63,13 @@ func isBlockEmpty(body *electra.BeaconBlockBody) bool {
 // missing bid trace fires both the empty-block metrics AND
 // TotalMissingBidTraces, never neither):
 //
-//   - Canonical proposal observed:  TotalCanonicalProposals++
-//   - Block is empty:               TotalProposedEmptyBlocks++,
+//   - Canonical proposal observed:    TotalCanonicalProposals++
+//   - Block is empty:                 TotalProposedEmptyBlocks++,
 //     LastProposedEmptyBlockSlot.Set(slot)
-//   - MEV enabled + no bid trace:   TotalMissingBidTraces++
-//   - MEV enabled + hash mismatch:  TotalVanillaBlocks++,
+//   - MEV enabled + nil ExecPayload:  TotalMissingBidTraces++ (fold into
+//     missing-bid since there's nothing to compare to)
+//   - MEV enabled + no bid trace:     TotalMissingBidTraces++
+//   - MEV enabled + hash mismatch:    TotalVanillaBlocks++,
 //     LastVanillaBlockSlot.Set(slot),
 //     LastVanillaBlockValidator.Set(validator)
 func CheckProposal(
