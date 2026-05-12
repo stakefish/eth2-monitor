@@ -121,7 +121,7 @@ bin/eth2-monitor monitor --since-epoch 12000 ...
 | `ETH2_totalMissedAttestations` | Counter | Missed attestations |
 | `ETH2_totalServedAttestations` | Counter | Canonical attestations |
 | `ETH2_totalDelayedAttestationsOverTolerance` | Counter | Attestations with inclusion distance > 2 |
-| `ETH2_canonicalAttestationDistances` | Histogram | Inclusion distance distribution (buckets 1-32) |
+| `ETH2_canonicalAttestationDistances` | Histogram | Inclusion distance distribution after missed-slot adjustment. Distance is shifted: 0 = optimal (included at attestedSlot+1); Attestant's spec-distance = this + 1. Linear buckets 1..32 (so distance 0 lands in the ≤1 bucket). |
 | `ETH2_totalProposedEmptyBlocks` | Counter | Blocks with no execution-layer payload of value to the proposer (no EL transactions, no blobs, no post-Pectra exec requests) |
 | `ETH2_totalVanillaBlocks` | Counter | Blocks not matching MEV relay bids (hash mismatch case) |
 | `ETH2_totalMissingBidTraces` | Counter | Proposed blocks where no tracked MEV relay returned any bid trace (distinct from the hash-mismatch case in `totalVanillaBlocks`) |
@@ -131,7 +131,7 @@ bin/eth2-monitor monitor --since-epoch 12000 ...
 | `ETH2_lastVanillaBlockSlot` | Gauge | Last vanilla block slot |
 | `ETH2_lastVanillaBlockValidator` | Gauge | Last vanilla block validator |
 | `ETH2_duplicateAttestationsSkipped` | Counter | Attestations skipped due to (validator, slot) dedup |
-| `ETH2_rawAttestationDistances` | Histogram | Raw attestation distances before dedup (buckets 1-32) |
+| `ETH2_rawAttestationDistances` | Histogram | Raw attestation distances before the missed-slot adjustment (same shifted numbering as canonicalAttestationDistances; 0 = optimal). Linear buckets 1..32. |
 | `ETH2_missedSlotsInEpoch` | Gauge | Missed slots in the most recently processed epoch (stays at the previous value during ctx-cancel / soft-skip iterations) |
 | `ETH2_crossEpochAttestations` | Counter | Attestations included in a different epoch than attested |
 | `ETH2_beaconAPIRequestsTotal` | CounterVec | Beacon API requests by `endpoint`, `method`, `status_class` (2xx/3xx/4xx/5xx/error) |
