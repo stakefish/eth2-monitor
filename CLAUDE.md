@@ -140,7 +140,7 @@ bin/eth2-monitor monitor --since-epoch 12000 ...
 ## Code Conventions
 
 - **Constants:** SCREAMING_SNAKE_CASE (project convention, not standard Go)
-- **Error handling:** `pkg.Must(err)` panics with stack trace for fatal errors; standard `(value, error)` returns for API calls
+- **Error handling:** `pkg.Must(err)` panics with stack trace for genuinely-fatal errors (beacon-API contract violations at startup, unrecoverable beacon errors mid-epoch); standard `(value, error)` returns for API calls. `ctx.Canceled` / `context.DeadlineExceeded` are detected explicitly in `SubscribeToEpochs` and `MonitorAttestationsAndProposals` and returned cleanly rather than panicked through Must.
 - **Logging:** zerolog. `Msgf()` printf-style is the dominant form for Report/Info paths; recent additions use structured-field form (`Uint64("slot", ...).Msg(...)`) for error logs that operators grep against. Trace for per-slot, Debug for per-epoch, Warn for user-facing reports, Error for invariant violations.
 - **Reporting:** `pkg.Report()` and `pkg.Info()` log + send to Slack webhook
 - **Config:** Global mutable vars in `cmd/opts` package (not dependency-injected)
