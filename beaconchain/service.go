@@ -22,7 +22,11 @@ type BeaconChain struct {
 }
 
 func New(ctx context.Context, address string, timeout time.Duration) (*BeaconChain, error) {
-	service, err := eth2http.New(ctx, eth2http.WithAddress(address), eth2http.WithTimeout(time.Minute))
+	service, err := eth2http.New(ctx,
+		eth2http.WithAddress(address),
+		eth2http.WithTimeout(time.Minute),
+		eth2http.WithHTTPClient(newCaplinCompatClient(time.Minute)),
+	)
 
 	if err != nil {
 		return nil, err
@@ -131,5 +135,35 @@ func (beacon *BeaconChain) GetAttesterDuties(ctx context.Context, epoch phase0.E
 		return nil, err
 	}
 	return resp.Data, err
+}
+
+// GetCommitteeLengths returns the size of every beacon committee in the
+// given epoch, keyed by slot and committee index. It is used to compute
+// correct AggregationBits offsets in EIP-7549 attestations that span
+// committees with no tracked validators (where AttesterDuties alone don't
+// give us the length).
+func (beacon *BeaconChain) GetCommitteeLengths(ctx context.Context, epoch phase0.Epoch) (map[phase0.Slot]map[phase0.CommitteeIndex]uint64, error) {
+	provider := beacon.service.(eth2client.BeaconCommitteesProvider)
+	e := epoch
+	// Use "head" rather than a slot-id state: the slot at the start of the
+	// requested epoch may not exist yet (future epoch lookahead) or may have
+	// been pruned. "head" is always valid; combined with Epoch=e the node
+	// computes committees for the target epoch using the appropriate state.
+	resp, err := provider.BeaconCommittees(ctx, &api.BeaconCommitteesOpts{
+		State: "head",
+		Epoch: &e,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	result := make(map[phase0.Slot]map[phase0.CommitteeIndex]uint64)
+	for _, c := range resp.Data {
+		if result[c.Slot] == nil {
+			result[c.Slot] = make(map[phase0.CommitteeIndex]uint64)
+		}
+		result[c.Slot][c.Index] = uint64(len(c.Validators))
+	}
+	return result, nil
 }
 

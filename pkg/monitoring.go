@@ -35,10 +35,32 @@ type CommitteeInfo struct {
 	Validators map[uint64]phase0.ValidatorIndex    // position → validatorIndex (tracked only)
 }
 
-// BuildCommitteeLookup creates a sparse committee map from attester duties,
-// containing only tracked validators and their positions.
-func BuildCommitteeLookup(duties []*v1.AttesterDuty, tracked map[phase0.ValidatorIndex]string) map[phase0.Slot]map[phase0.CommitteeIndex]*CommitteeInfo {
-	result := make(map[phase0.Slot]map[phase0.CommitteeIndex]*CommitteeInfo)
+// BuildCommitteeLookup builds a per-(slot, committee) view that processAttestations
+// needs to read EIP-7549 attestations correctly.
+//
+// committeeLengths must contain the size of EVERY committee in every slot that
+// could appear in an attestation we process — not only committees containing
+// tracked validators. This is required because an attestation can aggregate
+// across multiple committees, and we need to advance the AggregationBits offset
+// past committees with no tracked validators by their actual length. Without
+// full lengths, the offset drifts and we attribute bits to the wrong validators.
+//
+// duties supplies the (position, validatorIndex) entries for tracked validators
+// only — those are all we ever need to look up.
+func BuildCommitteeLookup(
+	duties []*v1.AttesterDuty,
+	committeeLengths map[phase0.Slot]map[phase0.CommitteeIndex]uint64,
+	tracked map[phase0.ValidatorIndex]string,
+) map[phase0.Slot]map[phase0.CommitteeIndex]*CommitteeInfo {
+	result := make(map[phase0.Slot]map[phase0.CommitteeIndex]*CommitteeInfo, len(committeeLengths))
+	for slot, byIdx := range committeeLengths {
+		entry := make(map[phase0.CommitteeIndex]*CommitteeInfo, len(byIdx))
+		for idx, length := range byIdx {
+			entry[idx] = &CommitteeInfo{Length: length, Validators: make(map[uint64]phase0.ValidatorIndex)}
+		}
+		result[slot] = entry
+	}
+
 	for _, duty := range duties {
 		if _, ok := tracked[duty.ValidatorIndex]; !ok {
 			continue
@@ -48,6 +70,10 @@ func BuildCommitteeLookup(duties []*v1.AttesterDuty, tracked map[phase0.Validato
 		}
 		info := result[duty.Slot][duty.CommitteeIndex]
 		if info == nil {
+			// Slot/committee not in committeeLengths; fall back to the
+			// duty's reported length so the tracked validator is still
+			// considered. Offsets remain correct as long as committeeLengths
+			// covers the rest.
 			info = &CommitteeInfo{Length: duty.CommitteeLength, Validators: make(map[uint64]phase0.ValidatorIndex)}
 			result[duty.Slot][duty.CommitteeIndex] = info
 		}
@@ -284,30 +310,37 @@ func processAttestations(
 		for _, attestation := range block.Message.Body.Attestations {
 			attesters := NewSet[phase0.ValidatorIndex]()
 
-			// Sanity check: verify AggregationBits length matches committee lengths.
-			// Only check when we have info for ALL committees in the attestation.
+			// We need the length of EVERY committee referenced by this
+			// attestation to walk AggregationBits correctly — even committees
+			// containing zero tracked validators, because we still have to
+			// advance the offset past them to read later committees correctly.
+			// If we lack any committee's length the offset drifts and we
+			// attribute bits to the wrong validators, producing false missed
+			// attestation reports. Skip the attestation in that case rather
+			// than corrupt our state.
+			slotCommittees := committeeLookup[attestation.Data.Slot]
 			committeesLen := uint64(0)
 			allCommitteesKnown := true
 			for _, committeeIndex := range attestation.CommitteeBits.BitIndices() {
-				slotCommittees := committeeLookup[attestation.Data.Slot]
 				if info := slotCommittees[phase0.CommitteeIndex(committeeIndex)]; info != nil {
 					committeesLen += info.Length
 				} else {
 					allCommitteesKnown = false
 				}
 			}
-			if allCommitteesKnown && committeesLen > 0 && attestation.AggregationBits.Len() != committeesLen {
-				log.Error().Msgf("Sanity check violation: AggregationBits length mismatch: computed=%v actual=%v", committeesLen, attestation.AggregationBits.Len())
+			if !allCommitteesKnown {
+				log.Warn().Msgf("Attestation at slot %v references committee with no lookup entry; skipping (block slot %v)", attestation.Data.Slot, block.Message.Slot)
+				continue
+			}
+			if committeesLen > 0 && attestation.AggregationBits.Len() != committeesLen {
+				log.Error().Msgf("Sanity check violation: AggregationBits length mismatch at slot %v: computed=%v actual=%v", attestation.Data.Slot, committeesLen, attestation.AggregationBits.Len())
+				continue
 			}
 
 			// https://github.com/ethereum/consensus-specs/blob/8410e4fa376b74f550d5981f4c42d6593401046c/specs/electra/beacon-chain.md#new-get_committee_indices
 			committeeOffset := uint64(0)
 			for _, committeeIndex := range attestation.CommitteeBits.BitIndices() {
-				slotCommittees := committeeLookup[attestation.Data.Slot]
 				info := slotCommittees[phase0.CommitteeIndex(committeeIndex)]
-				if info == nil {
-					continue // no tracked validators in this committee
-				}
 				// https://github.com/ethereum/consensus-specs/blob/8410e4fa376b74f550d5981f4c42d6593401046c/specs/electra/beacon-chain.md#modified-get_attesting_indices
 				for pos, validatorIndex := range info.Validators {
 					if attestation.AggregationBits.BitAt(committeeOffset + pos) {
@@ -433,7 +466,29 @@ func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.Be
 					unfulfilledAttesterDuties[duty.Slot].Add(duty.ValidatorIndex)
 				}
 			}
-			committeeLookup = BuildCommitteeLookup(allDuties, validatorPubkeyFromIndex)
+
+			// Fetch lengths for EVERY committee (not just those containing
+			// tracked validators) across the same epoch window. This is
+			// required so processAttestations can advance AggregationBits
+			// offsets correctly across EIP-7549 attestations that span
+			// committees we don't track. Without full lengths the offset
+			// drifts and we report false missed attestations — especially
+			// against clients like Caplin that aggregate across many
+			// committees per attestation.
+			committeeLengths := make(map[phase0.Slot]map[phase0.CommitteeIndex]uint64)
+			for e := epoch - 1; e <= epoch+1; e++ {
+				cl, err := beacon.GetCommitteeLengths(ctx, phase0.Epoch(e))
+				Must(err)
+				for slot, byIdx := range cl {
+					if committeeLengths[slot] == nil {
+						committeeLengths[slot] = make(map[phase0.CommitteeIndex]uint64, len(byIdx))
+					}
+					for idx, length := range byIdx {
+						committeeLengths[slot][idx] = length
+					}
+				}
+			}
+			committeeLookup = BuildCommitteeLookup(allDuties, committeeLengths, validatorPubkeyFromIndex)
 		}, "ListAttesterDuties(epoch=%v)", epoch)
 
 		var unfulfilledProposerDuties map[phase0.Slot]phase0.ValidatorIndex
