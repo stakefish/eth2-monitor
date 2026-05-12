@@ -239,10 +239,20 @@ func LoadMEVRelays(mevRelaysFilePath string) ([]string, error) {
 //     unfulfilledAttesterDuties as observations come in.
 //  6. FinalizeMissedAttestations reports anything still unfulfilled in E-1.
 //  7. Walk each block: CheckProposal returns true on success (delete the
-//     proposer-duty entry); false on proposer-index mismatch (leave the
-//     entry so FinalizeMissedProposals reports it as missed).
+//     proposer-duty entry); false on proposer-index mismatch or nil block
+//     structure (leave the entry so FinalizeMissedProposals reports it as
+//     missed).
 //  8. FinalizeMissedProposals.
 //  9. SaveCache persists LastEpoch so a restart skips re-processed epochs.
+//
+// Shutdown semantics:
+//   - ctx.Err() is checked at the top of every iteration so a cancellation
+//     between epochs short-circuits before any per-epoch work.
+//   - BuildEpochContext failures that wrap context.Canceled /
+//     DeadlineExceeded are detected via errors.Is and trigger a clean
+//     return (defer cancel + wg.Done) rather than a Must panic.
+//   - On any normal-or-panic exit, defer cancel() cancels the shared ctx
+//     so SubscribeToEpochs winds down too.
 //
 // Persistent state across iterations:
 //   - unfulfilledAttesterDuties — entries linger from prev iteration's seed
