@@ -162,7 +162,13 @@ func SaveCache(newCache *LocalCache) {
 	// file content being durable. Best-effort: ENOTDIR / EPERM on exotic
 	// filesystems is logged but doesn't block forward progress.
 	if dir, err := os.Open(path.Dir(cacheFilePath)); err == nil {
-		_ = dir.Sync()
+		if syncErr := dir.Sync(); syncErr != nil {
+			// Some filesystems (e.g. older tmpfs configurations, certain
+			// fuse mounts) reject dir-fsync. Surface at Debug — the file
+			// itself was already fsynced, so this only affects rename
+			// durability across crash, not the file content.
+			log.Debug().Err(syncErr).Msg("SaveCache: dir.Sync failed; rename may not be crash-durable")
+		}
 		_ = dir.Close()
 	} else {
 		log.Debug().Err(err).Msg("SaveCache: open(parent) for dir-fsync failed; rename may not be crash-durable")
