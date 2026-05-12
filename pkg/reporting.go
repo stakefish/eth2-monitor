@@ -18,6 +18,14 @@ import (
 // Exposed at package scope so tests can override it for fake servers.
 var slackClient = &http.Client{Timeout: 5 * time.Second}
 
+// Report formats the message via fmt.Sprintf, logs it at WARN, and
+// delivers it to the configured Slack webhook (if any). Use for
+// alert-worthy events (missed attestations/proposals, empty blocks).
+//
+// Synchronous Slack POST with a 5s client timeout. Many calls in
+// quick succession serialise — see slackClient and the
+// FinalizeMissedProposals/FinalizeMissedAttestations doc comments
+// for the stall-during-mass-incident trade-off.
 func Report(format string, args ...interface{}) {
 	message := fmt.Sprintf(format, args...)
 
@@ -26,6 +34,9 @@ func Report(format string, args ...interface{}) {
 	reportToSlack(message)
 }
 
+// Info is like Report but logs at INFO. Used for successful operations
+// when opts.Monitor.PrintSuccessful is enabled. Same Slack delivery
+// semantics as Report.
 func Info(format string, args ...interface{}) {
 	message := fmt.Sprintf(format, args...)
 
