@@ -31,7 +31,8 @@ type CommitteeInfo struct {
 // full lengths, the offset drifts and we attribute bits to the wrong validators.
 //
 // duties supplies the (position, validatorIndex) entries for tracked validators
-// only — those are all we ever need to look up.
+// only — those are all we ever need to look up. Nil entries in the slice
+// (defensive against malformed API responses) are skipped silently.
 func BuildCommitteeLookup(
 	duties []*v1.AttesterDuty,
 	committeeLengths map[phase0.Slot]map[phase0.CommitteeIndex]uint64,
