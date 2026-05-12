@@ -6,7 +6,7 @@ Ethereum 2.0 validator performance monitor built by stakefish. Tracks attestatio
 
 ## Tech Stack
 
-- **Language:** Go 1.25
+- **Language:** Go 1.25 (go.mod: 1.25.10; `.tool-versions`: 1.25.8; CI: 1.23.x -- mismatch is real, see CI gotcha below)
 - **CLI Framework:** Cobra (`github.com/spf13/cobra`)
 - **Beacon Chain Client:** `github.com/attestantio/go-eth2-client` v0.27.1 (HTTP transport)
 - **Logging:** zerolog (`github.com/rs/zerolog`)
@@ -24,6 +24,9 @@ cmd/
   opts/opts.go       -- Global CLI flag variables (package-level vars)
 beaconchain/
   service.go         -- BeaconChain wrapper around go-eth2-client (HTTP)
+  caplin_compat.go   -- HTTP transport that rewrites unquoted amount/index JSON fields in Caplin block responses
+  metrics.go         -- Beacon API request CounterVec/HistogramVec instrumentation
+  *_test.go          -- Tests for service + caplin compat + API metrics
 spec/
   consts.go          -- SLOTS_PER_EPOCH=32, SECONDS_PER_SLOT=12
   routines.go        -- Epoch/Slot conversion helpers
@@ -36,9 +39,13 @@ pkg/
   set.go             -- Generic Set[E comparable] collection
   profiling.go       -- Measure() timing utility
   utilities.go       -- Must() panic-on-error helper
+  monitoring_test.go -- Tests for the per-epoch monitor loop + attestation processing
 test-env/
   docker-compose.yml -- Full local stack: eth2-monitor + Prometheus + Grafana
   grafana/           -- Pre-provisioned dashboards and datasources
+docs/                -- Onboarding reference (BEACON_API_USAGE, ERIGON_CAPLIN_COMPATIBILITY,
+                       ETHEREUM_HARDFORK_TIMELINE, METRICS, attestant/ research notes).
+                       Untracked in git but checked-out locally; useful for context.
 Dockerfile           -- Multi-stage: golang:alpine builder -> alpine runtime, non-root user
 Makefile             -- Targets: `all` -> `build` -> `eth2-monitor`; output: bin/eth2-monitor (with git version ldflags)
 .tool-versions       -- Go version pinning (golang 1.25.8)
@@ -84,8 +91,9 @@ cd test-env && docker compose up --build
 2. `GET /eth/v2/beacon/blocks/{block_id}` -- Fetch full signed blocks (Fulu/Fusaka fork)
 3. `GET /eth/v1/validator/duties/proposer/{epoch}` -- Proposer duties
 4. `POST /eth/v1/validator/duties/attester/{epoch}` -- Attester duties (fetched for prev/curr/next epoch; also builds committee lookup)
-5. `GET /eth/v1/beacon/states/{state}/finality_checkpoints` -- Justified epoch seed
-6. `GET /eth/v1/events?topics=head` -- SSE head events for epoch detection
+5. `GET /eth/v1/beacon/states/{state}/committees` -- Backfills committee sizes for committees with no tracked validators (`GetCommitteeLengths` in `beaconchain/service.go`)
+6. `GET /eth/v1/beacon/states/{state}/finality_checkpoints` -- Justified epoch seed
+7. `GET /eth/v1/events?topics=head` -- SSE head events for epoch detection
 
 ## Prometheus Metrics (namespace: ETH2)
 
@@ -99,7 +107,8 @@ cd test-env && docker compose up --build
 | `ETH2_totalDelayedAttestationsOverTolerance` | Counter | Attestations with inclusion distance > 2 |
 | `ETH2_canonicalAttestationDistances` | Histogram | Inclusion distance distribution (buckets 1-32) |
 | `ETH2_totalProposedEmptyBlocks` | Counter | Blocks with zero transactions |
-| `ETH2_totalVanillaBlocks` | Counter | Blocks not matching MEV relay bids |
+| `ETH2_totalVanillaBlocks` | Counter | Blocks not matching MEV relay bids (hash mismatch case) |
+| `ETH2_totalMissingBidTraces` | Counter | Proposed blocks where no tracked MEV relay returned any bid trace (distinct from the hash-mismatch case in `totalVanillaBlocks`) |
 | `ETH2_lastMissedProposalSlot` | Gauge | Last missed proposal slot |
 | `ETH2_lastMissedProposalValidatorIndex` | Gauge | Last missed proposal validator |
 | `ETH2_lastProposedEmptyBlockSlot` | Gauge | Last empty block slot |
@@ -125,7 +134,7 @@ cd test-env && docker compose up --build
 
 ## CI
 
-- **Linting:** golangci-lint v1.60 via GitHub Actions (`golangci-lint.yml`, runs on PRs)
+- **Linting:** `golangci/golangci-lint-action@v8` via GitHub Actions (`golangci-lint.yml`, runs on PRs); no tool version pinned in the workflow
 - **Build:** Multi-arch build via GitHub Actions (`main.yml`, runs on push/PR)
 - **Release:** Auto-publishes binaries + Docker image to GHCR on git tags (`softprops/action-gh-release` + `docker/build-push-action`)
 - **Known bug:** `main.yml` line 52 loops `arm64 arm64` instead of `amd64 arm64` -- only builds arm64, skips amd64
@@ -134,7 +143,11 @@ cd test-env && docker compose up --build
 ## Gotchas
 
 - **GetBlock fails on pre-Fusaka slots** -- returns error `"unsupported block version"` for any slot before the Fulu fork
-- **Validator cache has 8-hour TTL** -- `pkg/cache.go` uses disk-backed JSON; stale cache can cause missed validators after key rotation
+- **Validator cache has no TTL** -- `pkg/cache.go` persists the `Validators` map plus `LastEpoch` to disk JSON (`$TMPDIR/stakefish-eth2-monitor-cache.json`). The `CachedIndex.At` timestamp is written but never read; entries live forever. On restart `LastEpoch` gates skip-ahead so cumulative counters don't double-count re-processed epochs. Delete the file to force a clean run.
+- **MEV relays file is JSON, not one-per-line** -- the `--mev-relays` flag help text says "one-per-line" but `LoadMEVRelays` (`pkg/monitoring.go:286`) does `json.Unmarshal`. Real format: `["https://relay1...", "https://relay2..."]`.
+- **Caplin `amount`/`index` JSON quoting** -- `beaconchain/caplin_compat.go` installs an HTTP transport that rewrites unquoted numeric JSON fields *only* on `/eth/v2/beacon/blocks/` responses. Other Caplin endpoints aren't patched -- hit them via Caplin and unmarshal errors return raw.
+- **Slashed validators silently excluded from monitoring** -- `GetValidatorIndexes` filters via `IsAttesting()`. Slashed validators stop appearing in duties and reports until they fully exit -- surprising during incident response when "where is validator X?" has no log line.
+- **Attestation dedup requires consecutive epoch processing** -- `processAttestations` keys `seenAttestations` on `(validator, slot)` and the cross-epoch lookahead window assumes E and E+1 are processed in order. Skipping an epoch (SSE jump, replay-epoch gap) produces false missed-attestation reports.
 - **vendor/ is tracked despite .gitignore** -- the gitignore has `/vendor/` but the directory was force-added; run `go mod vendor` after dependency changes
 - **Attestation tracking is memory-sensitive** -- was reworked 3 times to fix OOM (PR #20); be careful adding per-validator state
 - **Prometheus counter names must be unique** -- duplicate registration panics at startup (happened with `total_canonical_attestations_counter` in PR #26)
