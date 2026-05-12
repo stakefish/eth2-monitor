@@ -18,10 +18,12 @@ import (
 // block carrying only blob commitments still earns the proposer the blob base
 // fee, so it isn't "empty" from a validator-economic perspective.
 //
-// Treats a nil ExecutionPayload as empty: post-Bellatrix the field is
-// mandatory per spec, but a non-conforming JSON response (Caplin quirk,
-// future fork change, missing field) could leave it nil. Crashing the
-// orchestrator on bad data is worse than recording it as an empty proposal.
+// Defensive nil handling: a nil body or a non-nil body with a nil
+// ExecutionPayload both classify as empty. Post-Bellatrix these fields
+// are mandatory per spec, but a non-conforming JSON response (Caplin
+// quirk, future fork change, missing field) could leave either nil.
+// Crashing the orchestrator on bad data is worse than recording it as
+// an empty proposal.
 func isBlockEmpty(body *electra.BeaconBlockBody) bool {
 	if body == nil {
 		// A nil body cannot carry any execution-layer payload by definition;
