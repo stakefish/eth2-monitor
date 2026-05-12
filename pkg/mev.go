@@ -58,6 +58,11 @@ Sample response:
 
 ]
 */
+// requestBidTracesPage fetches one page from baseurl's
+// proposer_payload_delivered endpoint using cursor=slot. Validates that
+// the returned traces are sorted strictly descending by slot (relay
+// contract). Caps body read at 4 MiB to bound memory; surfaces non-2xx
+// responses with a body excerpt rather than the cryptic decode error.
 func requestBidTracesPage(client *http.Client, baseurl string, slot phase0.Slot, limit uint64) ([]BidTrace, error) {
 	var payloads []BidTrace
 
@@ -108,6 +113,11 @@ func requestBidTracesPage(client *http.Client, baseurl string, slot phase0.Slot,
 	return payloads, nil
 }
 
+// requestRelayEpochBidTraces paginates baseurl's bidtraces endpoint
+// until either the page floor reaches epochLowestSlot, the slot cursor
+// would underflow (low-epoch / pathological data), or maxPages requests
+// have been issued (broken relay returning the same page forever).
+// Returns only traces whose slot lies in the requested epoch.
 func requestRelayEpochBidTraces(timeout time.Duration, baseurl string, epoch phase0.Epoch) ([]BidTrace, error) {
 	var bidtraces []BidTrace
 
@@ -163,6 +173,15 @@ func requestRelayEpochBidTraces(timeout time.Duration, baseurl string, epoch pha
 	return bidtraces, nil
 }
 
+// exptBackoff yields an infinite sequence of backoff durations: base,
+// 2*base, 4*base, ..., (2^maxExponent)*base, then resets to base and
+// cycles. Each yield is offset by [0, base) ms of jitter. Callers should
+// break out of the for-range when their work succeeds or context is
+// cancelled — the iterator itself never terminates.
+//
+// Defensive: callers passing base < 1ms get zero-jitter rather than the
+// integer-divide-by-zero panic the underlying rand.Uint() % baseMillis
+// would otherwise produce.
 func exptBackoff(base time.Duration, maxExponent uint) iter.Seq[time.Duration] {
 	// baseMillis is the modulus for the jitter draw. Anything less than 1
 	// would panic on `rand.Uint() % 0`; clamp so callers that pass sub-ms
@@ -188,6 +207,14 @@ func exptBackoff(base time.Duration, maxExponent uint) iter.Seq[time.Duration] {
 	}
 }
 
+// requestEpochBidTraces fetches one epoch's traces from each relay
+// concurrently. Each goroutine has its own per-relay timeout derived
+// from ctx, retries via exptBackoff (with a ctx-aware wait between
+// attempts), and writes its result under a shared mutex.
+//
+// Returns the partial result map plus the first error from any failed
+// relay. Callers (ListBestBids) should use the partial map and
+// separately log the error.
 func requestEpochBidTraces(ctx context.Context, timeout time.Duration, relays []string, epoch phase0.Epoch) (map[string][]BidTrace, error) {
 	var mu sync.Mutex
 	result := make(map[string][]BidTrace)
