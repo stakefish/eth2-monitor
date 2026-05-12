@@ -172,7 +172,17 @@ func LoadMEVRelays(mevRelaysFilePath string) ([]string, error) {
 		return nil, err
 	}
 
-	return relays, nil
+	// Filter out empty / whitespace-only entries. requestEpochBidTraces
+	// would otherwise spin a goroutine retrying an unreachable empty URL
+	// until the per-relay timeout (~4s of wasted work per epoch per
+	// empty entry).
+	filtered := relays[:0]
+	for _, r := range relays {
+		if strings.TrimSpace(r) != "" {
+			filtered = append(filtered, r)
+		}
+	}
+	return filtered, nil
 }
 
 // MonitorAttestationsAndProposals listens to the beacon chain head changes and checks new blocks and attestations.

@@ -268,3 +268,24 @@ func TestLoadMEVRelays_MalformedJSON(t *testing.T) {
 		t.Fatalf("expected JSON parse error, got %v", got)
 	}
 }
+
+// TestLoadMEVRelays_FiltersEmptyEntries — empty or whitespace-only entries
+// in the relays JSON would each spawn a wasted retry goroutine in
+// requestEpochBidTraces. Filter them at load time.
+func TestLoadMEVRelays_FiltersEmptyEntries(t *testing.T) {
+	dir := t.TempDir()
+	p := writeFile(t, dir, "relays.json", `["", "https://relay1.example", "   ", "https://relay2.example"]`)
+
+	got, err := LoadMEVRelays(p)
+	if err != nil {
+		t.Fatalf("LoadMEVRelays: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("kept %d relays, want 2 (empty/whitespace filtered)", len(got))
+	}
+	for _, r := range got {
+		if r == "" {
+			t.Errorf("empty relay survived filter: %v", got)
+		}
+	}
+}
