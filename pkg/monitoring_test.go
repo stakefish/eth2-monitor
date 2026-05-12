@@ -176,6 +176,9 @@ func TestSendEpoch_BothReadyEitherIsAcceptable(t *testing.T) {
 	}
 }
 
+// writeFile creates a file at filepath.Join(dir, name) with the given
+// content and 0600 permissions, failing the test on any write error.
+// Returns the full path for use as a function argument in callers.
 func writeFile(t *testing.T, dir, name, content string) string {
 	t.Helper()
 	p := filepath.Join(dir, name)
