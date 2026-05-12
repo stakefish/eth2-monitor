@@ -348,6 +348,18 @@ func TestCheckProposal_NilBlock(t *testing.T) {
 	if ok := CheckProposal(nil, slot, validator, nil, false, nil, 3, m); ok {
 		t.Errorf("CheckProposal returned true on nil block, want false")
 	}
+	// Pin that no proposal-side metrics fire when we bail on nil block —
+	// a future refactor moving Inc above the nil guard would silently
+	// inflate counters; this catches that.
+	if got := counterValue(t, m.TotalCanonicalProposals); got != 0 {
+		t.Errorf("TotalCanonicalProposals = %v, want 0 (nil block must short-circuit before any metric write)", got)
+	}
+	if got := counterValue(t, m.TotalProposedEmptyBlocks); got != 0 {
+		t.Errorf("TotalProposedEmptyBlocks = %v, want 0", got)
+	}
+	if got := counterValue(t, m.TotalMissingBidTraces); got != 0 {
+		t.Errorf("TotalMissingBidTraces = %v, want 0", got)
+	}
 }
 
 // TestCheckProposal_NilMessageOrBody regresses the structural nil-derefs.
