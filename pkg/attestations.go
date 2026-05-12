@@ -141,6 +141,10 @@ func processAttestations(
 			log.Warn().Uint64("slot", uint64(slot)).Msg("block at slot has nil block/Message/Body; skipping")
 			continue
 		}
+		// blockSlotEpoch is constant for every attestation in this block;
+		// compute once per block rather than once per attestation per
+		// tracked validator.
+		blockSlotEpoch := spec.EpochFromSlot(block.Message.Slot)
 		for _, attestation := range block.Message.Body.Attestations {
 			// Defensive: Attestations is []*Attestation and AttestationData
 			// is a pointer field, so a malformed JSON response could leave
@@ -279,10 +283,10 @@ func processAttestations(
 				m.TotalCanonicalAttestations.Inc()
 				m.CanonicalAttestationDistances.Observe(float64(attestationDistance))
 
-				// H09 fix: track cross-epoch attestations. Reuse the
-				// hoisted attestedSlotEpoch (it's spec.EpochFromSlot of
-				// attestedSlot) instead of recomputing.
-				if spec.EpochFromSlot(block.Message.Slot) != attestedSlotEpoch {
+				// H09 fix: track cross-epoch attestations. Both
+				// blockSlotEpoch and attestedSlotEpoch are hoisted out
+				// of their respective inner loops.
+				if blockSlotEpoch != attestedSlotEpoch {
 					m.CrossEpochAttestations.Inc()
 				}
 			}
