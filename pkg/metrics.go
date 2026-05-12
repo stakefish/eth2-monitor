@@ -67,7 +67,7 @@ func NewMonitorMetrics(reg prometheus.Registerer) *MonitorMetrics {
 		LastProposedEmptyBlockSlot: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: "ETH2",
 			Name:      "lastProposedEmptyBlockSlot",
-			Help:      "Slot of the last proposed block containing no transactions",
+			Help:      "Slot of the last proposed block with no execution-layer payload of value to the proposer (no EL transactions, no blobs, no post-Pectra exec requests)",
 		}),
 		TotalMissedProposals: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "ETH2",
@@ -97,7 +97,7 @@ func NewMonitorMetrics(reg prometheus.Registerer) *MonitorMetrics {
 		TotalProposedEmptyBlocks: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "ETH2",
 			Name:      "totalProposedEmptyBlocks",
-			Help:      "Proposed blocks containing no transactions",
+			Help:      "Proposed blocks with no execution-layer payload of value to the proposer (see LastProposedEmptyBlockSlot for the full definition)",
 		}),
 		TotalVanillaBlocks: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "ETH2",
