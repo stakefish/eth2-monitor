@@ -231,6 +231,46 @@ func TestRequestRelayEpochBidTraces_NoInfiniteLoopOnLowEpoch(t *testing.T) {
 	}
 }
 
+// TestRequestRelayEpochBidTraces_BoundsBrokenRelay regresses the
+// infinite-loop case where a misbehaving relay returns the same
+// non-floor page regardless of cursor. Pre-fix the loop only exited
+// on (a) page[last].Slot <= floor, (b) slot underflow guard, or
+// (c) per-relay timeout — none of which fire if the relay always
+// returns the same high-slot trace. With the maxPages cap the loop
+// terminates in a bounded number of requests.
+func TestRequestRelayEpochBidTraces_BoundsBrokenRelay(t *testing.T) {
+	var callCount int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&callCount, 1)
+		// Return a slot that's ABOVE epochHighestSlot for epoch 1_000_000
+		// (range [32_000_000, 32_000_031]) — so it never triggers
+		// page[last].Slot <= floor break, and never triggers the
+		// underflow guard for this high epoch. Filter discards every
+		// trace; only maxPages can terminate the loop.
+		_ = json.NewEncoder(w).Encode([]BidTrace{{Slot: 99_999_999}})
+	}))
+	t.Cleanup(srv.Close)
+
+	done := make(chan error, 1)
+	go func() {
+		// High epoch so the slot-underflow guard never fires; only
+		// the maxPages cap can terminate the loop.
+		_, err := requestRelayEpochBidTraces(time.Second, srv.URL, phase0.Epoch(1_000_000))
+		done <- err
+	}()
+
+	select {
+	case <-done:
+		// Terminated within a bounded number of requests — we just
+		// need it to NOT hang or hit the timeout.
+	case <-time.After(2 * time.Second):
+		t.Fatalf("requestRelayEpochBidTraces hung on broken relay; observed %d requests", atomic.LoadInt32(&callCount))
+	}
+	if got := atomic.LoadInt32(&callCount); got > 100 {
+		t.Errorf("relay called %d times; maxPages cap should bound this well below", got)
+	}
+}
+
 // TestRequestRelayEpochBidTraces_EmptyPageIsError — relays returning an
 // empty page mid-pagination surface as errors so callers don't silently
 // "succeed" with partial data.

@@ -104,24 +104,31 @@ func requestRelayEpochBidTraces(timeout time.Duration, baseurl string, epoch pha
 	epochHighestSlot := spec.EpochHighestSlot(epoch)
 	epochLowestSlot := spec.EpochLowestSlot(epoch)
 
+	// Cap total page requests at a generous-but-bounded value. A normal
+	// epoch needs ~1-2 pages; this guard only fires if a misbehaving relay
+	// returns the same page regardless of cursor (which would otherwise
+	// spin until the per-relay timeout fires). Bigger than any realistic
+	// pagination depth, small enough to bound wasted goroutine CPU.
+	const maxPages = 64
+
 	slot := epochHighestSlot
-	for {
-		page, err := requestBidTracesPage(&client, baseurl, slot, spec.SLOTS_PER_EPOCH)
+	for page := 0; page < maxPages; page++ {
+		traces, err := requestBidTracesPage(&client, baseurl, slot, spec.SLOTS_PER_EPOCH)
 		if err != nil {
 			return nil, err
 		}
-		if len(page) == 0 {
+		if len(traces) == 0 {
 			return nil, fmt.Errorf("relay returned no bid traces for epoch %v: %s", epoch, baseurl)
 		}
 
-		for _, trace := range page {
+		for _, trace := range traces {
 			// We're only interested in bid traces from the requested epoch
 			if trace.Slot >= uint64(epochLowestSlot) && trace.Slot <= uint64(epochHighestSlot) {
 				bidtraces = append(bidtraces, trace)
 			}
 		}
 
-		if page[len(page)-1].Slot <= uint64(epochLowestSlot) {
+		if traces[len(traces)-1].Slot <= uint64(epochLowestSlot) {
 			break
 		}
 
