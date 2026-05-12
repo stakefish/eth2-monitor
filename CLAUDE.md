@@ -32,7 +32,7 @@ spec/
   routines.go        -- Epoch/Slot conversion helpers
 pkg/
   monitoring.go        -- Orchestrator loop + SubscribeToEpochs + LoadKeys/LoadMEVRelays
-  epoch_context.go     -- Per-epoch state fetch: EpochContext + BuildEpochContext + ResolveValidatorKeys + ListProposerDuties / ListAttesterDuties / ListEpochBlocks + SlotsWithBlocks
+  epoch_context.go     -- Per-epoch state fetch: EpochContext + BuildEpochContext + ResolveValidatorKeys + ListProposerDuties / ListEpochBlocks + SlotsWithBlocks
   attestations.go      -- Attestation-issue detection: processAttestations + BuildCommitteeLookup + PruneSeenAttestations + FinalizeMissedAttestations + CommitteeInfo
   proposals.go         -- Proposal-issue detection: isBlockEmpty + CheckProposal + FinalizeMissedProposals
   metrics.go           -- MonitorMetrics struct + NewMonitorMetrics(reg) factory; all Prometheus metrics

@@ -265,23 +265,6 @@ func ListProposerDuties(ctx context.Context, beacon *beaconchain.BeaconChain, ep
 	return result, nil
 }
 
-func ListAttesterDuties(ctx context.Context, beacon *beaconchain.BeaconChain, epoch phase0.Epoch, validators []phase0.ValidatorIndex) (map[phase0.Slot]Set[phase0.ValidatorIndex], error) {
-	duties, err := beacon.GetAttesterDuties(ctx, epoch, validators)
-	if err != nil {
-		return nil, err
-	}
-
-	result := make(map[phase0.Slot]Set[phase0.ValidatorIndex])
-	for _, duty := range duties {
-		slot := duty.Slot
-		if _, ok := result[slot]; !ok {
-			result[slot] = NewSet[phase0.ValidatorIndex]()
-		}
-		result[slot].Add(duty.ValidatorIndex)
-	}
-	return result, nil
-}
-
 // blockFetcher is the narrow GetBlock surface ListEpochBlocks depends on,
 // extracted so tests can inject transient errors without standing up a fake
 // beacon node. *beaconchain.BeaconChain satisfies it via its GetBlock method.
