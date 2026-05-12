@@ -116,10 +116,10 @@ func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg 
 			log.Warn().Interface("data", event.Data).Msg("head SSE event was not a *v1.HeadEvent; skipping")
 			return
 		}
-		log.Trace().Msgf("New head slot %v block %v", headEvent.Slot, headEvent.Block.String())
+		log.Trace().Uint64("slot", uint64(headEvent.Slot)).Str("block", headEvent.Block.String()).Msg("new head")
 		thisEpoch := spec.EpochFromSlot(headEvent.Slot)
 		if thisEpoch > lastEpoch {
-			log.Trace().Msgf("New epoch %v at slot %v", thisEpoch, headEvent.Slot)
+			log.Trace().Uint64("epoch", uint64(thisEpoch)).Uint64("slot", uint64(headEvent.Slot)).Msg("new epoch")
 			// Emit every ended epoch in [lastEpoch, thisEpoch). Skipping
 			// any of them silently breaks attestation tracking: an
 			// attestation for the last slot of epoch N can only be
@@ -308,7 +308,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, cancel context.CancelF
 			return
 		}
 
-		log.Debug().Msgf("New epoch %v", epoch)
+		log.Debug().Uint64("epoch", uint64(epoch)).Msg("new epoch")
 		m.Epoch.Set(float64(epoch))
 
 		// Skip genesis: there's no E-1 to look back at, and several places
@@ -332,13 +332,13 @@ func MonitorAttestationsAndProposals(ctx context.Context, cancel context.CancelF
 			// so the deferred cancel + wg.Done propagate normal exit
 			// semantics rather than crashing the process and forcing a
 			// Docker restart.
-			log.Info().Err(err).Msgf("orchestrator stopping on ctx cancel at epoch %v", epoch)
+			log.Info().Err(err).Uint64("epoch", uint64(epoch)).Msg("orchestrator stopping on ctx cancel")
 			return
 		}
 		Must(err)
 		if ec == nil {
 			// Soft skip: no tracked validators active this epoch.
-			log.Warn().Msgf("No active validators in epoch %v; skipping", epoch)
+			log.Warn().Uint64("epoch", uint64(epoch)).Msg("no active validators; skipping")
 			continue
 		}
 
