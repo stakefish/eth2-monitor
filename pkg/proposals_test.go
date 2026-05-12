@@ -329,6 +329,27 @@ func TestCheckProposal_EmptyBlockAndMissingBid(t *testing.T) {
 	}
 }
 
+// TestCheckProposal_NilBlock — if a future caller passes a nil
+// *SignedBeaconBlock, CheckProposal must return false instead of
+// nil-derefing on block.Message. Current callers never pass nil
+// (ListEpochBlocks filters them out), but the public API contract
+// should be robust.
+func TestCheckProposal_NilBlock(t *testing.T) {
+	const (
+		validator = phase0.ValidatorIndex(42)
+		slot      = phase0.Slot(100)
+	)
+	m := NewMonitorMetrics(prometheus.NewRegistry())
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("CheckProposal panicked on nil block: %v", r)
+		}
+	}()
+	if ok := CheckProposal(nil, slot, validator, nil, false, nil, 3, m); ok {
+		t.Errorf("CheckProposal returned true on nil block, want false")
+	}
+}
+
 // TestCheckProposal_NilMessageOrBody regresses the structural nil-derefs.
 // SignedBeaconBlock.Message and BeaconBlock.Body are pointer fields. A
 // malformed JSON response could leave either nil. CheckProposal must

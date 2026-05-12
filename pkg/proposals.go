@@ -77,11 +77,12 @@ func CheckProposal(
 	epoch phase0.Epoch,
 	m *MonitorMetrics,
 ) bool {
-	// Defensive: Message and Body are pointer fields on the go-eth2-client
-	// types. A non-conforming JSON response could leave either nil; we'd
-	// otherwise nil-deref reading ProposerIndex or Body.ExecutionPayload.
-	// Treat as missed proposal so FinalizeMissedProposals reports it.
-	if block.Message == nil || block.Message.Body == nil {
+	// Defensive: block, Message, and Body are pointer fields on the
+	// go-eth2-client types. A non-conforming JSON response or future
+	// caller could leave any of them nil; we'd otherwise nil-deref
+	// reading ProposerIndex or Body.ExecutionPayload. Treat as missed
+	// proposal so FinalizeMissedProposals reports it.
+	if block == nil || block.Message == nil || block.Message.Body == nil {
 		log.Error().
 			Uint64("slot", uint64(slot)).
 			Uint64("expected_validator", uint64(expectedValidator)).
