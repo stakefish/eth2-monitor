@@ -56,7 +56,18 @@ var (
 		},
 		Run: func(cmd *cobra.Command, args []string) {
 			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
+			var wg sync.WaitGroup
+			// Single composite defer: cancel FIRST so the SSE + orchestrator
+			// goroutines observe ctx.Done() and start winding down, then
+			// wg.Wait so the deferred Done() calls complete before we leave
+			// the function. The previous code split these into two defers
+			// in register-order, which LIFO'd to wg.Wait-then-cancel — that
+			// deadlocks because wg.Wait blocks for goroutines that haven't
+			// been told to stop yet.
+			defer func() {
+				cancel()
+				wg.Wait()
+			}()
 
 			metrics := pkg.NewMonitorMetrics(prometheus.DefaultRegisterer)
 
@@ -79,7 +90,6 @@ var (
 
 			epochsChan := make(chan phase0.Epoch)
 
-			var wg sync.WaitGroup
 			wg.Add(2)
 			go pkg.SubscribeToEpochs(ctx, beacon, &wg, epochsChan)
 			go pkg.MonitorAttestationsAndProposals(ctx, cancel, beacon, plainPubkeys, mevRelays, &wg, epochsChan, metrics)
@@ -88,8 +98,6 @@ var (
 			http.Handle("/metrics", promhttp.Handler())
 			err = http.ListenAndServe(":"+opts.MetricsPort, nil)
 			pkg.Must(err)
-
-			defer wg.Wait() // XXX unreachable -- ListenAndServe() call above blocks
 		},
 	}
 
