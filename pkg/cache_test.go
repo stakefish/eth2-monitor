@@ -118,6 +118,34 @@ func TestCache_TornFileGracefulFallback(t *testing.T) {
 	}
 }
 
+// TestCache_TopLevelNullDoesNotCrash — a cache file containing just the
+// JSON literal "null" (rare but possible on a hand-edit or a buggy
+// external writer) makes Go's Unmarshal zero-out the target struct,
+// leaving cache.Validators == nil. The re-init guard in LoadCache must
+// handle this without crashing on the subsequent SaveCache merge.
+func TestCache_TopLevelNullDoesNotCrash(t *testing.T) {
+	withTempCachePath(t)
+
+	if err := os.WriteFile(cacheFilePath, []byte("null"), 0o600); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	loaded := LoadCache()
+	if loaded == nil {
+		t.Fatal("LoadCache returned nil on JSON null")
+	}
+	if loaded.Validators == nil {
+		t.Error("LoadCache returned nil Validators after JSON null; re-init guard should have fired")
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("SaveCache panicked after LoadCache(null): %v", r)
+		}
+	}()
+	SaveCache(&LocalCache{Validators: map[string]CachedIndex{"pk": {Index: 1}}})
+}
+
 // TestCache_NullValidatorsDoesNotPanicSaveCache regresses the nil-map
 // panic. An on-disk cache containing `"Validators": null` (manual edit
 // or a previous format) used to make json.Unmarshal set
