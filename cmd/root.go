@@ -82,7 +82,7 @@ var (
 			var wg sync.WaitGroup
 			wg.Add(2)
 			go pkg.SubscribeToEpochs(ctx, beacon, &wg, epochsChan)
-			go pkg.MonitorAttestationsAndProposals(ctx, beacon, plainPubkeys, mevRelays, &wg, epochsChan, metrics)
+			go pkg.MonitorAttestationsAndProposals(ctx, cancel, beacon, plainPubkeys, mevRelays, &wg, epochsChan, metrics)
 
 			//Create Prometheus Metrics Client
 			http.Handle("/metrics", promhttp.Handler())

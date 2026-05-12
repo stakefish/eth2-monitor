@@ -4,13 +4,62 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
 	"eth2-monitor/cmd/opts"
 
 	"github.com/attestantio/go-eth2-client/spec/phase0"
+	"github.com/prometheus/client_golang/prometheus"
 )
+
+// TestMonitorAttestationsAndProposals_CancelsCtxOnExit regresses the zombie
+// goroutine: when the orchestrator returns (here via a closed epochsChan),
+// the shared ctx must be cancelled so the SubscribeToEpochs goroutine can
+// observe ctx.Done() in its next sendEpoch call and wind down. Without
+// `defer cancel()`, an empty-channel return would leave SSE goroutines
+// permanently blocked on sendEpoch with /metrics still serving stale data.
+//
+// We pass nil for beacon/metrics-deps because the closed-channel branch
+// returns before any beacon dereference; the test verifies only the defer.
+func TestMonitorAttestationsAndProposals_CancelsCtxOnExit(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Close the channel immediately so the for-range exits without touching
+	// any beacon API. The deferred cancel() should fire on return.
+	epochsChan := make(chan phase0.Epoch)
+	close(epochsChan)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	m := NewMonitorMetrics(prometheus.NewRegistry())
+
+	// Nil beacon is safe here only because the empty-channel branch returns
+	// before any beacon call. If the test fails with a nil deref the
+	// for-range was unexpectedly entered — investigate why.
+	go MonitorAttestationsAndProposals(ctx, cancel, nil, nil, nil, &wg, epochsChan, m)
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("MonitorAttestationsAndProposals did not exit on closed channel within 2s")
+	}
+
+	// The deferred cancel() must have run by now (defers run before wg.Done).
+	select {
+	case <-ctx.Done():
+		// Good — ctx was cancelled.
+	default:
+		t.Fatal("orchestrator exited without cancelling ctx; SSE goroutine would zombie")
+	}
+}
 
 // TestSendEpoch_DeliversWhenReceiverReady — happy path: a receiver is
 // reading the channel, so the send completes and returns true.

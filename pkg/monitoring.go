@@ -189,8 +189,15 @@ func LoadMEVRelays(mevRelaysFilePath string) ([]string, error) {
 //     overlap. Pruned each iteration to bound memory.
 //
 // Both maps are single-goroutine; never shared.
-func MonitorAttestationsAndProposals(ctx context.Context, beacon *beaconchain.BeaconChain, plainKeys []string, mevRelays []string, wg *sync.WaitGroup, epochsChan chan phase0.Epoch, m *MonitorMetrics) {
+func MonitorAttestationsAndProposals(ctx context.Context, cancel context.CancelFunc, beacon *beaconchain.BeaconChain, plainKeys []string, mevRelays []string, wg *sync.WaitGroup, epochsChan chan phase0.Epoch, m *MonitorMetrics) {
 	defer wg.Done()
+	// Cancel the shared ctx on any exit (normal return OR Must(err) panic).
+	// Without this, the SSE goroutine in SubscribeToEpochs keeps trying to
+	// emit epochs into a channel that has no reader — its sendEpoch select
+	// only bails on ctx.Done, and ctx never gets cancelled if main is still
+	// blocked in ListenAndServe. The result is a zombie process: dead
+	// orchestrator, leaked SSE goroutine, /metrics serving stale data.
+	defer cancel()
 
 	unfulfilledAttesterDuties := make(map[phase0.Slot]Set[phase0.ValidatorIndex])
 	// Persistent dedup so an attestation observed both in epoch N's lookahead
