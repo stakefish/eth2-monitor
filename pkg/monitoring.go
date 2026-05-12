@@ -36,6 +36,13 @@ func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg 
 	finalityProvider := beacon.Service().(eth2client.FinalityProvider)
 	resp, err := finalityProvider.Finality(ctx, &api.FinalityOpts{State: "head"})
 	Must(err)
+	// Defensive: even with err == nil, a misbehaving client could return
+	// resp == nil or resp.Data == nil. Crashing here on startup loses the
+	// chance to log a clear cause; treat as a fatal misconfiguration and
+	// panic with a descriptive message instead of a nil-pointer trace.
+	if resp == nil || resp.Data == nil {
+		panic("Finality(head) returned nil response/data; beacon client contract broken")
+	}
 
 	// Anchor at max(persisted, justified). The persisted value lets us
 	// resume after a crash/restart without re-processing already-counted
