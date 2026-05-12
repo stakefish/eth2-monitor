@@ -356,10 +356,19 @@ func processAttestations(
 					continue
 				}
 
-				// Skip duplicate (validator, slot) pairs. The dedup map is
-				// shared across epoch iterations, so this also catches the
-				// case where an attestation lands inside an epoch's lookahead
-				// window and is rescanned during the next epoch.
+				// Always clear unfulfilled, even on a duplicate observation.
+				// The earlier observation may have happened during the
+				// previous epoch's lookahead scan — at that point the current
+				// epoch's duties weren't yet populated in
+				// unfulfilledAttesterDuties, so the Remove call was a silent
+				// no-op. Re-running it here keeps state consistent. Dedup
+				// only controls the per-(validator, slot) metric counters
+				// below.
+				unfulfilledAttesterDuties[attestedSlot].Remove(validatorIndex)
+				if unfulfilledAttesterDuties[attestedSlot].IsEmpty() {
+					delete(unfulfilledAttesterDuties, attestedSlot)
+				}
+
 				if seenAttestations[attestedSlot].Contains(validatorIndex) {
 					m.DuplicateAttestationsSkipped.Inc()
 					continue
@@ -368,11 +377,6 @@ func processAttestations(
 					seenAttestations[attestedSlot] = NewSet[phase0.ValidatorIndex]()
 				}
 				seenAttestations[attestedSlot].Add(validatorIndex)
-
-				unfulfilledAttesterDuties[attestedSlot].Remove(validatorIndex)
-				if unfulfilledAttesterDuties[attestedSlot].IsEmpty() {
-					delete(unfulfilledAttesterDuties, attestedSlot)
-				}
 
 				// https://www.attestant.io/posts/defining-attestation-effectiveness/
 				earliestInclusionSlot := attestedSlot + 1

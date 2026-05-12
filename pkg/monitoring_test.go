@@ -312,6 +312,85 @@ func TestBuildCommitteeLookupPopulatesLengthsFromAPI(t *testing.T) {
 	}
 }
 
+// TestProcessAttestationsLookaheadDoesNotMaskAttestation is the regression test for
+// the cross-epoch lookahead/dedup bug. processAttestations runs once during the
+// previous epoch's lookahead (when the current epoch's duties are NOT yet in
+// unfulfilledAttesterDuties) and again during the current epoch's main scan.
+// The dedup in seenAttestations must not prevent the unfulfilled removal on the
+// second pass — otherwise validators whose attestations land in the lookahead
+// window of the previous epoch are permanently stuck in unfulfilled and get
+// falsely reported as missed.
+//
+// Scenario: an attestation for slot 31 (first slot of epoch 1 in a SLOTS_PER_EPOCH=32
+// world — boundary) is included in block at slot 32, which sits in BOTH epoch 0's
+// lookahead window AND epoch 1's main scan.
+func TestProcessAttestationsLookaheadDoesNotMaskAttestation(t *testing.T) {
+	const (
+		validatorIndex = phase0.ValidatorIndex(400)
+		committeeIndex = phase0.CommitteeIndex(0)
+		attestedSlot   = phase0.Slot(32) // first slot of epoch 1
+		inclusionSlot  = phase0.Slot(33)
+	)
+
+	block := &electra.SignedBeaconBlock{
+		Message: &electra.BeaconBlock{
+			Slot: inclusionSlot,
+			Body: &electra.BeaconBlockBody{
+				Attestations: []*electra.Attestation{
+					buildSingleValidatorAttestation(attestedSlot),
+				},
+			},
+		},
+	}
+	epochBlocks := map[phase0.Slot]*electra.SignedBeaconBlock{inclusionSlot: block}
+
+	committeeLookup := map[phase0.Slot]map[phase0.CommitteeIndex]*CommitteeInfo{
+		attestedSlot: {
+			committeeIndex: {
+				Length:     1,
+				Validators: map[uint64]phase0.ValidatorIndex{0: validatorIndex},
+			},
+		},
+	}
+	validatorPubkeyFromIndex := map[phase0.ValidatorIndex]string{
+		validatorIndex: "pubkey",
+	}
+
+	// State persists across the two iterations, exactly like the real run.
+	unfulfilledAttesterDuties := map[phase0.Slot]Set[phase0.ValidatorIndex]{}
+	seenAttestations := make(map[phase0.Slot]Set[phase0.ValidatorIndex])
+	m := NewMonitorMetrics(prometheus.NewRegistry())
+
+	// First call: epoch 0 processing. The attestation for slot 32 (epoch 1) is
+	// observed during epoch 0's lookahead, but epoch 1's duties are not yet
+	// in the unfulfilled map. seenAttestations records the observation.
+	processAttestations(epochBlocks, committeeLookup, validatorPubkeyFromIndex, unfulfilledAttesterDuties, seenAttestations, m, 0)
+
+	if !seenAttestations[attestedSlot].Contains(validatorIndex) {
+		t.Fatalf("after epoch 0: seenAttestations missing validator %v at slot %v", validatorIndex, attestedSlot)
+	}
+	if got := counterValue(t, m.TotalCanonicalAttestations); got != 1 {
+		t.Fatalf("after epoch 0: TotalCanonicalAttestations = %v, want 1", got)
+	}
+
+	// Now epoch 1 starts: duties get added for slot 32, validator V is included.
+	unfulfilledAttesterDuties[attestedSlot] = NewSet(validatorIndex)
+
+	// Second call: epoch 1 main scan re-processes the same block. The dedup
+	// hit must NOT prevent V from being removed from unfulfilled.
+	processAttestations(epochBlocks, committeeLookup, validatorPubkeyFromIndex, unfulfilledAttesterDuties, seenAttestations, m, 1)
+
+	if _, stillUnfulfilled := unfulfilledAttesterDuties[attestedSlot]; stillUnfulfilled {
+		t.Fatalf("after epoch 1: slot %v still in unfulfilled — dedup must not mask the Remove (regression)", attestedSlot)
+	}
+	if got := counterValue(t, m.DuplicateAttestationsSkipped); got != 1 {
+		t.Errorf("DuplicateAttestationsSkipped = %v, want 1 (second observation is the duplicate)", got)
+	}
+	if got := counterValue(t, m.TotalCanonicalAttestations); got != 1 {
+		t.Errorf("TotalCanonicalAttestations = %v, want 1 (no double count)", got)
+	}
+}
+
 // TestProcessAttestationsDedupsWithinCall confirms the in-call branch still fires
 // for a block that lists the same validator/slot in two attestations
 // (rare but possible; the pre-existing within-call dedup must keep working).
