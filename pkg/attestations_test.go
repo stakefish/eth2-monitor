@@ -492,6 +492,30 @@ func TestProcessAttestationsSkipsDistanceMetricForPreScanInclusion(t *testing.T)
 	}
 }
 
+// TestProcessAttestationsSkipsNilAttestationEntry regresses the case
+// where the Attestations slice itself contains a nil pointer (malformed
+// JSON or future spec change). The for-range would otherwise yield a
+// nil *electra.Attestation and the next dereference would crash.
+func TestProcessAttestationsSkipsNilAttestationEntry(t *testing.T) {
+	block := &electra.SignedBeaconBlock{
+		Message: &electra.BeaconBlock{
+			Slot: 32,
+			Body: &electra.BeaconBlockBody{
+				Attestations: []*electra.Attestation{nil}, // the regression trigger
+			},
+		},
+	}
+	epochBlocks := map[phase0.Slot]*electra.SignedBeaconBlock{32: block}
+	m := NewMonitorMetrics(prometheus.NewRegistry())
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("processAttestations panicked on nil attestation entry: %v", r)
+		}
+	}()
+	processAttestations(epochBlocks, nil, nil, nil, nil, m, 1)
+}
+
 // TestProcessAttestationsSkipsNilMessageOrBody regresses the
 // block.Message/Body nil-deref. The orchestrator only filters out
 // blocks where the entire pointer is nil; Message and Body inside

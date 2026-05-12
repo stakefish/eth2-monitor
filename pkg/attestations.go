@@ -108,12 +108,13 @@ func processAttestations(
 			continue
 		}
 		for _, attestation := range block.Message.Body.Attestations {
-			// Defensive: AttestationData is a pointer field, so a malformed
-			// JSON response could leave it nil. Spec requires it on every
-			// canonical attestation; crashing the orchestrator on bad data
-			// is worse than skipping the offending entry.
-			if attestation.Data == nil {
-				log.Warn().Uint64("blockSlot", uint64(block.Message.Slot)).Msg("attestation has nil Data field; skipping")
+			// Defensive: Attestations is []*Attestation and AttestationData
+			// is a pointer field, so a malformed JSON response could leave
+			// either nil. Spec requires both on every canonical attestation;
+			// crashing the orchestrator on bad data is worse than skipping
+			// the offending entry.
+			if attestation == nil || attestation.Data == nil {
+				log.Warn().Uint64("blockSlot", uint64(block.Message.Slot)).Msg("attestation entry is nil or has nil Data; skipping")
 				continue
 			}
 			attesters := NewSet[phase0.ValidatorIndex]()
