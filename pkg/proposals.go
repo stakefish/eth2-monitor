@@ -137,7 +137,12 @@ func CheckProposal(
 			// truly vanilla block, or it could be a relay-side failure —
 			// kept distinct from confirmed hash-mismatch vanilla blocks.
 			m.TotalMissingBidTraces.Inc()
-			log.Error().Msgf("Missing bid trace for proposal slot %v, validator %v (%v)", slot, expectedValidator, pubkeyOrUnknown(pubkeys, expectedValidator))
+			log.Error().
+				Uint64("slot", uint64(slot)).
+				Uint64("epoch", uint64(epoch)).
+				Uint64("validator", uint64(expectedValidator)).
+				Str("pubkey", pubkeyOrUnknown(pubkeys, expectedValidator)).
+				Msg("missing bid trace for proposal")
 			return true
 		}
 		// Compare hashes case-insensitively. phase0.Hash32.String() emits
