@@ -72,7 +72,7 @@ func requestBidTracesPage(client *http.Client, baseurl string, slot phase0.Slot,
 	resp, err := client.Get(url)
 
 	if err != nil {
-		log.Error().Msgf("Error retrieving delivered payloads: %v", err)
+		log.Error().Err(err).Str("relay", baseurl).Msg("error retrieving delivered payloads")
 		return nil, err
 	}
 
@@ -96,7 +96,7 @@ func requestBidTracesPage(client *http.Client, baseurl string, slot phase0.Slot,
 	err = json.NewDecoder(io.LimitReader(resp.Body, maxBodyBytes)).Decode(&payloads)
 
 	if err != nil {
-		log.Error().Msgf("Error decoding delivered payloads: %v", err)
+		log.Error().Err(err).Str("relay", baseurl).Msg("error decoding delivered payloads")
 		return nil, err
 	}
 
@@ -235,7 +235,7 @@ func requestEpochBidTraces(ctx context.Context, timeout time.Duration, relays []
 				if err == nil {
 					break
 				}
-				log.Error().Msgf("MEV relay request failed: %v", err)
+				log.Error().Err(err).Str("relay", baseurl).Msg("MEV relay request failed")
 				// Sleep while watching relayCtx so a shutdown / per-relay
 				// timeout during backoff is observed immediately rather
 				// than after the full ~8s worst-case sleep. NewTimer +
@@ -255,7 +255,7 @@ func requestEpochBidTraces(ctx context.Context, timeout time.Duration, relays []
 			mu.Lock()
 			defer mu.Unlock()
 			if _, ok := result[baseurl]; ok {
-				log.Warn().Msgf("⚠️  Processing the same relay more than once.  Check for duplicates on the relays list")
+				log.Warn().Str("relay", baseurl).Msg("⚠️  Processing the same relay more than once. Check for duplicates on the relays list")
 			}
 			result[baseurl] = traces
 			return nil
