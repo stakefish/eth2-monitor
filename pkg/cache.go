@@ -106,9 +106,16 @@ func SaveCache(newCache *LocalCache) {
 		return
 	}
 	tmpPath := tmpfile.Name()
-	// Remove the tmpfile on any error path; once Rename succeeds this Remove
-	// targets a path that no longer exists and is a harmless no-op.
-	defer func() { _ = os.Remove(tmpPath) }()
+	renamed := false
+	// Only clean up the tmpfile if Rename never succeeded. After a successful
+	// Rename, tmpPath is a stale name that another process could have reused
+	// (tmpfile suffixes are random so the window is tiny, but the TOCTOU is
+	// avoidable). The flag makes the cleanup precise.
+	defer func() {
+		if !renamed {
+			_ = os.Remove(tmpPath)
+		}
+	}()
 
 	if _, err := tmpfile.Write(rawCache); err != nil {
 		_ = tmpfile.Close()
@@ -131,5 +138,7 @@ func SaveCache(newCache *LocalCache) {
 	}
 	if err := os.Rename(tmpPath, cacheFilePath); err != nil {
 		log.Error().Err(err).Msg("SaveCache: os.Rename failed; skip")
+		return
 	}
+	renamed = true
 }
