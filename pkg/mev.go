@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"eth2-monitor/spec"
 	"fmt"
+	"io"
 	"iter"
 	"math/rand/v2"
 	"net/http"
@@ -62,6 +63,15 @@ func requestBidTracesPage(client *http.Client, baseurl string, slot phase0.Slot,
 	}
 
 	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode/100 != 2 {
+		// Read a short prefix of the body so the error message reflects what
+		// the relay actually said (HTML error pages, plaintext "rate limited",
+		// etc.) rather than the cryptic "json: invalid character '<'" we'd
+		// otherwise get from the decoder below.
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return nil, fmt.Errorf("relay %s returned HTTP %d: %s", baseurl, resp.StatusCode, body)
+	}
 
 	err = json.NewDecoder(resp.Body).Decode(&payloads)
 

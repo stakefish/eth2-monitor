@@ -114,6 +114,37 @@ func newFakeRelay(t *testing.T, traces []BidTrace, pageSize uint64) *fakeRelay {
 	return r
 }
 
+// TestRequestBidTracesPage_HTTPErrorSurfacesBody — when a relay returns
+// non-2xx, the error message must include the response body (or its prefix)
+// so operators can tell rate-limit / 502 / 503 cases apart from genuine
+// JSON corruption. Pre-fix code surfaced "json: invalid character '<'".
+func TestRequestBidTracesPage_HTTPErrorSurfacesBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte("<html>502 Bad Gateway</html>"))
+	}))
+	t.Cleanup(srv.Close)
+
+	client := &http.Client{Timeout: time.Second}
+	_, err := requestBidTracesPage(client, srv.URL, phase0.Slot(100), 10)
+	if err == nil {
+		t.Fatal("expected error on HTTP 502, got nil")
+	}
+	msg := err.Error()
+	if !contains(msg, "502") || !contains(msg, "Bad Gateway") {
+		t.Errorf("error %q lacks status code or body excerpt", msg)
+	}
+}
+
+func contains(haystack, needle string) bool {
+	for i := 0; i+len(needle) <= len(haystack); i++ {
+		if haystack[i:i+len(needle)] == needle {
+			return true
+		}
+	}
+	return false
+}
+
 // TestRequestBidTracesPage_SortOrderCheck — relays must return slots in
 // strict descending order. If two adjacent entries violate that, we
 // surface an error so a buggy relay doesn't silently mis-aggregate.
