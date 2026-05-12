@@ -492,6 +492,61 @@ func TestProcessAttestationsSkipsDistanceMetricForPreScanInclusion(t *testing.T)
 	}
 }
 
+// TestProcessAttestationsSkipsMalformedAttestation is the regression test for
+// the unsigned-subtraction underflow. Per spec attestation.data.slot < block.slot;
+// if a malformed attestation surfaces with data.slot == block.slot then
+// earliestInclusionSlot (data.slot + 1) > block.slot, and the naive
+// uint64 subtraction produces a huge distance recorded in metrics. The
+// defensive check must log + skip instead.
+func TestProcessAttestationsSkipsMalformedAttestation(t *testing.T) {
+	const (
+		validatorIndex = phase0.ValidatorIndex(700)
+		committeeIndex = phase0.CommitteeIndex(0)
+		slot           = phase0.Slot(32) // attestation Data.Slot == block.Slot
+	)
+
+	block := &electra.SignedBeaconBlock{
+		Message: &electra.BeaconBlock{
+			Slot: slot,
+			Body: &electra.BeaconBlockBody{
+				Attestations: []*electra.Attestation{
+					buildSingleValidatorAttestation(slot), // data.Slot == block.Slot
+				},
+			},
+		},
+	}
+	epochBlocks := map[phase0.Slot]*electra.SignedBeaconBlock{slot: block}
+
+	committeeLookup := map[phase0.Slot]map[phase0.CommitteeIndex]*CommitteeInfo{
+		slot: {
+			committeeIndex: {
+				Length:     1,
+				Validators: map[uint64]phase0.ValidatorIndex{0: validatorIndex},
+			},
+		},
+	}
+	validatorPubkeyFromIndex := map[phase0.ValidatorIndex]string{
+		validatorIndex: "pubkey",
+	}
+	unfulfilledAttesterDuties := map[phase0.Slot]Set[phase0.ValidatorIndex]{
+		slot: NewSet(validatorIndex),
+	}
+	seenAttestations := make(map[phase0.Slot]Set[phase0.ValidatorIndex])
+	m := NewMonitorMetrics(prometheus.NewRegistry())
+
+	processAttestations(epochBlocks, committeeLookup, validatorPubkeyFromIndex, unfulfilledAttesterDuties, seenAttestations, m, 1)
+
+	if got := counterValue(t, m.TotalCanonicalAttestations); got != 0 {
+		t.Errorf("TotalCanonicalAttestations = %v, want 0 (malformed attestation must be skipped)", got)
+	}
+	if got := counterValue(t, m.TotalDelayedOverTolerance); got != 0 {
+		t.Errorf("TotalDelayedOverTolerance = %v, want 0 (must not emit delayed warning on underflow)", got)
+	}
+	if got := histogramSampleCount(t, m.CanonicalAttestationDistances); got != 0 {
+		t.Errorf("CanonicalAttestationDistances samples = %v, want 0 (no underflow record)", got)
+	}
+}
+
 // TestProcessAttestationsDedupsWithinCall confirms the in-call branch still fires
 // for a block that lists the same validator/slot in two attestations
 // (rare but possible; the pre-existing within-call dedup must keep working).

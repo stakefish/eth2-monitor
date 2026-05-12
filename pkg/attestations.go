@@ -189,6 +189,17 @@ func processAttestations(
 					continue
 				}
 
+				// Spec invariant: attestation.data.slot < block.slot, i.e.
+				// earliestInclusionSlot (= attestedSlot+1) <= block.slot.
+				// Any node misbehaviour that surfaces an attestation in the
+				// same-or-earlier slot would otherwise underflow the
+				// uint64 subtraction below and emit a huge "delayed
+				// attestation" report.
+				if earliestInclusionSlot > block.Message.Slot {
+					log.Warn().Uint64("attestedSlot", uint64(attestedSlot)).Uint64("blockSlot", uint64(block.Message.Slot)).Msg("attestation included in or before its target slot; spec invariant violated, skipping")
+					continue
+				}
+
 				attestationDistance := block.Message.Slot - phase0.Slot(earliestInclusionSlot)
 				m.RawAttestationDistances.Observe(float64(attestationDistance))
 				// Do not penalize validator for skipped slots
