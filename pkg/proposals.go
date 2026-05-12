@@ -127,7 +127,7 @@ func CheckProposal(
 			// usable" rather than crashing — the operator still gets a
 			// metric bump and a log line.
 			m.TotalMissingBidTraces.Inc()
-			log.Error().Msgf("Validator %v (%v) proposed block at slot %v with nil ExecutionPayload; cannot compare to bid trace", expectedValidator, pubkeyOrUnknown(pubkeys, expectedValidator), slot)
+			log.Error().Msgf("Validator %v (%v) proposed block at slot %v (epoch %v) with nil ExecutionPayload; cannot compare to bid trace", expectedValidator, pubkeyOrUnknown(pubkeys, expectedValidator), slot, epoch)
 			return true
 		}
 		executionBlockHash := block.Message.Body.ExecutionPayload.BlockHash
@@ -149,7 +149,7 @@ func CheckProposal(
 			m.TotalVanillaBlocks.Inc()
 			m.LastVanillaBlockSlot.Set(float64(slot))
 			m.LastVanillaBlockValidator.Set(float64(expectedValidator))
-			log.Error().Msgf("Validator %v (%v) proposed a vanilla block %v at slot %v", expectedValidator, pubkeyOrUnknown(pubkeys, expectedValidator), executionBlockHash, slot)
+			log.Error().Msgf("Validator %v (%v) proposed a vanilla block %v at slot %v (epoch %v)", expectedValidator, pubkeyOrUnknown(pubkeys, expectedValidator), executionBlockHash, slot, epoch)
 			return true
 		}
 		if opts.Monitor.PrintSuccessful {
