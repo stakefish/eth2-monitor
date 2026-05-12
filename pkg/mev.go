@@ -74,7 +74,13 @@ func requestBidTracesPage(client *http.Client, baseurl string, slot phase0.Slot,
 		return nil, fmt.Errorf("relay %s returned HTTP %d: %s", baseurl, resp.StatusCode, body)
 	}
 
-	err = json.NewDecoder(resp.Body).Decode(&payloads)
+	// Cap the success-case body too. A misbehaving (or hostile) relay
+	// returning gigabytes here would otherwise force json.NewDecoder to
+	// allocate unbounded memory. 4 MiB is far above any realistic
+	// page-of-32-traces JSON size (each trace is ~500 bytes ⇒ ~16 KiB
+	// per page) but still bounded.
+	const maxBodyBytes = 4 << 20
+	err = json.NewDecoder(io.LimitReader(resp.Body, maxBodyBytes)).Decode(&payloads)
 
 	if err != nil {
 		log.Error().Msgf("Error decoding delivered payloads: %v", err)
