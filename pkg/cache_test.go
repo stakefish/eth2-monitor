@@ -225,6 +225,30 @@ func TestCache_TmpfileCleanupOnSuccess(t *testing.T) {
 	}
 }
 
+// TestSaveCache_NilArgumentIsNoOp — SaveCache is a public API; a nil
+// LocalCache argument would otherwise nil-deref on the merge loop.
+// The guard must short-circuit silently without touching the on-disk
+// cache file.
+func TestSaveCache_NilArgumentIsNoOp(t *testing.T) {
+	withTempCachePath(t)
+
+	// Seed an existing cache so we can detect any mutation.
+	SaveCache(&LocalCache{LastEpoch: 42})
+	before := LoadCache().LastEpoch
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("SaveCache(nil) panicked: %v", r)
+		}
+	}()
+	SaveCache(nil)
+
+	after := LoadCache().LastEpoch
+	if after != before {
+		t.Errorf("SaveCache(nil) mutated cache: LastEpoch %v → %v", before, after)
+	}
+}
+
 // TestCache_VALIDATOR_INDEX_INVALID_RoundTrip — the sentinel constant for
 // "beacon API reports no index" must survive a round trip so ResolveValidator-
 // Keys keeps skipping these pubkeys until the TTL expires.

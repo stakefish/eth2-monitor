@@ -72,6 +72,12 @@ func LoadCache() *LocalCache {
 }
 
 func SaveCache(newCache *LocalCache) {
+	if newCache == nil {
+		// Public API — a future caller passing nil would otherwise
+		// nil-deref on the merge loop below. Silently no-op; nothing
+		// to merge.
+		return
+	}
 	// Merge with the current cache.
 	cache := LoadCache()
 	for pubkey, validator := range newCache.Validators {
