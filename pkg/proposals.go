@@ -50,10 +50,13 @@ func isBlockEmpty(body *electra.BeaconBlockBody) bool {
 // fulfilled (canonical proposal observed for the expected validator) and the
 // caller should remove the slot from unfulfilled proposer duties.
 //
-// Returns false on proposer-index mismatch — i.e. a block exists at this slot
-// but a different validator proposed it. In that case the caller MUST NOT
-// delete the slot from unfulfilled duties; FinalizeMissedProposals will later
-// report it as missed.
+// Returns false on:
+//   - Nil block, Message, or Body — defensive against malformed JSON that
+//     leaves these pointer fields unset; caller MUST leave the slot in
+//     unfulfilled duties so FinalizeMissedProposals reports it.
+//   - Proposer-index mismatch — a block exists at this slot but a different
+//     validator proposed it (typically a stale cached duty from a reorg);
+//     same handling: leave in unfulfilled, will be reported as missed.
 //
 // Writes are independent and can stack on a single call (preserving the
 // original code's fall-through; an empty block on a MEV-enabled run with a
