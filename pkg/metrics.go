@@ -134,7 +134,7 @@ func NewMonitorMetrics(reg prometheus.Registerer) *MonitorMetrics {
 		CanonicalAttestationDistances: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Namespace: "ETH2",
 			Name:      "canonicalAttestationDistances",
-			Help:      "Histogram of canonical attestation distances.",
+			Help:      "Histogram of canonical attestation distances after missed-slot adjustment. Distance is computed as (block.slot - attestedSlot - 1), so 0 = optimal (included in attestedSlot+1); Attestant's spec-distance is this + 1.",
 			Buckets:   prometheus.LinearBuckets(1, 1, 32),
 		}),
 		// New metrics for bug fixes
@@ -146,7 +146,7 @@ func NewMonitorMetrics(reg prometheus.Registerer) *MonitorMetrics {
 		RawAttestationDistances: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Namespace: "ETH2",
 			Name:      "rawAttestationDistances",
-			Help:      "Histogram of raw attestation distances before dedup.",
+			Help:      "Histogram of raw attestation distances before the missed-slot adjustment. Same numbering convention as canonicalAttestationDistances (0 = optimal).",
 			Buckets:   prometheus.LinearBuckets(1, 1, 32),
 		}),
 		MissedSlotsInEpoch: prometheus.NewGauge(prometheus.GaugeOpts{
