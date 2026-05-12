@@ -122,7 +122,7 @@ bin/eth2-monitor monitor --since-epoch 12000 ...
 | `ETH2_totalServedAttestations` | Counter | Canonical attestations |
 | `ETH2_totalDelayedAttestationsOverTolerance` | Counter | Attestations with inclusion distance > 2 |
 | `ETH2_canonicalAttestationDistances` | Histogram | Inclusion distance distribution (buckets 1-32) |
-| `ETH2_totalProposedEmptyBlocks` | Counter | Blocks with zero transactions |
+| `ETH2_totalProposedEmptyBlocks` | Counter | Blocks with no execution-layer payload of value to the proposer (no EL transactions, no blobs, no post-Pectra exec requests) |
 | `ETH2_totalVanillaBlocks` | Counter | Blocks not matching MEV relay bids (hash mismatch case) |
 | `ETH2_totalMissingBidTraces` | Counter | Proposed blocks where no tracked MEV relay returned any bid trace (distinct from the hash-mismatch case in `totalVanillaBlocks`) |
 | `ETH2_lastMissedProposalSlot` | Gauge | Last missed proposal slot |
