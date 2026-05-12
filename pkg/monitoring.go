@@ -22,9 +22,29 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// SubscribeToEpochs subscribes to changings of the beacon chain head.
-// Note, if --replay-epoch or --since-epoch options passed, SubscribeToEpochs will not
-// listen to real-time changes.
+// SubscribeToEpochs is the producer side of the epoch channel. It runs
+// in one of three modes:
+//
+//  1. --replay-epoch: emits each listed epoch exactly once, in order, then
+//     closes the channel.
+//  2. --since-epoch N: emits epochs [N, current_justified) then closes.
+//  3. Default (SSE): subscribes to head events on the beacon chain and
+//     emits each newly-ended epoch as the head advances. Never returns
+//     under normal operation; exits only on Events() returning (typically
+//     ctx-cancel).
+//
+// Shutdown semantics:
+//   - defer close(epochsChan) so the orchestrator's `for range epochsChan`
+//     unblocks on any exit (normal return OR Must(err) panic).
+//   - Each channel send goes through sendEpoch, which selects on ctx.Done
+//     so the producer can't hang on an unread channel during shutdown.
+//   - context.Canceled / DeadlineExceeded from Events() and the initial
+//     Finality() are detected via errors.Is and returned cleanly (Info
+//     log) rather than passed through Must.
+//
+// Defensive guards on the SSE handler skip nil events and reject Data
+// that isn't a *v1.HeadEvent (two-value type assertion) so a malformed
+// SSE frame can't nil-deref the handler.
 func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg *sync.WaitGroup, epochsChan chan phase0.Epoch) {
 	defer wg.Done()
 	// Closing the channel on exit is critical: MonitorAttestationsAndProposals
