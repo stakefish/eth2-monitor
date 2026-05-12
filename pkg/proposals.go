@@ -86,7 +86,7 @@ func CheckProposal(
 		log.Error().
 			Uint64("slot", uint64(slot)).
 			Uint64("expected_validator", uint64(expectedValidator)).
-			Msg("block has nil Message or Body; treating as missed proposal")
+			Msg("block/Message/Body is nil; treating as missed proposal")
 		return false
 	}
 	if block.Message.ProposerIndex != expectedValidator {
