@@ -115,7 +115,7 @@ bin/eth2-monitor monitor --since-epoch 12000 ...
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `ETH2_epoch` | Gauge | Current justified epoch |
+| `ETH2_epoch` | Gauge | Most recently processed epoch (the just-ended one from the SSE head stream; typically `head_epoch - 1`, NOT the justified epoch despite the historical name) |
 | `ETH2_totalMissedProposals` | Counter | Missed block proposals |
 | `ETH2_totalServedProposals` | Counter | Canonical proposals |
 | `ETH2_totalMissedAttestations` | Counter | Missed attestations |
