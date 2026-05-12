@@ -124,6 +124,17 @@ func requestRelayEpochBidTraces(timeout time.Duration, baseurl string, epoch pha
 			break
 		}
 
+		// Defensive break before uint64 underflow: if the relay never
+		// returns a trace ≤ epochLowestSlot for a low epoch (or for any
+		// epoch where it has gaps near the floor), subtracting
+		// SLOTS_PER_EPOCH would wrap to ~maxUint64 and the next page
+		// request would loop forever with cursor pointing at recent
+		// slots that the filter then drops. Epochs ≥ 1 normally exit
+		// via the break above; this guard only fires on pathological
+		// data or epoch 0.
+		if slot < spec.SLOTS_PER_EPOCH {
+			break
+		}
 		slot -= spec.SLOTS_PER_EPOCH
 	}
 

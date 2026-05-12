@@ -194,6 +194,42 @@ func TestRequestRelayEpochBidTraces_FiltersToEpoch(t *testing.T) {
 	}
 }
 
+// TestRequestRelayEpochBidTraces_NoInfiniteLoopOnLowEpoch is the regression
+// test for the uint64 slot underflow. With epoch=0 (epochLowestSlot=0) and
+// a relay that never returns a trace at slot 0, the pre-fix code would
+// subtract SLOTS_PER_EPOCH from slot=31, wrap to ~maxUint64, and loop forever
+// with the relay returning recent traces that the filter discarded.
+//
+// The defensive break must terminate the loop. We bound the test with a
+// short timeout — if the loop is unbounded the test hangs and fails on
+// timeout via t.Deadline().
+func TestRequestRelayEpochBidTraces_NoInfiniteLoopOnLowEpoch(t *testing.T) {
+	var callCount int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&callCount, 1)
+		// Always return one trace at a high slot (well above epoch 0's range).
+		// Filter will drop it; loop must still terminate.
+		_ = json.NewEncoder(w).Encode([]BidTrace{{Slot: 999}})
+	}))
+	t.Cleanup(srv.Close)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := requestRelayEpochBidTraces(time.Second, srv.URL, phase0.Epoch(0))
+		done <- err
+	}()
+
+	select {
+	case <-done:
+		// Loop terminated (with or without error) — we just need it to NOT hang.
+	case <-time.After(2 * time.Second):
+		t.Fatalf("requestRelayEpochBidTraces hung on epoch 0 with high-slot traces; observed %d requests", atomic.LoadInt32(&callCount))
+	}
+	if got := atomic.LoadInt32(&callCount); got > 5 {
+		t.Errorf("relay called %d times; defensive break should cap requests well below this", got)
+	}
+}
+
 // TestRequestRelayEpochBidTraces_EmptyPageIsError — relays returning an
 // empty page mid-pagination surface as errors so callers don't silently
 // "succeed" with partial data.
