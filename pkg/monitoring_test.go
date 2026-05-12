@@ -1,12 +1,83 @@
 package pkg
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"eth2-monitor/cmd/opts"
+
+	"github.com/attestantio/go-eth2-client/spec/phase0"
 )
+
+// TestSendEpoch_DeliversWhenReceiverReady — happy path: a receiver is
+// reading the channel, so the send completes and returns true.
+func TestSendEpoch_DeliversWhenReceiverReady(t *testing.T) {
+	ch := make(chan phase0.Epoch, 1)
+	if !sendEpoch(context.Background(), ch, 42) {
+		t.Fatal("sendEpoch returned false when receiver was ready")
+	}
+	if got := <-ch; got != 42 {
+		t.Errorf("received %v, want 42", got)
+	}
+}
+
+// TestSendEpoch_AbortsOnCtxCancel regresses the shutdown-hang scenario:
+// orchestrator died, no one reads the channel, ctx is cancelled — the send
+// must bail out instead of blocking forever. Pre-fix code did
+// `epochsChan <- e` directly and would hang here indefinitely.
+func TestSendEpoch_AbortsOnCtxCancel(t *testing.T) {
+	ch := make(chan phase0.Epoch) // unbuffered, no receiver
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	done := make(chan bool, 1)
+	go func() {
+		done <- sendEpoch(ctx, ch, 42)
+	}()
+
+	select {
+	case ok := <-done:
+		if ok {
+			t.Error("sendEpoch returned true even though ctx was cancelled and channel had no reader")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("sendEpoch hung after ctx cancel; shutdown would deadlock")
+	}
+}
+
+// TestSendEpoch_PrefersDeliveryWhenBothReady — when both ctx and receiver
+// are ready, Go's select makes a uniform choice. We don't pin the choice
+// in this test; we only verify both branches are reachable in other tests
+// above. Documented here so a future maintainer doesn't misread the
+// behaviour as "ctx always wins".
+func TestSendEpoch_BothReadyEitherIsAcceptable(t *testing.T) {
+	ch := make(chan phase0.Epoch, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	// Acceptable: either the send wins (returns true, value queued) or the
+	// ctx wins (returns false, nothing queued). Both are correct outcomes.
+	got := sendEpoch(ctx, ch, 99)
+	if got {
+		select {
+		case v := <-ch:
+			if v != 99 {
+				t.Errorf("send-win branch: got %v, want 99", v)
+			}
+		default:
+			t.Error("sendEpoch returned true but channel is empty")
+		}
+	} else {
+		select {
+		case v := <-ch:
+			t.Errorf("ctx-win branch: channel has %v, expected empty", v)
+		default:
+		}
+	}
+}
 
 func writeFile(t *testing.T, dir, name, content string) string {
 	t.Helper()

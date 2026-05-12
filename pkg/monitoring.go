@@ -42,14 +42,18 @@ func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg 
 
 	if len(opts.Monitor.ReplayEpoch) > 0 {
 		for _, epoch := range opts.Monitor.ReplayEpoch {
-			epochsChan <- phase0.Epoch(epoch)
+			if !sendEpoch(ctx, epochsChan, phase0.Epoch(epoch)) {
+				return
+			}
 		}
 		close(epochsChan)
 		return
 	}
 	if opts.Monitor.SinceEpoch != ^uint64(0) {
 		for epoch := opts.Monitor.SinceEpoch; phase0.Epoch(epoch) < lastEpoch; epoch++ {
-			epochsChan <- phase0.Epoch(epoch)
+			if !sendEpoch(ctx, epochsChan, phase0.Epoch(epoch)) {
+				return
+			}
 		}
 		close(epochsChan)
 		return
@@ -67,7 +71,9 @@ func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg 
 			// included in blocks of epoch N+1, so failing to process
 			// N+1 causes false "did not attest" reports.
 			for e := lastEpoch; e < thisEpoch; e++ {
-				epochsChan <- e
+				if !sendEpoch(ctx, epochsChan, e) {
+					return
+				}
 			}
 			lastEpoch = thisEpoch
 		}
@@ -79,6 +85,23 @@ func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg 
 		Handler: eventsHandlerFunc,
 	})
 	Must(err)
+}
+
+// sendEpoch publishes one epoch on ch, honouring ctx cancellation. Returns
+// false if ctx was cancelled before the send completed — caller should treat
+// that as a shutdown signal and return.
+//
+// Without this guard, a send on an unread epochsChan blocks indefinitely
+// once the consumer goroutine has died (e.g. via Must(err)) — and because
+// SubscribeToEpochs holds the only producer side, the whole process hangs
+// until forcibly killed.
+func sendEpoch(ctx context.Context, ch chan<- phase0.Epoch, epoch phase0.Epoch) bool {
+	select {
+	case ch <- epoch:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 func LoadKeys(pubkeysFiles []string) ([]string, error) {
