@@ -42,7 +42,12 @@ func LoadCache() *LocalCache {
 	}
 	defer func() { _ = fd.Close() }()
 
-	rawCache, err := io.ReadAll(fd)
+	// Cap the read so a corrupted cache file or hostile filesystem
+	// (someone symlinking cacheFilePath to /dev/zero) can't exhaust the
+	// allocator. 64 MiB covers ~640k validators at ~100 bytes/entry —
+	// orders of magnitude past realistic deployments.
+	const maxCacheBytes = 64 << 20
+	rawCache, err := io.ReadAll(io.LimitReader(fd, maxCacheBytes))
 	if err != nil {
 		log.Debug().Err(err).Msg("LoadCache: io.ReadAll failed; skip")
 		return cache
