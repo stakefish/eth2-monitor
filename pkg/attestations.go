@@ -259,12 +259,19 @@ func processAttestations(
 					}
 				}
 
+				// Use attestedSlot's epoch in the report — that's the
+				// epoch the validator was supposed to attest in. The
+				// iteration epoch can differ during cross-epoch lookahead
+				// observation (e.g. an attestedSlot=31 (epoch 0)
+				// attestation observed during epoch 1's iteration would
+				// otherwise mis-tag the validator's epoch).
+				attestedSlotEpoch := spec.EpochFromSlot(attestedSlot)
 				if attestationDistance > 2 {
 					Report("⚠️ 🧾 Validator %v (%v) attested slot %v at slot %v, epoch %v, attestation distance is %v",
-						validatorIndex, pubkeyOrUnknown(validatorPubkeyFromIndex, validatorIndex), attestedSlot, block.Message.Slot, epoch, attestationDistance)
+						validatorIndex, pubkeyOrUnknown(validatorPubkeyFromIndex, validatorIndex), attestedSlot, block.Message.Slot, attestedSlotEpoch, attestationDistance)
 					m.TotalDelayedOverTolerance.Inc()
 				} else if opts.Monitor.PrintSuccessful {
-					Info("✅ 🧾 Validator %v (%v) attested slot %v at slot %v, epoch %v", validatorIndex, pubkeyOrUnknown(validatorPubkeyFromIndex, validatorIndex), attestedSlot, block.Message.Slot, epoch)
+					Info("✅ 🧾 Validator %v (%v) attested slot %v at slot %v, epoch %v", validatorIndex, pubkeyOrUnknown(validatorPubkeyFromIndex, validatorIndex), attestedSlot, block.Message.Slot, attestedSlotEpoch)
 				}
 
 				m.TotalCanonicalAttestations.Inc()
