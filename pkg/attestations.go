@@ -305,8 +305,13 @@ func FinalizeMissedAttestations(
 		if slot > missedEpochHighSlot {
 			break
 		}
+		// Report the SLOT's epoch (where the validator should have attested)
+		// rather than the iteration epoch that's reporting it. Operators
+		// reading "did not attest slot S (epoch E)" expect E = S/32, not
+		// "the epoch in which the report fired".
+		slotEpoch := spec.EpochFromSlot(slot)
 		for validatorIndex := range unfulfilled[slot].Elems() {
-			Report("❌ 🧾 Validator %v (%v) did not attest slot %v (epoch %v)", validatorIndex, pubkeyOrUnknown(pubkeys, validatorIndex), slot, epoch)
+			Report("❌ 🧾 Validator %v (%v) did not attest slot %v (epoch %v)", validatorIndex, pubkeyOrUnknown(pubkeys, validatorIndex), slot, slotEpoch)
 			m.TotalMissedAttestations.Inc()
 		}
 		delete(unfulfilled, slot)
