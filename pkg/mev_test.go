@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -310,6 +311,43 @@ func TestListBestBids_SkipsUntrackedSlots(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Errorf("expected zero best bids, got %d", len(got))
+	}
+}
+
+// TestListBestBids_PubkeyCaseInsensitive regresses the silent-mismatch bug:
+// our validatorPubkeyFromIndex stores lowercase canonical hex, but the
+// relay JSON is not case-canonical per spec. A relay returning uppercase
+// hex would previously skip every tracked-validator bid as if mismatched
+// and bump TotalMissingBidTraces. The compare must be case-insensitive.
+func TestListBestBids_PubkeyCaseInsensitive(t *testing.T) {
+	epoch := phase0.Epoch(10)
+	low := uint64(spec.EpochLowestSlot(epoch))
+
+	const lowerPK = "abcdef0123456789"
+	const idx = phase0.ValidatorIndex(42)
+
+	// Relay returns the same pubkey but UPPERCASE (relay spec doesn't pin
+	// case; some implementations may emit uppercase or mixed-case).
+	upperHexTrace := BidTrace{
+		Slot:           low + 3,
+		BlockHash:      "0xMATCHED",
+		ProposerPubkey: "0x" + strings.ToUpper(lowerPK),
+		Value:          1,
+	}
+	relay := newFakeRelay(t, withFloor([]BidTrace{upperHexTrace}, epoch), spec.SLOTS_PER_EPOCH)
+
+	got, err := ListBestBids(
+		context.Background(), 2*time.Second,
+		[]string{relay.server.URL},
+		epoch,
+		map[phase0.ValidatorIndex]string{idx: lowerPK}, // lowercase tracked
+		map[phase0.Slot]phase0.ValidatorIndex{phase0.Slot(low + 3): idx},
+	)
+	if err != nil {
+		t.Fatalf("ListBestBids: %v", err)
+	}
+	if _, ok := got[phase0.Slot(low+3)]; !ok {
+		t.Errorf("uppercase relay pubkey did not match lowercase tracked pubkey; got %v", got)
 	}
 }
 

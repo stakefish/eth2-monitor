@@ -9,6 +9,7 @@ import (
 	"iter"
 	"math/rand/v2"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -220,7 +221,12 @@ func ListBestBids(ctx context.Context, timeout time.Duration, relays []string, e
 				continue
 			}
 			proposerPubkey := validatorPubkeyFromIndex[proposerValidatorIndex]
-			if trace.ProposerPubkey != fmt.Sprintf("0x%s", proposerPubkey) {
+			// Compare case-insensitively. proposerPubkey is the lowercase
+			// canonical form (NormalizedPublicKey), but the relay JSON is
+			// not case-canonical per the relay-spec: a relay returning
+			// uppercase hex would otherwise silently mismatch every
+			// tracked-validator bid and inflate TotalMissingBidTraces.
+			if !strings.EqualFold(trace.ProposerPubkey, "0x"+proposerPubkey) {
 				continue
 			}
 			if _, ok := bestBids[phase0.Slot(trace.Slot)]; ok {
