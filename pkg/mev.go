@@ -63,13 +63,27 @@ Sample response:
 // the returned traces are sorted strictly descending by slot (relay
 // contract). Caps body read at 4 MiB to bound memory; surfaces non-2xx
 // responses with a body excerpt rather than the cryptic decode error.
-func requestBidTracesPage(client *http.Client, baseurl string, slot phase0.Slot, limit uint64) ([]BidTrace, error) {
+//
+// Honours ctx cancellation: the GET is built with NewRequestWithContext
+// so a shutdown signal aborts the in-flight TCP read immediately rather
+// than waiting for the client.Timeout to fire. Without this, ListBestBids
+// at shutdown would block up to client.Timeout (typically 4s) per
+// in-flight relay even though the surrounding errgroup goroutine has
+// already lost its sleep race to ctx.Done.
+func requestBidTracesPage(ctx context.Context, client *http.Client, baseurl string, slot phase0.Slot, limit uint64) ([]BidTrace, error) {
 	var payloads []BidTrace
 
 	url := fmt.Sprintf("%s/relay/v1/data/bidtraces/proposer_payload_delivered?cursor=%d&limit=%d", baseurl, slot, limit)
 	log.Debug().Str("url", url).Msg("calling relay")
 
-	resp, err := client.Get(url)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		// NewRequestWithContext only fails on a malformed URL or method;
+		// surface so a future caller passing junk gets a clean error
+		// rather than a panic deep in net/http.
+		return nil, fmt.Errorf("relay %s: build request: %w", baseurl, err)
+	}
+	resp, err := client.Do(req)
 
 	if err != nil {
 		log.Error().Err(err).Str("relay", baseurl).Msg("error retrieving delivered payloads")
@@ -118,7 +132,12 @@ func requestBidTracesPage(client *http.Client, baseurl string, slot phase0.Slot,
 // would underflow (low-epoch / pathological data), or maxPages requests
 // have been issued (broken relay returning the same page forever).
 // Returns only traces whose slot lies in the requested epoch.
-func requestRelayEpochBidTraces(timeout time.Duration, baseurl string, epoch phase0.Epoch) ([]BidTrace, error) {
+//
+// ctx is threaded down to each HTTP page request so a shutdown signal
+// aborts an in-flight TCP read immediately. The client.Timeout still
+// caps any single request (defence in depth against a hung connection
+// that didn't observe ctx).
+func requestRelayEpochBidTraces(ctx context.Context, timeout time.Duration, baseurl string, epoch phase0.Epoch) ([]BidTrace, error) {
 	var bidtraces []BidTrace
 
 	client := http.Client{
@@ -137,7 +156,7 @@ func requestRelayEpochBidTraces(timeout time.Duration, baseurl string, epoch pha
 
 	slot := epochHighestSlot
 	for page := 0; page < maxPages; page++ {
-		traces, err := requestBidTracesPage(&client, baseurl, slot, spec.SLOTS_PER_EPOCH)
+		traces, err := requestBidTracesPage(ctx, &client, baseurl, slot, spec.SLOTS_PER_EPOCH)
 		if err != nil {
 			return nil, err
 		}
@@ -231,7 +250,7 @@ func requestEpochBidTraces(ctx context.Context, timeout time.Duration, relays []
 			var traces []BidTrace
 			for delay := range exptBackoff(time.Duration(500)*time.Millisecond, 4) {
 				var err error
-				traces, err = requestRelayEpochBidTraces(timeout, baseurl, epoch)
+				traces, err = requestRelayEpochBidTraces(relayCtx, timeout, baseurl, epoch)
 				if err == nil {
 					break
 				}

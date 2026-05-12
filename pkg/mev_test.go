@@ -127,7 +127,7 @@ func TestRequestBidTracesPage_HTTPErrorSurfacesBody(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	client := &http.Client{Timeout: time.Second}
-	_, err := requestBidTracesPage(client, srv.URL, phase0.Slot(100), 10)
+	_, err := requestBidTracesPage(context.Background(), client, srv.URL, phase0.Slot(100), 10)
 	if err == nil {
 		t.Fatal("expected error on HTTP 502, got nil")
 	}
@@ -159,7 +159,7 @@ func TestRequestBidTracesPage_SortOrderCheck(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	client := &http.Client{Timeout: time.Second}
-	_, err := requestBidTracesPage(client, srv.URL, phase0.Slot(100), 10)
+	_, err := requestBidTracesPage(context.Background(), client, srv.URL, phase0.Slot(100), 10)
 	if err == nil {
 		t.Fatal("expected sort-order error, got nil")
 	}
@@ -181,7 +181,7 @@ func TestRequestRelayEpochBidTraces_FiltersToEpoch(t *testing.T) {
 	}
 	r := newFakeRelay(t, traces, spec.SLOTS_PER_EPOCH)
 
-	got, err := requestRelayEpochBidTraces(2*time.Second, r.server.URL, epoch)
+	got, err := requestRelayEpochBidTraces(context.Background(), 2*time.Second, r.server.URL, epoch)
 	if err != nil {
 		t.Fatalf("requestRelayEpochBidTraces: %v", err)
 	}
@@ -216,7 +216,7 @@ func TestRequestRelayEpochBidTraces_NoInfiniteLoopOnLowEpoch(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		_, err := requestRelayEpochBidTraces(time.Second, srv.URL, phase0.Epoch(0))
+		_, err := requestRelayEpochBidTraces(context.Background(), time.Second, srv.URL, phase0.Epoch(0))
 		done <- err
 	}()
 
@@ -255,7 +255,7 @@ func TestRequestRelayEpochBidTraces_BoundsBrokenRelay(t *testing.T) {
 	go func() {
 		// High epoch so the slot-underflow guard never fires; only
 		// the maxPages cap can terminate the loop.
-		_, err := requestRelayEpochBidTraces(time.Second, srv.URL, phase0.Epoch(1_000_000))
+		_, err := requestRelayEpochBidTraces(context.Background(), time.Second, srv.URL, phase0.Epoch(1_000_000))
 		done <- err
 	}()
 
@@ -280,7 +280,7 @@ func TestRequestRelayEpochBidTraces_EmptyPageIsError(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	_, err := requestRelayEpochBidTraces(time.Second, srv.URL, phase0.Epoch(10))
+	_, err := requestRelayEpochBidTraces(context.Background(), time.Second, srv.URL, phase0.Epoch(10))
 	if err == nil {
 		t.Fatal("expected error on empty page, got nil")
 	}
@@ -418,6 +418,50 @@ func TestListBestBids_PubkeyMismatchSkipped(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Errorf("expected zero best bids on pubkey mismatch, got %d", len(got))
+	}
+}
+
+// TestRequestBidTracesPage_CtxCancelReturnsPromptly regresses the case where
+// an in-flight HTTP page fetch ignored ctx and only honoured client.Timeout.
+// At shutdown the orchestrator's ctx.Cancel would otherwise wait up to
+// client.Timeout (~4s in production) per in-flight relay request before the
+// goroutine could exit. With NewRequestWithContext threaded through, the
+// request aborts as soon as ctx is cancelled.
+func TestRequestBidTracesPage_CtxCancelReturnsPromptly(t *testing.T) {
+	// Relay handler that blocks until its request is cancelled by the
+	// client (mirrors a slow upstream that the client has to abandon).
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		<-req.Context().Done()
+	}))
+	t.Cleanup(srv.Close)
+
+	// Long client.Timeout — we want to confirm ctx (not the timeout) is
+	// what aborts the request. If ctx were ignored, the test would wait
+	// the full 10s.
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	// Cancel ctx after a short delay so the handler is mid-request when
+	// the abort lands.
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+
+	start := time.Now()
+	_, err := requestBidTracesPage(ctx, client, srv.URL, phase0.Slot(100), 10)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected error after ctx cancel, got nil")
+	}
+	// 2s is generous — the cancel fires at 50ms; anything close to the
+	// 10s client.Timeout means ctx was ignored.
+	if elapsed > 2*time.Second {
+		t.Errorf("ctx-cancel took %v; expected near 50ms — request must observe ctx", elapsed)
+	}
+	if !strings.Contains(err.Error(), "context") {
+		t.Logf("error %q does not mention ctx (informational; net/http canonicalises differently across Go versions)", err.Error())
 	}
 }
 
