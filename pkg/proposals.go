@@ -159,6 +159,12 @@ func CheckProposal(
 // FinalizeMissedProposals reports each remaining unfulfilled proposer duty as
 // a missed proposal and updates the Last* gauges. Caller is expected to have
 // already deleted slots whose proposals were confirmed via CheckProposal.
+//
+// Iteration is sorted by slot ascending, so the Last* gauges settle on the
+// highest unfulfilled slot's value. Reports go to Slack inline — for a chain
+// incident with many missed proposals, this serialises Slack POSTs and
+// stalls the orchestrator for ~5s per validator (the slackClient timeout).
+// Acceptable in normal operation; documented limitation under load.
 func FinalizeMissedProposals(
 	unfulfilledProposerDuties map[phase0.Slot]phase0.ValidatorIndex,
 	pubkeys map[phase0.ValidatorIndex]string,
