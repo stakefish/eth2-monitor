@@ -8,5 +8,6 @@ providers:
     disableDeletion: false
     editable: true
     allowUiUpdates: true
+    updateIntervalSeconds: 10
     options:
       path: /var/lib/grafana/dashboards
