@@ -6,9 +6,17 @@ import (
 	"eth2-monitor/cmd/opts"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/rs/zerolog/log"
 )
+
+// slackClient is the http.Client used for Slack webhook POSTs. It has an
+// explicit Timeout so a hung Slack endpoint can never stall the per-epoch
+// reporting path (Report/Info are called inline from the orchestrator).
+//
+// Exposed at package scope so tests can override it for fake servers.
+var slackClient = &http.Client{Timeout: 5 * time.Second}
 
 func Report(format string, args ...interface{}) {
 	message := fmt.Sprintf(format, args...)
@@ -46,7 +54,7 @@ func reportToSlack(message string) {
 		return
 	}
 
-	resp, err := http.Post(opts.SlackURL, "application/json", bytes.NewBuffer(buf))
+	resp, err := slackClient.Post(opts.SlackURL, "application/json", bytes.NewBuffer(buf))
 	if err != nil {
 		// http.Post returns (nil, err) on transport-level failures, so we
 		// can't defer Close on the response. Bail before that.

@@ -70,3 +70,40 @@ func TestReportToSlack_PostsToServer(t *testing.T) {
 		t.Errorf("reportToSlack issued %d requests, want 1", got)
 	}
 }
+
+// TestReportToSlack_TimesOutOnHungServer regresses the stall-the-orchestrator
+// risk: Report runs inline from the per-epoch monitor loop, so a hung Slack
+// webhook must not block indefinitely. We point at a server that never
+// responds and assert reportToSlack returns within a small multiple of the
+// configured client timeout. The previous code used http.Post with the
+// default (no-timeout) client and would hang here forever.
+func TestReportToSlack_TimesOutOnHungServer(t *testing.T) {
+	block := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-block // hold the handler forever
+	}))
+	t.Cleanup(func() {
+		close(block)
+		srv.Close()
+	})
+
+	prev := opts.SlackURL
+	t.Cleanup(func() { opts.SlackURL = prev })
+	opts.SlackURL = srv.URL
+
+	prevClient := slackClient
+	t.Cleanup(func() { slackClient = prevClient })
+	slackClient = &http.Client{Timeout: 150 * time.Millisecond}
+
+	done := make(chan struct{})
+	go func() {
+		reportToSlack("payload")
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("reportToSlack did not return within 2s; timeout failed to fire on hung server")
+	}
+}
