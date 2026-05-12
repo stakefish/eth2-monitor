@@ -18,29 +18,40 @@ type RequestMetrics struct {
 	Duration *prometheus.HistogramVec
 }
 
-// classifyEndpoint maps a beacon API URL path to a stable, low-cardinality
-// label value. strings.Contains is used (rather than prefix matching) because
-// the beacon base URL can carry a credential segment ahead of /eth/... — see
-// caplin_compat.go's note on the same issue.
-func classifyEndpoint(path string) string {
-	switch {
-	case strings.Contains(path, "/beacon/states/") && strings.HasSuffix(path, "/validators"):
-		return "validators"
-	case strings.Contains(path, "/beacon/blocks/"):
-		return "block"
-	case strings.Contains(path, "/validator/duties/proposer/"):
-		return "proposer_duties"
-	case strings.Contains(path, "/validator/duties/attester/"):
-		return "attester_duties"
-	case strings.Contains(path, "/finality_checkpoints"):
-		return "finality"
-	case strings.Contains(path, "/committees"):
-		return "committees"
-	case strings.Contains(path, "/eth/v1/events"):
-		return "events"
-	default:
+// endpointTemplate maps a beacon API URL path to a templated label value:
+// the path from /eth/v* onward, with dynamic segments replaced by their
+// spec-standard placeholders ({state_id}, {block_id}, {epoch}, {validator_id}).
+//
+// The base URL can carry a credential segment ahead of /eth/... (see
+// caplin_compat.go's note), so the prefix is stripped before templating.
+// Any path that does not contain /eth/v is reported as "other".
+func endpointTemplate(path string) string {
+	i := strings.Index(path, "/eth/v")
+	if i < 0 {
 		return "other"
 	}
+	path = path[i:]
+	if q := strings.IndexByte(path, '?'); q >= 0 {
+		path = path[:q]
+	}
+	segs := strings.Split(path, "/") // leading "" then "eth", "v1", ...
+	for j := 2; j < len(segs); j++ {
+		switch segs[j-1] {
+		case "states":
+			segs[j] = "{state_id}"
+		case "blocks", "headers":
+			segs[j] = "{block_id}"
+		case "validators":
+			// /beacon/states/{state_id}/validators is itself a valid endpoint
+			// with no trailing id; only replace when there is a real child segment.
+			segs[j] = "{validator_id}"
+		case "proposer", "attester", "sync":
+			if j >= 3 && segs[j-2] == "duties" {
+				segs[j] = "{epoch}"
+			}
+		}
+	}
+	return strings.Join(segs, "/")
 }
 
 func statusClass(resp *http.Response, err error) string {
@@ -60,7 +71,7 @@ func (t *instrumentingTransport) RoundTrip(req *http.Request) (*http.Response, e
 	resp, err := t.base.RoundTrip(req)
 	elapsed := time.Since(start).Seconds()
 
-	endpoint := classifyEndpoint(req.URL.Path)
+	endpoint := endpointTemplate(req.URL.Path)
 	method := req.Method
 	t.m.Requests.WithLabelValues(endpoint, method, statusClass(resp, err)).Inc()
 	t.m.Duration.WithLabelValues(endpoint, method).Observe(elapsed)

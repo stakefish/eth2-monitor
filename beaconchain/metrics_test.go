@@ -12,28 +12,33 @@ import (
 	dto "github.com/prometheus/client_model/go"
 )
 
-func TestClassifyEndpoint(t *testing.T) {
+func TestEndpointTemplate(t *testing.T) {
 	tests := []struct {
 		path string
 		want string
 	}{
-		{"/eth/v1/beacon/states/head/validators", "validators"},
-		{"/temporary-abc123/eth/v1/beacon/states/12345/validators", "validators"},
-		{"/eth/v2/beacon/blocks/123", "block"},
-		{"/eth/v2/beacon/blocks/head", "block"},
-		{"/eth/v1/validator/duties/proposer/42", "proposer_duties"},
-		{"/eth/v1/validator/duties/attester/42", "attester_duties"},
-		{"/eth/v1/beacon/states/head/finality_checkpoints", "finality"},
-		{"/eth/v1/beacon/states/head/committees", "committees"},
-		{"/eth/v1/events", "events"},
-		{"/eth/v1/events?topics=head", "events"},
-		{"/eth/v1/node/version", "other"},
+		{"/eth/v1/beacon/states/head/validators", "/eth/v1/beacon/states/{state_id}/validators"},
+		{"/temporary-abc123/eth/v1/beacon/states/12345/validators", "/eth/v1/beacon/states/{state_id}/validators"},
+		{"/eth/v1/beacon/states/head/validators/0xabcd", "/eth/v1/beacon/states/{state_id}/validators/{validator_id}"},
+		{"/eth/v2/beacon/blocks/123", "/eth/v2/beacon/blocks/{block_id}"},
+		{"/eth/v2/beacon/blocks/head", "/eth/v2/beacon/blocks/{block_id}"},
+		{"/eth/v1/beacon/headers/0xdeadbeef", "/eth/v1/beacon/headers/{block_id}"},
+		{"/eth/v1/validator/duties/proposer/42", "/eth/v1/validator/duties/proposer/{epoch}"},
+		{"/eth/v1/validator/duties/attester/42", "/eth/v1/validator/duties/attester/{epoch}"},
+		{"/eth/v1/validator/duties/sync/42", "/eth/v1/validator/duties/sync/{epoch}"},
+		{"/eth/v1/beacon/states/head/finality_checkpoints", "/eth/v1/beacon/states/{state_id}/finality_checkpoints"},
+		{"/eth/v1/beacon/states/head/committees", "/eth/v1/beacon/states/{state_id}/committees"},
+		{"/eth/v1/events", "/eth/v1/events"},
+		{"/eth/v1/events?topics=head", "/eth/v1/events"},
+		{"/eth/v1/node/version", "/eth/v1/node/version"},
+		{"/eth/v1/beacon/genesis", "/eth/v1/beacon/genesis"},
 		{"/", "other"},
+		{"", "other"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
-			if got := classifyEndpoint(tt.path); got != tt.want {
-				t.Errorf("classifyEndpoint(%q) = %q, want %q", tt.path, got, tt.want)
+			if got := endpointTemplate(tt.path); got != tt.want {
+				t.Errorf("endpointTemplate(%q) = %q, want %q", tt.path, got, tt.want)
 			}
 		})
 	}
@@ -90,10 +95,11 @@ func TestInstrumentingTransportRecordsSuccess(t *testing.T) {
 	}
 	_ = resp.Body.Close()
 
-	if got := counterValue(t, m.Requests.WithLabelValues("block", "GET", "2xx")); got != 1 {
+	ep := "/eth/v2/beacon/blocks/{block_id}"
+	if got := counterValue(t, m.Requests.WithLabelValues(ep, "GET", "2xx")); got != 1 {
 		t.Errorf("requests counter = %v, want 1", got)
 	}
-	if got := histogramCount(t, m.Duration.WithLabelValues("block", "GET")); got != 1 {
+	if got := histogramCount(t, m.Duration.WithLabelValues(ep, "GET")); got != 1 {
 		t.Errorf("duration sample count = %v, want 1", got)
 	}
 }
@@ -114,10 +120,11 @@ func TestInstrumentingTransportRecordsTransportError(t *testing.T) {
 		t.Fatal("expected error from transport")
 	}
 
-	if got := counterValue(t, m.Requests.WithLabelValues("validators", "POST", "error")); got != 1 {
+	ep := "/eth/v1/beacon/states/{state_id}/validators"
+	if got := counterValue(t, m.Requests.WithLabelValues(ep, "POST", "error")); got != 1 {
 		t.Errorf("requests counter (error) = %v, want 1", got)
 	}
-	if got := histogramCount(t, m.Duration.WithLabelValues("validators", "POST")); got != 1 {
+	if got := histogramCount(t, m.Duration.WithLabelValues(ep, "POST")); got != 1 {
 		t.Errorf("duration sample count = %v, want 1", got)
 	}
 }
@@ -137,7 +144,7 @@ func TestInstrumentingTransportRecordsHTTPError(t *testing.T) {
 	}
 	_ = resp.Body.Close()
 
-	if got := counterValue(t, m.Requests.WithLabelValues("events", "GET", "5xx")); got != 1 {
+	if got := counterValue(t, m.Requests.WithLabelValues("/eth/v1/events", "GET", "5xx")); got != 1 {
 		t.Errorf("requests counter (5xx) = %v, want 1", got)
 	}
 }
