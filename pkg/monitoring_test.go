@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -240,7 +241,7 @@ func TestLoadKeys_NoFDLeak(t *testing.T) {
 	const N = 64
 	paths := make([]string, N)
 	for i := range paths {
-		paths[i] = writeFile(t, dir, "k"+itoa(i)+".txt", "0xk\n")
+		paths[i] = writeFile(t, dir, "k"+strconv.Itoa(i)+".txt", "0xk\n")
 	}
 
 	before := countOpenFiles(t)
@@ -266,20 +267,6 @@ func countOpenFiles(t *testing.T) int {
 		return -1
 	}
 	return len(entries)
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var buf [20]byte
-	i := len(buf)
-	for n > 0 {
-		i--
-		buf[i] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(buf[i:])
 }
 
 // TestLoadMEVRelays_ParsesArray covers the happy path.
