@@ -114,6 +114,12 @@ func PruneSeenAttestations(seen map[phase0.Slot]Set[phase0.ValidatorIndex], cuto
 // seenAttestations is persistent across epoch iterations so cross-call duplicates
 // (a block scanned both in epoch N's lookahead window and in epoch N+1's main range)
 // are counted exactly once.
+//
+// Defensive nil handling: a block with nil pointer fields (block itself,
+// Message, or Body) or an attestation entry with nil pointer (Attestation
+// or its Data) is logged at WARN and skipped. These shapes shouldn't occur
+// in valid Beacon API responses but are robust against malformed JSON
+// from non-conforming clients.
 func processAttestations(
 	epochBlocks map[phase0.Slot]*electra.SignedBeaconBlock,
 	committeeLookup map[phase0.Slot]map[phase0.CommitteeIndex]*CommitteeInfo,
