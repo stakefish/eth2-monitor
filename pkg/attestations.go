@@ -194,6 +194,10 @@ func processAttestations(
 			}
 
 			attestedSlot := attestation.Data.Slot
+			// attestedSlotEpoch is constant per attestation; hoist out of
+			// the per-validator loop so we don't recompute it for every
+			// tracked attester in this committee.
+			attestedSlotEpoch := spec.EpochFromSlot(attestedSlot)
 			for validatorIndex := range attesters {
 				if _, ok := validatorPubkeyFromIndex[validatorIndex]; !ok {
 					continue
@@ -259,13 +263,11 @@ func processAttestations(
 					}
 				}
 
-				// Use attestedSlot's epoch in the report — that's the
-				// epoch the validator was supposed to attest in. The
-				// iteration epoch can differ during cross-epoch lookahead
-				// observation (e.g. an attestedSlot=31 (epoch 0)
-				// attestation observed during epoch 1's iteration would
-				// otherwise mis-tag the validator's epoch).
-				attestedSlotEpoch := spec.EpochFromSlot(attestedSlot)
+				// attestedSlotEpoch hoisted outside the per-validator loop
+				// (see above) — it's the epoch the validator was
+				// supposed to attest in, NOT the iteration epoch
+				// (which can differ during cross-epoch lookahead
+				// observation).
 				if attestationDistance > 2 {
 					Report("⚠️ 🧾 Validator %v (%v) attested slot %v at slot %v, epoch %v, attestation distance is %v",
 						validatorIndex, pubkeyOrUnknown(validatorPubkeyFromIndex, validatorIndex), attestedSlot, block.Message.Slot, attestedSlotEpoch, attestationDistance)
