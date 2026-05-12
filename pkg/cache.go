@@ -146,4 +146,17 @@ func SaveCache(newCache *LocalCache) {
 		return
 	}
 	renamed = true
+
+	// fsync the parent directory so the new directory entry survives a
+	// crash. Without this, ext4/xfs journals may delay metadata commit
+	// beyond Rename's syscall return; a crash in that window can leave
+	// cacheFilePath pointing at the old inode (or no entry) despite the
+	// file content being durable. Best-effort: ENOTDIR / EPERM on exotic
+	// filesystems is logged but doesn't block forward progress.
+	if dir, err := os.Open(path.Dir(cacheFilePath)); err == nil {
+		_ = dir.Sync()
+		_ = dir.Close()
+	} else {
+		log.Debug().Err(err).Msg("SaveCache: open(parent) for dir-fsync failed; rename may not be crash-durable")
+	}
 }
