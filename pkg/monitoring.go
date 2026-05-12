@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"maps"
 	"os"
 	"slices"
@@ -253,6 +254,15 @@ func MonitorAttestationsAndProposals(ctx context.Context, cancel context.CancelF
 		PruneSeenAttestations(seenAttestations, spec.EpochLowestSlot(epoch-1))
 
 		ec, err := BuildEpochContext(ctx, beacon, epoch, plainKeys, mevRelays)
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			// Clean shutdown: ctx was cancelled (operator signal, sibling
+			// goroutine cancel, parent timeout). Return without panicking
+			// so the deferred cancel + wg.Done propagate normal exit
+			// semantics rather than crashing the process and forcing a
+			// Docker restart.
+			log.Info().Err(err).Msgf("orchestrator stopping on ctx cancel at epoch %v", epoch)
+			return
+		}
 		Must(err)
 		if ec == nil {
 			// Soft skip: no tracked validators active this epoch.
