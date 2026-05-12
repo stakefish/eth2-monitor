@@ -65,7 +65,14 @@ func LoadCache() *LocalCache {
 
 	fd, err := os.Open(cacheFilePath)
 	if err != nil {
-		log.Debug().Err(err).Msg("LoadCache: os.Open failed; skip")
+		// First-run ENOENT is expected — keep at Debug. Any other open
+		// failure (permission denied, EIO, etc.) is operationally
+		// surprising and warrants a higher log level.
+		if os.IsNotExist(err) {
+			log.Debug().Err(err).Msg("LoadCache: cache file missing; first run or post-cleanup")
+		} else {
+			log.Warn().Err(err).Msg("LoadCache: os.Open failed; using empty cache")
+		}
 		return cache
 	}
 	defer func() { _ = fd.Close() }()
