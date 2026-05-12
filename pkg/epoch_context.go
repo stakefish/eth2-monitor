@@ -274,12 +274,27 @@ func ListProposerDuties(ctx context.Context, beacon *beaconchain.BeaconChain, ep
 	if err != nil {
 		return nil, err
 	}
+	return proposerDutyMap(duties), nil
+}
 
+// proposerDutyMap projects a []*v1.ProposerDuty into a slot→validator map.
+//
+// Defensive nil handling: duties is a slice of pointers. A non-conforming
+// JSON response or future go-eth2-client quirk could leave entries nil;
+// dereferencing duty.Slot below would panic. Skip nil entries silently so
+// a single bad row doesn't take the orchestrator down.
+//
+// Extracted from ListProposerDuties so the nil-handling has direct test
+// coverage without standing up a fake beacon node.
+func proposerDutyMap(duties []*v1.ProposerDuty) map[phase0.Slot]phase0.ValidatorIndex {
 	result := make(map[phase0.Slot]phase0.ValidatorIndex, len(duties))
 	for _, duty := range duties {
+		if duty == nil {
+			continue
+		}
 		result[duty.Slot] = phase0.ValidatorIndex(duty.ValidatorIndex)
 	}
-	return result, nil
+	return result
 }
 
 // blockFetcher is the narrow GetBlock surface ListEpochBlocks depends on,

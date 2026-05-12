@@ -8,6 +8,7 @@ import (
 
 	"eth2-monitor/spec"
 
+	v1 "github.com/attestantio/go-eth2-client/api/v1"
 	"github.com/attestantio/go-eth2-client/spec/electra"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 )
@@ -170,5 +171,41 @@ func TestFetchBlockWithRetries_CtxCancelStopsBackoff(t *testing.T) {
 	}
 	if elapsed > 100*time.Millisecond {
 		t.Errorf("retry slept through cancellation (%v); should bail near-immediately", elapsed)
+	}
+}
+
+// TestProposerDutyMap_SkipsNilEntries regresses the nil-deref crash in
+// ListProposerDuties. duties is []*v1.ProposerDuty; a non-conforming JSON
+// response could leave entries nil and the old per-duty .Slot read would
+// panic the orchestrator. The helper must skip nil entries and still
+// project the surrounding valid duties.
+func TestProposerDutyMap_SkipsNilEntries(t *testing.T) {
+	t.Parallel()
+	duties := []*v1.ProposerDuty{
+		{Slot: 10, ValidatorIndex: 100},
+		nil,
+		{Slot: 12, ValidatorIndex: 200},
+		nil,
+	}
+	got := proposerDutyMap(duties)
+	if len(got) != 2 {
+		t.Fatalf("got %d entries, want 2 (nil entries must be skipped)", len(got))
+	}
+	if got[10] != 100 || got[12] != 200 {
+		t.Errorf("non-nil duties not projected correctly: %v", got)
+	}
+}
+
+// TestProposerDutyMap_NilSliceReturnsEmpty — defensive against an upstream
+// returning a nil slice. The function must return an empty (non-nil) map
+// so callers can do (m[k], ok) lookups without an extra nil-check.
+func TestProposerDutyMap_NilSliceReturnsEmpty(t *testing.T) {
+	t.Parallel()
+	got := proposerDutyMap(nil)
+	if got == nil {
+		t.Fatal("nil slice produced nil map; expected empty map")
+	}
+	if len(got) != 0 {
+		t.Errorf("nil slice produced %d entries; expected 0", len(got))
 	}
 }
