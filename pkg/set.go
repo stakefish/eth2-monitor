@@ -23,25 +23,33 @@ func NewSet[E comparable](vals ...E) Set[E] {
 	return s
 }
 
+// Add inserts each value into the set. Panics on a nil Set (see type doc).
+// Duplicates collapse to one entry.
 func (s Set[E]) Add(vals ...E) {
 	for _, v := range vals {
 		s[v] = struct{}{}
 	}
 }
 
+// Contains reports whether v is in the set. Safe on a nil Set (returns false).
 func (s Set[E]) Contains(v E) bool {
 	_, ok := s[v]
 	return ok
 }
 
+// Remove deletes v from the set. Safe on a nil Set (no-op).
 func (s Set[E]) Remove(v E) {
 	delete(s, v)
 }
 
+// IsEmpty reports whether the set has no entries. Safe on a nil Set
+// (returns true).
 func (s Set[E]) IsEmpty() bool {
 	return len(s) == 0
 }
 
+// String renders the set as "{a b c}" with elements in unspecified order.
+// Safe on a nil Set (returns "{}").
 func (s Set[E]) String() string {
 	var sb strings.Builder
 	first := true
@@ -57,6 +65,8 @@ func (s Set[E]) String() string {
 	return sb.String()
 }
 
+// Elems returns an iterator over the set's values. Iteration order is
+// unspecified (map iter). Safe on a nil Set (yields nothing).
 func (s Set[E]) Elems() iter.Seq[E] {
 	return func(yield func(E) bool) {
 		for v := range s {
