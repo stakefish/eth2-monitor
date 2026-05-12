@@ -234,6 +234,15 @@ func requestEpochBidTraces(ctx context.Context, timeout time.Duration, relays []
 	return result, g.Wait()
 }
 
+// ListBestBids fetches bid traces from every relay concurrently and
+// returns, per slot, the highest-Value trace whose proposer matches a
+// tracked validator. Returns (partial_results, err) on partial failure —
+// callers should log the error but use whatever bestBids were assembled.
+//
+// Slot-membership filtering uses the `proposals` map (which lists our
+// tracked validators' duty slots for the epoch). Pubkey matching is
+// case-insensitive (relay JSON is not case-canonical per spec; see
+// BidTrace doc).
 func ListBestBids(ctx context.Context, timeout time.Duration, relays []string, epoch phase0.Epoch, validatorPubkeyFromIndex map[phase0.ValidatorIndex]string, proposals map[phase0.Slot]phase0.ValidatorIndex) (map[phase0.Slot]BidTrace, error) {
 	bestBids := make(map[phase0.Slot]BidTrace)
 
