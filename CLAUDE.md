@@ -106,6 +106,7 @@ make test-e2e
 
 # Regenerate testdata/ from the configured BEACON_CHAIN_API endpoint
 # Captures raw beacon JSON + an SSE excerpt into internal/beaconchain/testdata/
+# and public-relay MEV bid traces into internal/monitoring/testdata/mev/
 make refresh-fixtures
 
 # Test environment (Docker Compose with Prometheus + Grafana)
@@ -205,7 +206,7 @@ Tests anchor assertions to `meta.json` (`HasMissed`, `CanonicalSlot`, etc.) rath
 
 `meta.json` records `finalized_epoch`, `test_epoch`, `canonical_slot`, `missed_slot`, `has_missed`, `captured_at`, and `generator_version` — and **deliberately excludes any endpoint identifier** (no host, no URL) so committed fixtures don't disclose which upstream the project fixtures from. Captured response bodies are pure beacon-API JSON and likewise contain no upstream identifiers. The 1 MiB per-fixture cap rejects oversized captures; `committees.json` is slot-filtered (`?slot=…`) because the unfiltered response exceeds the cap on networks with large validator sets (the wire format is identical).
 
-**go-eth2-client SSE caveat (production observability gap):** `eth2http.WithHTTPClient` does NOT route SSE traffic through the configured transport — `Events()` doesn't increment the production beacon-API request counter. The `events_2xx_with_query_strip` subtest in `metrics_e2e_test.go` side-channels a direct `http.Client.Do` against the events URL via the same `instrumentingTransport` to keep fixture-based detection coverage for that endpoint.
+**go-eth2-client SSE caveat (production observability gap):** `eth2http.WithHTTPClient` does NOT route SSE traffic through the configured transport — `Events()` doesn't increment the production beacon-API request counter. The `events_template_strips_query` subtest in `metrics_e2e_test.go` side-channels a direct `http.Client.Do` against the events URL via the same `instrumentingTransport` to keep fixture-based detection coverage for that endpoint.
 
 ## CI
 
