@@ -17,43 +17,49 @@ Ethereum 2.0 validator performance monitor built by stakefish. Tracks attestatio
 
 ## Codebase Structure
 
+Module path: `github.com/stakefish/eth2-monitor`. Layout follows golang-standards/project-layout (pragmatic application — `Dockerfile` and `test-env/` stay at the root).
+
 ```
-main.go              -- Entry point, zerolog init, calls cmd.Execute()
 cmd/
-  root.go            -- Cobra root command, "monitor" and "version" subcommands
-  opts/opts.go       -- Global CLI flag variables (package-level vars)
-beaconchain/
-  service.go             -- BeaconChain wrapper around go-eth2-client (HTTP)
-  caplin_compat.go       -- HTTP transport that rewrites unquoted amount/index JSON fields in Caplin block responses
-  metrics.go             -- Beacon API request CounterVec/HistogramVec instrumentation
-  caplin_compat_test.go  -- Mocked-server tests for the amount/index rewriter
-  metrics_test.go        -- Endpoint template + counter/histogram recording tests
-  service_e2e_test.go    -- Live-fire tests for all six BeaconChain methods (build tag: `e2e`; reads endpoint from $BEACON_CHAIN_API or test-env/.env)
-spec/
-  consts.go          -- SLOTS_PER_EPOCH=32, SECONDS_PER_SLOT=12
-  routines.go        -- Epoch/Slot conversion helpers
-pkg/
-  monitoring.go        -- Orchestrator loop + SubscribeToEpochs + LoadKeys/LoadMEVRelays
-  epoch_context.go     -- Per-epoch state fetch: EpochContext + BuildEpochContext + ResolveValidatorKeys + ListProposerDuties / ListEpochBlocks + SlotsWithBlocks
-  attestations.go      -- Attestation-issue detection: processAttestations + BuildCommitteeLookup + PruneSeenAttestations + FinalizeMissedAttestations + CommitteeInfo
-  proposals.go         -- Proposal-issue detection: isBlockEmpty + CheckProposal + FinalizeMissedProposals
-  metrics.go           -- MonitorMetrics struct + NewMonitorMetrics(reg) factory; all Prometheus metrics
-  reporting.go         -- Slack webhook + log reporting (Report/Info helpers)
-  mev.go               -- MEV relay bid trace fetching (concurrent, paginated)
-  cache.go             -- Disk-backed JSON cache for validator index lookups
-  set.go               -- Generic Set[E comparable] collection
-  profiling.go         -- Measure() timing utility
-  utilities.go         -- Must() panic-on-error helper
-  *_test.go            -- One unit-test file per production file (attestations, cache, epoch_context, metrics, mev, monitoring, profiling, proposals, reporting, set)
-  test_helpers_test.go -- Shared helpers (counterValue, gaugeValue, histogramSampleCount, buildSingleValidatorAttestation)
+  eth2-monitor/
+    main.go              -- Entry point, zerolog init, calls cli.Execute()
+internal/
+  cli/
+    root.go              -- Cobra root command, "monitor" and "version" subcommands (package cli)
+  opts/
+    opts.go              -- Global CLI flag variables (package-level vars)
+  beaconchain/
+    service.go             -- BeaconChain wrapper around go-eth2-client (HTTP)
+    caplin_compat.go       -- HTTP transport that rewrites unquoted amount/index JSON fields in Caplin block responses
+    metrics.go             -- Beacon API request CounterVec/HistogramVec instrumentation
+    caplin_compat_test.go  -- Mocked-server tests for the amount/index rewriter
+    metrics_test.go        -- Endpoint template + counter/histogram recording tests
+    service_e2e_test.go    -- Live-fire tests for all six BeaconChain methods (build tag: `e2e`; reads endpoint from $BEACON_CHAIN_API or test-env/.env)
+  spec/
+    consts.go          -- SLOTS_PER_EPOCH=32, SECONDS_PER_SLOT=12
+    routines.go        -- Epoch/Slot conversion helpers
+  monitoring/
+    monitoring.go        -- Orchestrator loop + SubscribeToEpochs + LoadKeys/LoadMEVRelays (package monitoring; was pkg/ before restructure)
+    epoch_context.go     -- Per-epoch state fetch: EpochContext + BuildEpochContext + ResolveValidatorKeys + ListProposerDuties / ListEpochBlocks + SlotsWithBlocks
+    attestations.go      -- Attestation-issue detection: processAttestations + BuildCommitteeLookup + PruneSeenAttestations + FinalizeMissedAttestations + CommitteeInfo
+    proposals.go         -- Proposal-issue detection: isBlockEmpty + CheckProposal + FinalizeMissedProposals
+    metrics.go           -- MonitorMetrics struct + NewMonitorMetrics(reg) factory; all Prometheus metrics
+    reporting.go         -- Slack webhook + log reporting (Report/Info helpers)
+    mev.go               -- MEV relay bid trace fetching (concurrent, paginated)
+    cache.go             -- Disk-backed JSON cache for validator index lookups
+    set.go               -- Generic Set[E comparable] collection
+    profiling.go         -- Measure() timing utility
+    utilities.go         -- Must() panic-on-error helper
+    *_test.go            -- One unit-test file per production file (attestations, cache, epoch_context, metrics, mev, monitoring, profiling, proposals, reporting, set)
+    test_helpers_test.go -- Shared helpers (counterValue, gaugeValue, histogramSampleCount, buildSingleValidatorAttestation)
 test-env/
   docker-compose.yml -- Full local stack: eth2-monitor + Prometheus + Grafana
   grafana/           -- Pre-provisioned dashboards and datasources
 docs/                -- Onboarding reference (BEACON_API_USAGE, ERIGON_CAPLIN_COMPATIBILITY,
                        ETHEREUM_HARDFORK_TIMELINE, METRICS, attestant/ research notes).
                        Untracked in git but checked-out locally; useful for context.
-Dockerfile           -- Multi-stage: golang:alpine builder -> alpine runtime, non-root user
-Makefile             -- Targets: `build` (default), `lint`, `test` (= `go test -cover ./...`), `test-e2e` (build tag `e2e` against beaconchain/); output: bin/eth2-monitor with git version ldflags
+Dockerfile           -- Multi-stage: golang:alpine builder -> alpine runtime, non-root user; builds ./cmd/eth2-monitor
+Makefile             -- Targets: `build` (default), `lint`, `test` (= `go test -cover ./...`), `test-e2e` (build tag `e2e` against ./internal/beaconchain/...); output: bin/eth2-monitor with git version ldflags
 .tool-versions       -- Go version pinning (golang 1.25.10)
 .github/workflows/   -- GitHub Actions CI: `main.yml` (test + multi-arch build + Docker publish on tag), `golangci-lint.yml` (lint + coverage on PR)
 .gitlab-ci.yml       -- Legacy GitLab CI config
@@ -115,7 +121,7 @@ bin/eth2-monitor monitor --since-epoch 12000 ...
 2. `GET /eth/v2/beacon/blocks/{block_id}` -- Fetch full signed blocks (Fulu/Fusaka fork)
 3. `GET /eth/v1/validator/duties/proposer/{epoch}` -- Proposer duties
 4. `POST /eth/v1/validator/duties/attester/{epoch}` -- Attester duties (fetched for prev/curr/next epoch; also builds committee lookup)
-5. `GET /eth/v1/beacon/states/{state}/committees` -- Backfills committee sizes for committees with no tracked validators (`GetCommitteeLengths` in `beaconchain/service.go`)
+5. `GET /eth/v1/beacon/states/{state}/committees` -- Backfills committee sizes for committees with no tracked validators (`GetCommitteeLengths` in `internal/beaconchain/service.go`)
 6. `GET /eth/v1/beacon/states/{state}/finality_checkpoints` -- Justified epoch seed
 7. `GET /eth/v1/events?topics=head` -- SSE head events for epoch detection
 
@@ -148,10 +154,10 @@ bin/eth2-monitor monitor --since-epoch 12000 ...
 ## Code Conventions
 
 - **Constants:** SCREAMING_SNAKE_CASE (project convention, not standard Go)
-- **Error handling:** `pkg.Must(err)` panics with stack trace for genuinely-fatal errors (beacon-API contract violations at startup, unrecoverable beacon errors mid-epoch); standard `(value, error)` returns for API calls. `ctx.Canceled` / `context.DeadlineExceeded` are detected explicitly in `SubscribeToEpochs` and `MonitorAttestationsAndProposals` and returned cleanly rather than panicked through Must.
+- **Error handling:** `monitoring.Must(err)` panics with stack trace for genuinely-fatal errors (beacon-API contract violations at startup, unrecoverable beacon errors mid-epoch); standard `(value, error)` returns for API calls. `ctx.Canceled` / `context.DeadlineExceeded` are detected explicitly in `SubscribeToEpochs` and `MonitorAttestationsAndProposals` and returned cleanly rather than panicked through Must.
 - **Logging:** zerolog. `Msgf()` printf-style is the dominant form for Report/Info paths; recent additions use structured-field form (`Uint64("slot", ...).Msg(...)`) for error logs that operators grep against. Trace for per-slot, Debug for per-epoch, Warn for user-facing reports, Error for invariant violations.
-- **Reporting:** `pkg.Report()` and `pkg.Info()` log + send to Slack webhook
-- **Config:** Global mutable vars in `cmd/opts` package (not dependency-injected)
+- **Reporting:** `monitoring.Report()` and `monitoring.Info()` log + send to Slack webhook
+- **Config:** Global mutable vars in `internal/opts` package (not dependency-injected)
 - **Go features:** Generics (Set[E]), Go iterators (iter.Seq, slices.Chunk)
 - **Testing:** Table-driven tests with mock interfaces
 - **Fork target:** GetBlock expects Fulu/Fusaka fork blocks only; returns `*electra.SignedBeaconBlock` because Fulu reuses the Electra block structure in go-eth2-client
@@ -167,8 +173,8 @@ bin/eth2-monitor monitor --since-epoch 12000 ...
 ## Gotchas
 
 - **GetBlock fails on pre-Fusaka slots** -- returns error `"unsupported block version"` for any slot before the Fulu fork
-- **Validator cache has a 30-minute TTL** -- `pkg/cache.go` persists the `Validators` map plus `LastEpoch` to disk JSON (`$TMPDIR/stakefish-eth2-monitor-cache.json`). `CachedIndex.At` is consulted by `ResolveValidatorKeys` to refresh entries older than 30 minutes; `VALIDATOR_INDEX_INVALID` sentinel entries are also TTL-bounded so a newly-active validator becomes visible within the window. On restart `LastEpoch` gates skip-ahead so cumulative counters don't double-count re-processed epochs. Writes use atomic tmpfile + fsync + rename + dir-fsync for crash durability. Delete the file to force a clean run.
-- **Caplin `amount`/`index` JSON quoting** -- `beaconchain/caplin_compat.go` installs an HTTP transport that rewrites *only* the `"amount":N` and `"index":N` fields (regex `unquotedNumericField`) on `/eth/v2/beacon/blocks/` JSON responses. Other Caplin endpoints, other unquoted uint64 fields (e.g. anything under `solid/`), and SSZ responses are untouched -- those still need a fix upstream in go-eth2-client.
+- **Validator cache has a 30-minute TTL** -- `internal/monitoring/cache.go` persists the `Validators` map plus `LastEpoch` to disk JSON (`$TMPDIR/stakefish-eth2-monitor-cache.json`). `CachedIndex.At` is consulted by `ResolveValidatorKeys` to refresh entries older than 30 minutes; `VALIDATOR_INDEX_INVALID` sentinel entries are also TTL-bounded so a newly-active validator becomes visible within the window. On restart `LastEpoch` gates skip-ahead so cumulative counters don't double-count re-processed epochs. Writes use atomic tmpfile + fsync + rename + dir-fsync for crash durability. Delete the file to force a clean run.
+- **Caplin `amount`/`index` JSON quoting** -- `internal/beaconchain/caplin_compat.go` installs an HTTP transport that rewrites *only* the `"amount":N` and `"index":N` fields (regex `unquotedNumericField`) on `/eth/v2/beacon/blocks/` JSON responses. Other Caplin endpoints, other unquoted uint64 fields (e.g. anything under `solid/`), and SSZ responses are untouched -- those still need a fix upstream in go-eth2-client.
 - **Caplin returns 404 on slot-ID state queries for missed slots** -- `GetValidatorIndexes` uses `fmt.Sprintf("%d", spec.EpochLowestSlot(epoch))` as the state ID. Caplin resolves slot-id states by first finding the block at that slot, so if the first slot of the requested epoch was missed it returns `404 block not found`. Production code has no probe-back logic, so this is a latent flake at epoch-boundary missed slots; the `service_e2e_test.go` `get_validator_indexes_roundtrip` subtest works around it by walking back to an epoch whose first slot has a canonical block.
 - **Slashed validators silently excluded from monitoring** -- `GetValidatorIndexes` filters via `IsAttesting()`, which is false for `active_slashed` *and* for any post-exit state. Once a key is slashed it never reappears in duties or reports (slashed and exited are both filtered) -- surprising during incident response when "where is validator X?" has no log line.
 - **Attestation dedup requires consecutive epoch processing** -- `processAttestations` keys `seenAttestations` on `(validator, slot)` and the cross-epoch lookahead window assumes E and E+1 are processed in order. Skipping an epoch (SSE jump, replay-epoch gap) produces false missed-attestation reports.
@@ -183,4 +189,4 @@ The monitor runs two goroutines communicating via an epoch channel:
 1. **SubscribeToEpochs** -- Listens to beacon head SSE events, detects epoch boundaries, sends epoch numbers
 2. **MonitorAttestationsAndProposals** -- Slim orchestrator. Per epoch: `PruneSeenAttestations` → `BuildEpochContext` (single call that fetches validator keys, attester/proposer duties, committee lengths, blocks, and MEV bids) → seed `unfulfilledAttesterDuties` for current epoch → `processAttestations` → `FinalizeMissedAttestations` (E-1 cutoff) → walk blocks calling `CheckProposal` per slot → `FinalizeMissedProposals` → `SaveCache`. Each per-concern delegate owns one issue class (attestation vs proposal vs lifecycle) so tests can drive them in isolation.
 
-Metrics are encapsulated in `MonitorMetrics` struct (`pkg/metrics.go`), created via `NewMonitorMetrics(reg)` which accepts a `prometheus.Registerer` — production uses `DefaultRegisterer`, tests use isolated registries.
+Metrics are encapsulated in `MonitorMetrics` struct (`internal/monitoring/metrics.go`), created via `NewMonitorMetrics(reg)` which accepts a `prometheus.Registerer` — production uses `DefaultRegisterer`, tests use isolated registries.
