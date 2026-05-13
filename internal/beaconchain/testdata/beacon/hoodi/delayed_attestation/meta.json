@@ -1,0 +1,13 @@
+{
+  "scenario": "delayed_attestation",
+  "finalized_epoch": 94887,
+  "test_epoch": 94889,
+  "canonical_slot": 3036470,
+  "delayed_block_slot": 3036470,
+  "max_distance": 14,
+  "captured_slots": [
+    3036470
+  ],
+  "captured_at": "2026-05-13T05:44:04.433526Z",
+  "generator_version": "3"
+}

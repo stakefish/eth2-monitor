@@ -24,12 +24,16 @@ func TestGetBlock_FixtureCanonicalAndMissed(t *testing.T) {
 	zerolog.SetGlobalLevel(zerolog.WarnLevel)
 	t.Cleanup(func() { zerolog.SetGlobalLevel(prevLevel) })
 
-	meta := loadMeta(t)
+	// GetBlock has two production paths (canonical 200 + missed 404).
+	// missed_proposal/ is the only scenario that bundles both, so this
+	// test always loads from there.
+	const scenario = "missed_proposal"
+	meta := loadMeta(t, scenario)
 	if !meta.HasMissed {
-		t.Skip("captured fixtures don't include a missed slot — run `make refresh-fixtures` against an endpoint with a missed slot in the search window")
+		t.Skip("missed_proposal/meta.json HasMissed=false — run `make refresh-scenario SCENARIO=missed_proposal` against an endpoint with a missed slot in the search window")
 	}
 
-	server := fixtureServer(t, []fixtureRoute{
+	server := fixtureServer(t, scenario, []fixtureRoute{
 		{Path: fmt.Sprintf("/eth/v2/beacon/blocks/%d", meta.CanonicalSlot), Status: 200, File: "block_canonical.json"},
 		{Path: fmt.Sprintf("/eth/v2/beacon/blocks/%d", meta.MissedSlot), Status: 404, File: "block_missed.json"},
 	})

@@ -1,0 +1,24 @@
+{
+  "scenario": "missed_proposal",
+  "finalized_epoch": 94888,
+  "test_epoch": 94890,
+  "canonical_slot": 3036482,
+  "missed_slot": 3036481,
+  "has_missed": true,
+  "captured_slots": [
+    3036470,
+    3036471,
+    3036472,
+    3036473,
+    3036474,
+    3036475,
+    3036476,
+    3036477,
+    3036478,
+    3036479,
+    3036482,
+    3036481
+  ],
+  "captured_at": "2026-05-13T05:46:29.816096Z",
+  "generator_version": "3"
+}

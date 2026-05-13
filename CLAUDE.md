@@ -37,10 +37,18 @@ internal/
     service_fixture_test.go             -- Offline GetBlock canonical+missed via fixtureServer (no live endpoint)
     metrics_e2e_test.go                 -- Live-fire metric-detection coverage for the 7 monitor endpoints (build tag: `e2e`)
     service_e2e_test.go                 -- Live-fire tests for all six BeaconChain methods (build tag: `e2e`)
-    testdata_test.go                    -- embed.FS + loadFixture/loadMeta/fixtureServer helpers
+    testdata_test.go                    -- embed.FS + loadFixture(scenario,name)/loadSharedFixture/loadMeta(scenario)/fixtureServer(scenario,routes) helpers; `defaultChain = "hoodi"`
     testdata/
-      meta.json                         -- captured epoch/slot anchors (no endpoint info)
-      beacon/                           -- raw beacon API JSON + events_head.sse (refreshed via `make refresh-fixtures`)
+      beacon/
+        hoodi/                          -- all fixtures captured against Hoodi staging (the chain configured in test-env/.env)
+          _shared/                      -- go-eth2-client startup probes (invariant across scenarios for a given chain)
+          happy_path/                   -- canonical block + duties + committees + events_head.sse + per-scenario meta.json
+          missed_proposal/              -- same as happy_path PLUS a real 404 envelope for a missed slot inside the test epoch
+          empty_block/                  -- block_canonical is structurally empty (no EL txns / no blobs / no Pectra exec requests)
+          delayed_attestation/          -- block_canonical carries an attestation with raw distance > 3
+          cross_epoch_attestation/      -- block_canonical (epoch E+1) carries an attestation from epoch E; also has block_prev.json
+                                        -- each beacon scenario also captures its own events_head.sse (head transcript tee'd during the head-stream wait)
+                                        -- all refreshed via `make refresh-fixtures` (loops scenarios; honours `CHAIN=<name>`) or `make refresh-scenario SCENARIO=<name>`
   spec/
     consts.go          -- SLOTS_PER_EPOCH=32, SECONDS_PER_SLOT=12
     routines.go        -- Epoch/Slot conversion helpers
@@ -65,11 +73,17 @@ internal/
     attestations_classification_test.go      -- Synthetic classification edge cases (cross-epoch dedup, AggregationBits offset drift) — see header comment for why these stay synthetic
     cache_integration_test.go                -- Disk-backed cache round-trip / merge / atomic write tests (uses t.TempDir)
     reporting_integration_test.go            -- Report/Info via httptest fake Slack server
+    scenario_helpers_test.go                 -- newScenarioRig + snapshotBeaconAPI/assertBeaconAPIDelta helpers shared by scenario_*_test.go
+    scenario_happy_path_test.go              -- canonical-proposal detection: CheckProposal + 2xx BeaconAPI label assertion
+    scenario_missed_proposal_test.go         -- missed-proposal detection: 404 GetBlock + FinalizeMissedProposals + 4xx BeaconAPI label
+    scenario_empty_block_test.go             -- empty-block detection: CheckProposal on no-EL-value block + TotalProposedEmptyBlocks
+    scenario_delayed_attestation_test.go     -- captured block with raw att distance > 3 + processAttestations wire-format integration
+    scenario_cross_epoch_attestation_test.go -- captured cross-epoch block + prev-epoch block + cross-epoch wire-format integration
     test_helpers_test.go                     -- Shared helpers (counterValue, gaugeValue, histogramSampleCount, buildSingleValidatorAttestation)
     testdata_test.go                         -- Cross-package os.ReadFile loaders + fixtureServer helper + embed.FS for testdata/mev
     testdata/
       meta.json                              -- captured MEV cursor slot + relays captured (no endpoint info)
-      mev/                                   -- captured MEV relay bid-trace JSON (refreshed via `make refresh-fixtures`)
+      mev/                                   -- captured MEV relay bid-trace JSON (refreshed via `make refresh-scenario SCENARIO=mev`)
 test-env/
   docker-compose.yml -- Full local stack: eth2-monitor + Prometheus + Grafana
   grafana/           -- Pre-provisioned dashboards and datasources
@@ -77,9 +91,9 @@ docs/                -- Onboarding reference (BEACON_API_USAGE, ERIGON_CAPLIN_CO
                        ETHEREUM_HARDFORK_TIMELINE, METRICS, attestant/ research notes).
                        Untracked in git but checked-out locally; useful for context.
 Dockerfile           -- Multi-stage: golang:alpine builder -> alpine runtime, non-root user; builds ./cmd/eth2-monitor
-Makefile             -- Targets: `build` (default), `lint`, `test` (= `go test -cover ./...`), `test-e2e` (build tag `e2e` against ./internal/beaconchain/...), `refresh-fixtures` (regenerate testdata/ from a live beacon); output: bin/eth2-monitor with git version ldflags
+Makefile             -- Targets: `build` (default), `lint`, `test` (= `go test -cover ./...`), `test-e2e` (build tag `e2e` against ./internal/beaconchain/...), `refresh-fixtures` (loop every scenario), `refresh-scenario SCENARIO=<name>` (single scenario); output: bin/eth2-monitor with git version ldflags
 tools/
-  fixturegen/        -- `go run ./tools/fixturegen` captures raw beacon API responses + an SSE excerpt from $BEACON_CHAIN_API into internal/beaconchain/testdata/, plus public-relay MEV bid traces into internal/monitoring/testdata/mev/
+  fixturegen/        -- `go run ./tools/fixturegen --scenario=<name> [--chain=<name>]` captures one scenario at a time. Subscribes to /eth/v1/events?topics=head on $BEACON_CHAIN_API and tails new heads waiting for one whose block matches the scenario predicate (empty / delayed att / cross-epoch att / slot gap); EVERY block fetched during the wait is recorded as block_<slot>.json so each scenario directory ends up densely populated with real beacon JSON, not just one anchor block. Output path: internal/beaconchain/testdata/beacon/<chain>/<scenario>/ (default chain: hoodi). See top-of-file doc comment for the scenario list.
 .tool-versions       -- Go version pinning (golang 1.25.10)
 .github/workflows/   -- GitHub Actions CI: `main.yml` (test + multi-arch build + Docker publish on tag), `golangci-lint.yml` (lint + coverage on PR)
 .gitlab-ci.yml       -- Legacy GitLab CI config
@@ -104,10 +118,13 @@ make lint
 # (build tag: `e2e`; reads BEACON_CHAIN_API from env or ../test-env/.env)
 make test-e2e
 
-# Regenerate testdata/ from the configured BEACON_CHAIN_API endpoint
-# Captures raw beacon JSON + an SSE excerpt into internal/beaconchain/testdata/
-# and public-relay MEV bid traces into internal/monitoring/testdata/mev/
-make refresh-fixtures
+# Regenerate every scenario's testdata/ bundle from the configured
+# BEACON_CHAIN_API endpoint. Head-stream-driven capture; each scenario
+# waits up to ~10 minutes for a matching head event, so a full
+# refresh-fixtures run can take 30-60 minutes on a normal-finality
+# testnet. Refresh a single scenario instead during development:
+make refresh-fixtures                              # all scenarios sequentially
+make refresh-scenario SCENARIO=missed_proposal     # single scenario
 
 # Test environment (Docker Compose with Prometheus + Grafana)
 cd test-env && docker compose up --build
@@ -180,7 +197,7 @@ bin/eth2-monitor monitor --since-epoch 12000 ...
 
 - **Constants:** SCREAMING_SNAKE_CASE (project convention, not standard Go)
 - **Error handling:** `monitoring.Must(err)` panics with stack trace for genuinely-fatal errors (beacon-API contract violations at startup, unrecoverable beacon errors mid-epoch); standard `(value, error)` returns for API calls. `ctx.Canceled` / `context.DeadlineExceeded` are detected explicitly in `SubscribeToEpochs` and `MonitorAttestationsAndProposals` and returned cleanly rather than panicked through Must.
-- **Logging:** zerolog. `Msgf()` printf-style is the dominant form for Report/Info paths; recent additions use structured-field form (`Uint64("slot", ...).Msg(...)`) for error logs that operators grep against. Trace for per-slot, Debug for per-epoch, Warn for user-facing reports, Error for invariant violations.
+- **Logging:** zerolog. `Report()` / `Info()` accept printf-style format strings (`Report("missed slot %v", s)`) and internally `fmt.Sprintf` + `.Msg()` to a single zerolog event. Direct call sites predominantly use the structured-field form (`Uint64("slot", ...).Msg(...)`) for error/debug logs that operators grep against; raw `.Msgf(...)` is rare (3 production call sites, vs 40+ `.Msg(...)`). Trace for per-slot, Debug for per-epoch, Warn for user-facing reports, Error for invariant violations.
 - **Reporting:** `monitoring.Report()` and `monitoring.Info()` log + send to Slack webhook
 - **Config:** Global mutable vars in `internal/opts` package (not dependency-injected)
 - **Go features:** Generics (Set[E]), Go iterators (iter.Seq, slices.Chunk)
@@ -189,22 +206,41 @@ bin/eth2-monitor monitor --since-epoch 12000 ...
 
 ## Test Fixtures
 
-Wire-format fixtures live under `internal/beaconchain/testdata/` (beacon API + SSE) and `internal/monitoring/testdata/mev/` (MEV relay bid traces). Both are refreshed via `make refresh-fixtures` (which runs `tools/fixturegen/main.go`). The generator captures raw HTTP/SSE responses from the configured `BEACON_CHAIN_API` endpoint — same env/`.env` resolution as the e2e tests — plus public mainnet relay traces from Flashbots. Captured endpoints:
+Wire-format fixtures live under `internal/beaconchain/testdata/beacon/<chain>/` (beacon API + SSE; currently only `hoodi/`) and `internal/monitoring/testdata/mev/` (MEV relay bid traces, chain-agnostic since fixturegen pulls public mainnet relays). Beacon fixtures are **organized into per-scenario subdirectories under the chain** so each validator-failure-detection path gets its own self-contained bundle:
 
-- 6 go-eth2-client startup probes (`/eth/v1/node/{syncing,version}`, `/eth/v1/config/{spec,deposit_contract,fork_schedule}`, `/eth/v1/beacon/genesis`) — needed so the fake server can satisfy `BeaconChain.New()`.
-- The 7 endpoints the monitor uses (`finality_checkpoints`, `validators`, `blocks/{slot}`, `validator/duties/{proposer,attester}/{epoch}`, `states/{state_id}/committees`, `events`).
-- A real 404 envelope (`block_missed.json`) so the 4xx path is fixture-verifiable.
-- One page of `proposer_payload_delivered` per public MEV relay (Flashbots is always populated; ultrasound returns empty array for `cursor=0` and is auto-skipped).
+| Scenario | Beacon-API fingerprint | Monitoring metric exercised |
+|---|---|---|
+| `_shared` | go-eth2-client startup probes — invariant across scenarios for a given chain | (auto-registered by `fixtureServer`) |
+| `happy_path` | canonical block + on-time attestations at a stable test epoch; also captures `events_head.sse` (head transcript tee'd during the head-stream wait) | `TotalCanonicalProposals` |
+| `missed_proposal` | head-stream slot gap captured as a real 404 envelope | `TotalMissedProposals` + `LastMissedProposal*` |
+| `empty_block` | first head whose block has no EL transactions / blobs / Pectra exec requests | `TotalProposedEmptyBlocks` + `LastProposedEmptyBlockSlot` |
+| `delayed_attestation` | first head whose block carries an attestation with raw distance > 3 | `TotalDelayedOverTolerance` + `RawAttestationDistances` (>3 bucket) |
+| `cross_epoch_attestation` | first head whose block carries an attestation from a strictly earlier epoch; bundle also includes `block_prev.json` for the prev-epoch canonical block | `CrossEpochAttestations` |
+| `mev` | one page of `proposer_payload_delivered` from each public mainnet relay (Flashbots, ultrasound) | MEV side; written under `internal/monitoring/testdata/mev/` |
 
-Loading helpers:
-- `internal/beaconchain/testdata_test.go` provides `loadMeta(t)`, `loadFixture(t, name)` (embed.FS), and `fixtureServer(t, routes)` (auto-registers startup probes + caller routes; routes can be a static fixture or a custom `Handler` for flaky/cancel/error injection).
-- `internal/monitoring/testdata_test.go` provides `loadBeaconFixture(t, name)` and `loadBeaconMeta(t)` (cross-package via `os.ReadFile("../beaconchain/testdata/...")`), the same `fixtureServer` shape, and `loadMEVFixture(t, name)` for the relay bidtraces.
+Captures are produced by `tools/fixturegen/main.go --scenario=<name> [--chain=<name>]`. Capture flow (for beacon scenarios) **subscribes to `/eth/v1/events?topics=head`** on the configured `BEACON_CHAIN_API` endpoint and tails new head events. Each new block is fetched + recorded as `block_<slot>.json` in the scenario directory; the scenario predicate runs on each block until it matches, at which point the matched block is also mirrored as `block_canonical.json` and the per-epoch context (finality, validators, duties, committees) is captured. **Every block fetched during the wait stays on disk**, so each scenario subdirectory ends up with a dense set of real beacon JSON. Each scenario directory carries its own `meta.json` recording the chain + anchor slot/epoch + `captured_slots[]` (and scenario-specific extras: `missed_slot`, `empty_block_slot`, `max_distance`, `prev_epoch`/`prev_canonical_slot`).
 
-Tests anchor assertions to `meta.json` (`HasMissed`, `CanonicalSlot`, etc.) rather than hard-coded slot numbers so they stay green across `make refresh-fixtures` runs. Most monitoring/beaconchain tests are now fixture-backed integration tests (see Codebase Structure for the full list). The exceptions:
+Make targets:
+
+```bash
+make refresh-fixtures                            # loop every scenario (chain=hoodi); can take 30-60 min
+make refresh-scenario SCENARIO=missed_proposal   # single scenario (chain=hoodi)
+make refresh-fixtures CHAIN=sepolia              # capture against a different chain — fixtures land under testdata/beacon/sepolia/
+go run ./tools/fixturegen --scenario=empty_block --timeout=30m   # override the default 10-min wait for rare scenarios
+```
+
+Loading helpers (`defaultChain = "hoodi"` in `internal/beaconchain/testdata_test.go`; `defaultBeaconChain = "hoodi"` in `internal/monitoring/testdata_test.go` — both promoted to parameters when a second chain is added):
+- `internal/beaconchain/testdata_test.go` provides `loadMeta(t, scenario)`, `loadFixture(t, scenario, name)` (embed.FS, `all:testdata/beacon` so `_shared/` is included), `loadSharedFixture(t, name)`, and `fixtureServer(t, scenario, routes)` (auto-registers `_shared/` startup probes + caller routes; routes can be a static fixture or a custom `Handler` for flaky/cancel/error injection).
+- `internal/monitoring/testdata_test.go` provides `loadBeaconMeta(t, scenario)`, `loadBeaconFixture(t, scenario, name)`, `loadSharedBeaconFixture(t, name)`, and `loadMEVFixture(t, name)` via cross-package `os.ReadFile("../beaconchain/testdata/beacon/<chain>/<scenario>/...")`.
+- `internal/monitoring/scenario_helpers_test.go` provides `newScenarioRig(t, scenario)` which wires up `fixtureServer` + isolated `RequestMetrics` + `MonitorMetrics` + a real `BeaconChain`, ready for scenario tests to call.
+
+Tests anchor assertions to scenario `meta.json` (`HasMissed`, `CanonicalSlot`, `EmptyBlockSlot`, `MaxDistance`, etc.) rather than hard-coded slot numbers so they stay green across refresh runs. The `_shared` scenario has no `meta.json` — its files are chain-invariant.
+
+`meta.json` records the scenario name + anchor fields + `captured_at` + `generator_version` and **deliberately excludes any endpoint identifier** (no host, no URL) so committed fixtures don't disclose which upstream the project fixtures from. Captured response bodies are pure beacon-API JSON and likewise contain no upstream identifiers. The 1 MiB per-fixture cap rejects oversized captures; `committees.json` is slot-filtered (`?slot=…`) because the unfiltered response exceeds the cap on networks with large validator sets — production code path fetches full-epoch committees, so the slot-filtered fixture covers only the canonical anchor slot. Scenario tests that drive `processAttestations` against the captured fixture will see `attestation references committee with no lookup entry; skipping` warnings for attestations referencing other slots (the integration test asserts wire-format integrity + BeaconAPI metric labels; outcome assertions for the monitoring counters live in `attestations_classification_test.go` with synthesised committees).
+
+Most monitoring/beaconchain tests are now fixture-backed integration tests (see Codebase Structure for the full list). The exceptions:
 - `attestations_classification_test.go` — synthesised edge cases (cross-epoch dedup, AggregationBits offset drift) whose specific (validator, slot, committee) tuples can't be reproduced from a single captured block.
 - `monitoring_helpers_test.go` — pure file/goroutine helpers (sendEpoch, LoadKeys, LoadMEVRelays, ResumeEpoch, runSSESubscription) with no beacon I/O to fixture.
-
-`meta.json` records `finalized_epoch`, `test_epoch`, `canonical_slot`, `missed_slot`, `has_missed`, `captured_at`, and `generator_version` — and **deliberately excludes any endpoint identifier** (no host, no URL) so committed fixtures don't disclose which upstream the project fixtures from. Captured response bodies are pure beacon-API JSON and likewise contain no upstream identifiers. The 1 MiB per-fixture cap rejects oversized captures; `committees.json` is slot-filtered (`?slot=…`) because the unfiltered response exceeds the cap on networks with large validator sets (the wire format is identical).
 
 **go-eth2-client SSE caveat (production observability gap):** `eth2http.WithHTTPClient` does NOT route SSE traffic through the configured transport — `Events()` doesn't increment the production beacon-API request counter. The `events_template_strips_query` subtest in `metrics_e2e_test.go` side-channels a direct `http.Client.Do` against the events URL via the same `instrumentingTransport` to keep fixture-based detection coverage for that endpoint.
 
@@ -228,6 +264,9 @@ Tests anchor assertions to `meta.json` (`HasMissed`, `CanonicalSlot`, etc.) rath
 - **Attestation tracking is memory-sensitive** -- was reworked 3 times to fix OOM (PR #20); be careful adding per-validator state
 - **Prometheus counter names must be unique** -- duplicate registration panics at startup (happened with `total_canonical_attestations_counter` in PR #26)
 - **`CheckProposal` returns false on proposer-index mismatch** -- when the block at a duty slot was proposed by an unexpected validator, `CheckProposal` short-circuits and returns false; the orchestrator MUST leave that slot in `ec.ProposerDuties` so `FinalizeMissedProposals` later reports it as missed. A naïve unconditional `delete(ec.ProposerDuties, slot)` after the call silently swallows the report (regression-trapped by `TestCheckProposal_ProposerMismatch`).
+- **Scenario captures depend on live testnet behaviour** -- `tools/fixturegen --scenario=<name>` tails `/eth/v1/events?topics=head` and waits up to 10 min (`--timeout` overrides) for a matching head event. `empty_block` may not find a match during high-traffic windows (Hoodi staging routinely runs 10 min with every block carrying EL value); the operator gets an actionable timeout error and the corresponding scenario test cleanly `Skip`s when the fixture is missing. Re-run during quieter periods or extend with `--timeout=30m`.
+- **Capture against a non-Hoodi chain must set `--chain=<name>`** -- the default is `hoodi`, which writes into `testdata/beacon/hoodi/<scenario>/`. Capturing against a different chain WITHOUT overriding `--chain` collides into Hoodi's fixture set. The Make wrapper threads `CHAIN=<name>` through (`make refresh-fixtures CHAIN=sepolia`).
+- **fixturegen first-fetch 404s are normal** -- head announcements occasionally outpace block availability on the beacon's read side; fixturegen retries once after 500ms and logs `WARN first fetch slot=N failed: status 404`. Both the retry success and the warn line are expected.
 
 ## Architecture
 

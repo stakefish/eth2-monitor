@@ -66,7 +66,7 @@ func newBeaconChainAgainst(t *testing.T, baseURL string) *beaconchain.BeaconChai
 func TestListEpochBlocks_RecoversFromTransientError(t *testing.T) {
 	quietGoEth2Client(t)
 
-	meta := loadBeaconMeta(t)
+	meta := loadBeaconMeta(t, "missed_proposal")
 	canonical := meta.CanonicalSlot
 	epoch := phase0.Epoch(meta.TestEpoch)
 
@@ -77,7 +77,7 @@ func TestListEpochBlocks_RecoversFromTransientError(t *testing.T) {
 			w.WriteHeader(http.StatusBadGateway)
 			return
 		}
-		body := loadBeaconFixture(t, "block_canonical.json")
+		body := loadBeaconFixture(t, "missed_proposal", "block_canonical.json")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(body)
@@ -94,7 +94,7 @@ func TestListEpochBlocks_RecoversFromTransientError(t *testing.T) {
 		routes = append(routes, fixtureRoute{Path: blockRouteFor(uint64(s)), Status: http.StatusNotFound, File: "block_missed.json"})
 	}
 
-	server := fixtureServer(t, routes)
+	server := fixtureServer(t, "missed_proposal", routes)
 	bc := newBeaconChainAgainst(t, server.URL)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -120,7 +120,7 @@ func TestListEpochBlocks_RecoversFromTransientError(t *testing.T) {
 func TestListEpochBlocks_PersistentErrorMissed(t *testing.T) {
 	quietGoEth2Client(t)
 
-	meta := loadBeaconMeta(t)
+	meta := loadBeaconMeta(t, "missed_proposal")
 	canonical := meta.CanonicalSlot
 	epoch := phase0.Epoch(meta.TestEpoch)
 
@@ -134,7 +134,7 @@ func TestListEpochBlocks_PersistentErrorMissed(t *testing.T) {
 		}
 		routes = append(routes, fixtureRoute{Path: blockRouteFor(uint64(s)), Status: http.StatusNotFound, File: "block_missed.json"})
 	}
-	server := fixtureServer(t, routes)
+	server := fixtureServer(t, "missed_proposal", routes)
 	bc := newBeaconChainAgainst(t, server.URL)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -157,7 +157,7 @@ func TestListEpochBlocks_PersistentErrorMissed(t *testing.T) {
 func TestListEpochBlocks_404ShortCircuits(t *testing.T) {
 	quietGoEth2Client(t)
 
-	meta := loadBeaconMeta(t)
+	meta := loadBeaconMeta(t, "missed_proposal")
 	epoch := phase0.Epoch(meta.TestEpoch)
 	low := spec.EpochLowestSlot(epoch)
 
@@ -167,7 +167,7 @@ func TestListEpochBlocks_404ShortCircuits(t *testing.T) {
 		hits[slotPath] = &n
 		return func(w http.ResponseWriter, r *http.Request) {
 			atomic.AddInt32(&n, 1)
-			body := loadBeaconFixture(t, "block_missed.json")
+			body := loadBeaconFixture(t, "missed_proposal", "block_missed.json")
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusNotFound)
 			_, _ = w.Write(body)
@@ -178,7 +178,7 @@ func TestListEpochBlocks_404ShortCircuits(t *testing.T) {
 		path := blockRouteFor(uint64(s))
 		routes = append(routes, fixtureRoute{Path: path, Handler: makeHandler(path)})
 	}
-	server := fixtureServer(t, routes)
+	server := fixtureServer(t, "missed_proposal", routes)
 	bc := newBeaconChainAgainst(t, server.URL)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -206,12 +206,12 @@ func TestListEpochBlocks_404ShortCircuits(t *testing.T) {
 func TestListEpochBlocks_CtxCancelStopsBackoff(t *testing.T) {
 	quietGoEth2Client(t)
 
-	meta := loadBeaconMeta(t)
+	meta := loadBeaconMeta(t, "missed_proposal")
 	canonical := meta.CanonicalSlot
 	always502 := func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)
 	}
-	server := fixtureServer(t, []fixtureRoute{
+	server := fixtureServer(t, "missed_proposal", []fixtureRoute{
 		{Path: blockRouteFor(canonical), Handler: always502},
 	})
 	bc := newBeaconChainAgainst(t, server.URL)
@@ -252,9 +252,10 @@ func TestListEpochBlocks_CtxCancelStopsBackoff(t *testing.T) {
 func TestResolveValidatorKeys_FromFixture(t *testing.T) {
 	quietGoEth2Client(t)
 
-	meta := loadBeaconMeta(t)
+	const scenario = "happy_path"
+	meta := loadBeaconMeta(t, scenario)
 	epoch := phase0.Epoch(meta.TestEpoch)
-	server := fixtureServer(t, []fixtureRoute{
+	server := fixtureServer(t, scenario, []fixtureRoute{
 		// Production POSTs with State=fmt.Sprintf("%d", EpochLowestSlot(epoch)).
 		{Path: fmt.Sprintf("/eth/v1/beacon/states/%d/validators", spec.EpochLowestSlot(epoch)), Status: http.StatusOK, File: "validators_indices_0_1_2.json"},
 	})
@@ -271,7 +272,7 @@ func TestResolveValidatorKeys_FromFixture(t *testing.T) {
 			} `json:"validator"`
 		} `json:"data"`
 	}{}
-	if err := json.Unmarshal(loadBeaconFixture(t, "validators_indices_0_1_2.json"), &validatorsResp); err != nil {
+	if err := json.Unmarshal(loadBeaconFixture(t, scenario, "validators_indices_0_1_2.json"), &validatorsResp); err != nil {
 		t.Fatalf("decode validators fixture: %v", err)
 	}
 	var probePubkeys []string
@@ -316,9 +317,10 @@ func TestResolveValidatorKeys_FromFixture(t *testing.T) {
 func TestListProposerDuties_FromFixture(t *testing.T) {
 	quietGoEth2Client(t)
 
-	meta := loadBeaconMeta(t)
+	const scenario = "happy_path"
+	meta := loadBeaconMeta(t, scenario)
 	epoch := phase0.Epoch(meta.TestEpoch)
-	server := fixtureServer(t, []fixtureRoute{
+	server := fixtureServer(t, scenario, []fixtureRoute{
 		{Path: fmt.Sprintf("/eth/v1/validator/duties/proposer/%d", epoch), Status: http.StatusOK, File: "proposer_duties.json"},
 	})
 	bc := newBeaconChainAgainst(t, server.URL)

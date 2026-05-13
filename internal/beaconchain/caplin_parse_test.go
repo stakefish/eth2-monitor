@@ -21,8 +21,8 @@ import (
 )
 
 func TestParseCapturedBlock_ShapeMatchesElectra(t *testing.T) {
-	meta := loadMeta(t)
-	body := loadFixture(t, "block_canonical.json")
+	meta := loadMeta(t, "happy_path")
+	body := loadFixture(t, "happy_path", "block_canonical.json")
 
 	// Beacon API envelope: {"version":"fulu","data":{...},"execution_optimistic":bool,"finalized":bool}
 	var envelope struct {

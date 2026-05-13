@@ -16,8 +16,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -41,7 +39,7 @@ import (
 func TestMonitorAttestationsAndProposals_PreCancelledCtx_RealBeacon(t *testing.T) {
 	quietGoEth2Client(t)
 
-	server := fixtureServer(t, nil)
+	server := fixtureServer(t, "happy_path", nil)
 	bc := newBeaconChainAgainst(t, server.URL)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -87,7 +85,7 @@ func TestMonitorAttestationsAndProposals_PreCancelledCtx_RealBeacon(t *testing.T
 func TestMonitorAttestationsAndProposals_ClosedChannelCancelsCtx_RealBeacon(t *testing.T) {
 	quietGoEth2Client(t)
 
-	server := fixtureServer(t, nil)
+	server := fixtureServer(t, "happy_path", nil)
 	bc := newBeaconChainAgainst(t, server.URL)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -167,11 +165,13 @@ func sseStreamServer(t *testing.T, sseFixture []byte) *http.ServeMux {
 func TestSubscribeToEpochs_ReceivesFromCapturedSSE(t *testing.T) {
 	quietGoEth2Client(t)
 
-	// Read the captured SSE fixture verbatim.
-	sseBody, err := os.ReadFile(filepath.Join(beaconTestdataRel, "beacon", "events_head.sse"))
-	if err != nil {
-		t.Fatalf("read events_head.sse: %v (run `make refresh-fixtures`)", err)
-	}
+	// Read the captured SSE fixture verbatim. Each scenario captures
+	// its own SSE transcript while waiting for a matching head event,
+	// so the SSE bytes are anchored to that scenario's slot range.
+	// happy_path is the natural choice for a generic SSE-replay test
+	// — the test only cares that SOME slots flow through the pipeline,
+	// not which scenario produced them.
+	sseBody := loadBeaconFixture(t, "happy_path", "events_head.sse")
 	if len(sseBody) == 0 {
 		t.Skip("captured SSE fixture is empty — relay had no events at capture time")
 	}
@@ -188,14 +188,14 @@ func TestSubscribeToEpochs_ReceivesFromCapturedSSE(t *testing.T) {
 		path := path
 		file := file
 		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
-			body := loadBeaconFixture(t, file)
+			body := loadSharedBeaconFixture(t, file)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write(body)
 		})
 	}
 	mux.HandleFunc("/eth/v1/beacon/states/head/finality_checkpoints", func(w http.ResponseWriter, r *http.Request) {
-		body := loadBeaconFixture(t, "finality_checkpoints.json")
+		body := loadBeaconFixture(t, "happy_path", "finality_checkpoints.json")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(body)

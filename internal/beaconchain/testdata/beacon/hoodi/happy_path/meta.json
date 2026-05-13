@@ -1,0 +1,11 @@
+{
+  "scenario": "happy_path",
+  "finalized_epoch": 94892,
+  "test_epoch": 94894,
+  "canonical_slot": 3036612,
+  "captured_slots": [
+    3036612
+  ],
+  "captured_at": "2026-05-13T06:12:27.740677Z",
+  "generator_version": "3"
+}

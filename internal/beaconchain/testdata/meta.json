@@ -1,9 +1,0 @@
-{
-  "finalized_epoch": 94874,
-  "test_epoch": 94873,
-  "canonical_slot": 3035936,
-  "missed_slot": 3035940,
-  "has_missed": true,
-  "captured_at": "2026-05-13T04:20:04.942827Z",
-  "generator_version": "2"
-}

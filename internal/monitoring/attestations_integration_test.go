@@ -123,7 +123,7 @@ func TestProcessAttestations_AcceptsRealAttestations(t *testing.T) {
 // (size, computed from len(validators) per spec).
 func decodeCommitteesFixture(t *testing.T) map[phase0.Slot]map[phase0.CommitteeIndex]uint64 {
 	t.Helper()
-	body := loadBeaconFixture(t, "committees.json")
+	body := loadBeaconFixture(t, "happy_path", "committees.json")
 	var resp struct {
 		Data []struct {
 			Slot       string   `json:"slot"`
@@ -158,7 +158,7 @@ func decodeCommitteesFixture(t *testing.T) map[phase0.Slot]map[phase0.CommitteeI
 // []*v1.AttesterDuty slice BuildCommitteeLookup expects.
 func decodeAttesterDutiesFixture(t *testing.T) []*v1.AttesterDuty {
 	t.Helper()
-	body := loadBeaconFixture(t, "attester_duties.json")
+	body := loadBeaconFixture(t, "happy_path", "attester_duties.json")
 	// Beacon API envelope: {"dependent_root":..., "execution_optimistic":..., "data":[...duties...]}
 	var resp struct {
 		Data []*v1.AttesterDuty `json:"data"`

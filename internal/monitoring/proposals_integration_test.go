@@ -28,7 +28,7 @@ import (
 // so test mutations don't leak between tests via shared pointers.
 func loadCapturedBlock(t *testing.T) *electra.SignedBeaconBlock {
 	t.Helper()
-	body := loadBeaconFixture(t, "block_canonical.json")
+	body := loadBeaconFixture(t, "happy_path", "block_canonical.json")
 	var env struct {
 		Version string                     `json:"version"`
 		Data    *electra.SignedBeaconBlock `json:"data"`

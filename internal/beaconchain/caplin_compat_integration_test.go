@@ -217,7 +217,7 @@ func TestCaplinAmountFixerPassesThroughNon200(t *testing.T) {
 // block payload, or (b) fail to handle a new unquoted-uint64 field
 // introduced by a future fork.
 func TestCaplinAmountFixerOnRealBlockFixture(t *testing.T) {
-	body := loadFixture(t, "block_canonical.json")
+	body := loadFixture(t, "happy_path", "block_canonical.json")
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(body)
