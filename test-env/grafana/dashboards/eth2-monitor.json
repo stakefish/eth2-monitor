@@ -251,13 +251,13 @@
     },
     {
       "id": 2,
-      "title": "Attester Eff. (${window})",
+      "title": "Attester Eff.",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Attestant effectiveness \u00d7 availability over the selected $window. Effectiveness = earliest_inclusion / actual_inclusion, using the missed-slot-adjusted distance histogram (so a missed proposer slot doesn't penalise the validator). Short windows are noisy \u2014 see the 7d trend panel beside the deficit chart for a stable SLO-grade reading. BeaconScore / RAVER bands: \u226599.5% exceptional, \u226599% target, <98% concerning.",
+      "description": "Attestant effectiveness \u00d7 availability over the dashboard's selected time range. Effectiveness = earliest_inclusion / actual_inclusion, using the missed-slot-adjusted distance histogram (so a missed proposer slot doesn't penalise the validator). Short ranges are noisy \u2014 see the 7d trend panel beside the deficit chart for a stable SLO-grade reading. BeaconScore / RAVER bands: \u226599.5% exceptional, \u226599% target, <98% concerning.",
       "gridPos": {
         "x": 4,
         "y": 2,
@@ -316,7 +316,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(1 - sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$window])) / clamp_min(sum(rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$window])) + sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$window])), 1e-9)) * (sum(rate(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[$window])) / clamp_min(sum(rate(ETH2_canonicalAttestationDistances_sum{service=~\"$service\",container!=\"\",container=~\"$container\"}[$window])) + sum(rate(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[$window])), 1e-9))",
+          "expr": "(1 - sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) / clamp_min(sum(rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])), 1e-9)) * (sum(rate(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range])) / clamp_min(sum(rate(ETH2_canonicalAttestationDistances_sum{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range])) + sum(rate(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range])), 1e-9))",
           "legendFormat": "{{container}}",
           "refId": "A",
           "instant": true,
@@ -332,7 +332,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "RAVER-style proposer effectiveness over the last 24h. (non_empty + 0.25 \u00d7 empty) / (non_empty + empty + missed). Empty proposals score 25% credit; missed score 0. Reads 'No data' when fewer than 5 proposer duties fell in the window \u2014 a 1-of-2 miss on a sparse fleet would otherwise false-red the tile. Window is fixed at 24h (not tied to $window) because proposer duties are rare; shorter windows would read 'No data' more often than not.",
+      "description": "RAVER-style proposer effectiveness over the last 24h. (non_empty + 0.25 \u00d7 empty) / (non_empty + empty + missed). Empty proposals score 25% credit; missed score 0. Reads 'No data' when fewer than 5 proposer duties fell in the window \u2014 a 1-of-2 miss on a sparse fleet would otherwise false-red the tile. Window is fixed at 24h (not tied to the dashboard time range) because proposer duties are rare; shorter ranges would read 'No data' more often than not.",
       "gridPos": {
         "x": 8,
         "y": 2,
@@ -401,13 +401,13 @@
     },
     {
       "id": 5,
-      "title": "Delayed Rate (${window})",
+      "title": "Delayed Rate",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Share of canonical attestations whose inclusion distance exceeds the spec-distance-3 tolerance, over the selected $window. Tier-2 severity indicator.",
+      "description": "Share of canonical attestations whose inclusion distance exceeds the spec-distance-3 tolerance, over the dashboard's selected time range. Tier-2 severity indicator.",
       "gridPos": {
         "x": 12,
         "y": 2,
@@ -465,7 +465,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$window])) / clamp_min(sum(rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$window])), 1e-9)",
+          "expr": "sum(rate(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) / clamp_min(sum(rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])), 1e-9)",
           "legendFormat": "{{container}}",
           "refId": "A",
           "instant": true,
@@ -475,13 +475,13 @@
     },
     {
       "id": 3,
-      "title": "Distance p99 (${window})",
+      "title": "Distance p99",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "99th-percentile canonical inclusion distance in shifted slots (0 = spec-distance 1 = optimal). Per container, over the selected $window. Tier-3 indicator (Attestant model).",
+      "description": "99th-percentile canonical inclusion distance in shifted slots (0 = spec-distance 1 = optimal). Per container, over the dashboard's selected time range. Tier-3 indicator (Attestant model).",
       "gridPos": {
         "x": 16,
         "y": 2,
@@ -539,7 +539,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.99, sum(rate(ETH2_canonicalAttestationDistances_bucket{service=~\"$service\",container!=\"\",container=~\"$container\"}[$window])) by (container, le))",
+          "expr": "histogram_quantile(0.99, sum(rate(ETH2_canonicalAttestationDistances_bucket{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range])) by (container, le))",
           "legendFormat": "{{container}}",
           "refId": "A",
           "instant": true,
@@ -549,13 +549,13 @@
     },
     {
       "id": 4,
-      "title": "API Errors (${window})",
+      "title": "API Errors",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Beacon API non-2xx response share over the selected $window. Infrastructure health, not a validator metric.",
+      "description": "Beacon API non-2xx response share over the dashboard's selected time range. Infrastructure health, not a validator metric.",
       "gridPos": {
         "x": 20,
         "y": 2,
@@ -613,7 +613,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(ETH2_beaconAPIRequestsTotal{service=~\"$service\",container!=\"\",container=~\"$container\",status_class=~\"4xx|5xx|error\"}[$window])) / clamp_min(sum(rate(ETH2_beaconAPIRequestsTotal{service=~\"$service\",container!=\"\",container=~\"$container\"}[$window])), 1e-9)",
+          "expr": "sum(rate(ETH2_beaconAPIRequestsTotal{service=~\"$service\",container!=\"\",container=~\"$container\",status_class=~\"4xx|5xx|error\"}[$__range])) / clamp_min(sum(rate(ETH2_beaconAPIRequestsTotal{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range])), 1e-9)",
           "legendFormat": "{{container}}",
           "refId": "A",
           "instant": true,
@@ -754,7 +754,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$window])) / clamp_min(sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$window])) + sum(rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$window])), 1e-9)",
+          "expr": "sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__rate_interval])) / clamp_min(sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__rate_interval])) + sum(rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__rate_interval])), 1e-9)",
           "legendFormat": "Missed",
           "refId": "A",
           "range": true
@@ -765,7 +765,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$window])) / clamp_min(sum(rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$window])) + sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$window])), 1e-9)",
+          "expr": "sum(rate(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__rate_interval])) / clamp_min(sum(rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__rate_interval])) + sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__rate_interval])), 1e-9)",
           "legendFormat": "Delayed >tol",
           "refId": "B",
           "range": true
@@ -776,7 +776,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(ETH2_canonicalAttestationDistances_sum{service=~\"$service\",container!=\"\",container=~\"$container\"}[$window])) / clamp_min(sum(rate(ETH2_canonicalAttestationDistances_sum{service=~\"$service\",container!=\"\",container=~\"$container\"}[$window])) + sum(rate(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[$window])), 1e-9)",
+          "expr": "sum(rate(ETH2_canonicalAttestationDistances_sum{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__rate_interval])) / clamp_min(sum(rate(ETH2_canonicalAttestationDistances_sum{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__rate_interval])) + sum(rate(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__rate_interval])), 1e-9)",
           "legendFormat": "Distance loss",
           "refId": "C",
           "range": true
@@ -791,7 +791,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Attestant-recommended 7-day rolling trend for SLO-grade assessment of attester effectiveness. Effectiveness = earliest_inclusion / actual_inclusion, multiplied by availability. The 7d window is fixed (not tied to $window) per Attestant's guidance that single-attestation or short-window values are too noisy to act on. Threshold step-lines at the BeaconScore 99.5% and 98% bands.",
+      "description": "Attestant-recommended 7-day rolling trend for SLO-grade assessment of attester effectiveness. Effectiveness = earliest_inclusion / actual_inclusion, multiplied by availability. The 7d window is fixed (not tied to the dashboard time range) per Attestant's guidance that single-attestation or short-window values are too noisy to act on. Threshold step-lines at the BeaconScore 99.5% and 98% bands.",
       "gridPos": {
         "x": 12,
         "y": 6,
@@ -2262,7 +2262,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(rate(ETH2_crossEpochAttestations{service=~\"$service\",container!=\"\",container=~\"$container\"}[$window])) by (container)",
+              "expr": "sum(rate(ETH2_crossEpochAttestations{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__rate_interval])) by (container)",
               "legendFormat": "{{container}}",
               "refId": "A",
               "range": true
@@ -2873,7 +2873,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "description": "Stacked beacon-API request rate by endpoint ($__rate_interval; auto-sized to viewport). Use $__rate_interval rather than the dashboard $window because rate() over a long window like 24h underreports during cold-start uptime and produces a misleading upward ramp.",
+          "description": "Stacked beacon-API request rate by endpoint ($__rate_interval; auto-sized to viewport). $__rate_interval is used so rate() doesn't underreport during cold-start uptime over a long fixed window (which produces a misleading upward ramp).",
           "gridPos": {
             "x": 0,
             "y": 79,
@@ -3192,7 +3192,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(rate(ETH2_duplicateAttestationsSkipped{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$window])) by (container)",
+              "expr": "sum(rate(ETH2_duplicateAttestationsSkipped{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__rate_interval])) by (container)",
               "legendFormat": "{{container}}",
               "refId": "A",
               "range": true
@@ -3316,54 +3316,6 @@
           }
         ],
         "query": "10,25,50,100,250",
-        "queryValue": "",
-        "skipUrlSync": false,
-        "type": "custom"
-      },
-      {
-        "current": {
-          "text": "24h",
-          "value": "24h"
-        },
-        "description": "Rolling time window used by the KPI tiles, deficit chart, and Beacon API rate panels. Default 24h. Does NOT affect the 7-day trend (fixed) or per-validator timelines (fixed at 1 min).",
-        "hide": 0,
-        "includeAll": false,
-        "label": "Window",
-        "multi": false,
-        "name": "window",
-        "options": [
-          {
-            "selected": false,
-            "text": "5m",
-            "value": "5m"
-          },
-          {
-            "selected": false,
-            "text": "15m",
-            "value": "15m"
-          },
-          {
-            "selected": false,
-            "text": "1h",
-            "value": "1h"
-          },
-          {
-            "selected": false,
-            "text": "6h",
-            "value": "6h"
-          },
-          {
-            "selected": true,
-            "text": "24h",
-            "value": "24h"
-          },
-          {
-            "selected": false,
-            "text": "7d",
-            "value": "7d"
-          }
-        ],
-        "query": "5m,15m,1h,6h,24h,7d",
         "queryValue": "",
         "skipUrlSync": false,
         "type": "custom"
