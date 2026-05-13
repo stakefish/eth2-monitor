@@ -1,0 +1,13 @@
+event: head
+data: {"slot":"3035997","block":"0x159d7b29b9bbe0ae2cfd17e2f1fd2e8a17f095446130183ed8569c587b5bbd40","state":"0xdf6c600cf5d4e632893e411f32959608623766a9cb1cae567acfaa3d252946fa","epoch_transition":true,"previous_duty_dependent_root":"0x0d0152e1e0411f5a2ab8ef41b9660ea9a6d3db735f34895ed1b83ee492b405c5","current_duty_dependent_root":"0xa2d1b3060fa2ed111b15ae543ab01f549aca02d9cd663502a647422674ba2183","execution_optimistic":false}
+
+:
+
+event: head
+data: {"slot":"3035998","block":"0x761093a6751948fb3d6f418f811f90a874f457bd99357bd001cbcd0b780d1d06","state":"0xe31f6920973eb3bd8dff476f33eea477a1c1bfc44f88afa7ae1c86ada431f297","epoch_transition":true,"previous_duty_dependent_root":"0x0d0152e1e0411f5a2ab8ef41b9660ea9a6d3db735f34895ed1b83ee492b405c5","current_duty_dependent_root":"0xa2d1b3060fa2ed111b15ae543ab01f549aca02d9cd663502a647422674ba2183","execution_optimistic":false}
+
+:
+
+event: head
+data: {"slot":"3035999","block":"0x81110865bb9d1ae0dc7adeb675b08bc7fe186a1847a18a3c24ca7569cce79d65","state":"0xed6020e210af2e59aab067af9ee3331029665e9c4873a45a944006698afde843","epoch_transition":true,"previous_duty_dependent_root":"0x0d0152e1e0411f5a2ab8ef41b9660ea9a6d3db735f34895ed1b83ee492b405c5","current_duty_dependent_root":"0xa2d1b3060fa2ed111b15ae543ab01f549aca02d9cd663502a647422674ba2183","execution_optimistic":false}
+
