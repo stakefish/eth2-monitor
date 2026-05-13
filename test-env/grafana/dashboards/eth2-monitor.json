@@ -1226,7 +1226,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 23,
+        "y": 31,
         "w": 24,
         "h": 1
       },
@@ -1243,7 +1243,7 @@
       "description": "Per-validator effectiveness snapshot over the dashboard time range, ranked by issue score = missed + 0.5*delayed_over_tolerance. Rows depend on the View toggle: Problematic only shows validators with score > 0; All shows top-$top regardless of score. Click an Index to pin this validator in the drilldown row below; click a Pubkey to open beaconcha.in.",
       "gridPos": {
         "x": 0,
-        "y": 24,
+        "y": 32,
         "w": 24,
         "h": 14
       },
@@ -1632,7 +1632,7 @@
       "description": "Per-cluster attestation miss rate over the last 1 minute. One line per scrape container. Severity bands: <0.5% green, 0.5\u20132% yellow, >2% red.",
       "gridPos": {
         "x": 0,
-        "y": 38,
+        "y": 22,
         "w": 12,
         "h": 8
       },
@@ -1721,7 +1721,7 @@
       "description": "Per-cluster share of attestations delayed beyond the spec-distance tolerance over the last 1 minute. One line per scrape container. Severity bands: <0.5% green, 0.5\u20132% yellow, >2% red.",
       "gridPos": {
         "x": 12,
-        "y": 38,
+        "y": 22,
         "w": 12,
         "h": 8
       },
@@ -1990,12 +1990,12 @@
         {
           "id": 201,
           "title": "Canonical Distance Distribution (missed-slot-adjusted)",
-          "type": "barchart",
+          "type": "histogram",
           "datasource": {
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "description": "Snapshot distribution of canonical inclusion distances over the dashboard time range. X = shifted slots (0 = optimal, included at attestedSlot+1). Y = sample count. Per-bucket counts derived from histogram bucket de-cumulation.",
+          "description": "Snapshot distribution of canonical inclusion distances over the dashboard time range. X = shifted slots (0 = optimal, included at attestedSlot+1). Y = sample count. Histogram panel rendering of the de-cumulated bucket frame; each bar = count of attestations with that shifted distance.",
           "gridPos": {
             "x": 0,
             "y": 57,
@@ -2032,13 +2032,9 @@
             "overrides": []
           },
           "options": {
-            "orientation": "vertical",
-            "xField": "le",
-            "showValue": "auto",
-            "stacking": "none",
-            "groupWidth": 0.7,
-            "barWidth": 0.97,
-            "fullHighlight": false,
+            "bucketSize": null,
+            "bucketOffset": 0,
+            "combine": false,
             "legend": {
               "displayMode": "list",
               "placement": "bottom",
@@ -2069,12 +2065,12 @@
         {
           "id": 202,
           "title": "Raw Distance Distribution",
-          "type": "barchart",
+          "type": "histogram",
           "datasource": {
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "description": "Snapshot distribution of raw inclusion distances over the dashboard time range (before missed-slot adjustment). X = shifted slots (0 = optimal, included at attestedSlot+1). Y = sample count. Per-bucket counts derived from histogram bucket de-cumulation.",
+          "description": "Snapshot distribution of raw inclusion distances over the dashboard time range (before missed-slot adjustment). X = shifted slots (0 = optimal, included at attestedSlot+1). Y = sample count. Histogram panel rendering of the de-cumulated bucket frame; each bar = count of attestations with that shifted distance.",
           "gridPos": {
             "x": 12,
             "y": 57,
@@ -2111,13 +2107,9 @@
             "overrides": []
           },
           "options": {
-            "orientation": "vertical",
-            "xField": "le",
-            "showValue": "auto",
-            "stacking": "none",
-            "groupWidth": 0.7,
-            "barWidth": 0.97,
-            "fullHighlight": false,
+            "bucketSize": null,
+            "bucketOffset": 0,
+            "combine": false,
             "legend": {
               "displayMode": "list",
               "placement": "bottom",
