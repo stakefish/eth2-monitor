@@ -81,6 +81,15 @@ var (
 			beacon, err := beaconchain.New(rootCtx, opts.BeaconChainAPI, time.Minute, metrics.BeaconRequestMetrics())
 			monitoring.Must(err)
 
+			// One-shot: read CONFIG_NAME from /eth/v1/config/spec so the
+			// dashboard's beaconchain_host template var can swap the
+			// validator-detail URL host between mainnet and the testnets.
+			// Non-fatal: an error here just leaves the host variable
+			// empty, the rest of the monitor still works.
+			if _, _, err := monitoring.RegisterChainInfo(rootCtx, beacon, metrics); err != nil {
+				log.Error().Err(err).Msg("RegisterChainInfo failed; dashboard beaconchain_host will be empty")
+			}
+
 			plainPubkeys, err := monitoring.LoadKeys(args)
 			monitoring.Must(err)
 			if len(plainPubkeys) == 0 {

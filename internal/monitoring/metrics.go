@@ -37,6 +37,11 @@ type MonitorMetrics struct {
 	// Beacon API request instrumentation
 	BeaconAPIRequests *prometheus.CounterVec
 	BeaconAPIDuration *prometheus.HistogramVec
+	// Info is a static value=1 gauge carrying chain identity. RegisterChainInfo
+	// populates it once at startup from /eth/v1/config/spec; the Grafana
+	// dashboard's `beaconchain_host` template variable resolves off of it to
+	// swap the validator-detail URL host between mainnet/Hoodi/Holesky/Sepolia.
+	Info *prometheus.GaugeVec
 	// SSEResubscribes counts every unexpected return from
 	// runSSESubscription that the retry loop has caught and recovered
 	// from. A healthy monitor reports 0; a steadily-incrementing value
@@ -208,6 +213,11 @@ func NewMonitorMetrics(reg prometheus.Registerer) *MonitorMetrics {
 			Help:      "Beacon API request latency in seconds",
 			Buckets:   prometheus.DefBuckets,
 		}, []string{"endpoint", "method"}),
+		Info: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: "ETH2",
+			Name:      "info",
+			Help:      "Static info gauge (value=1) carrying chain identity. Labels: chain (CONFIG_NAME from beacon spec), beaconchain_host (matching beaconcha.in subdomain). Used by the Grafana dashboard to render chain-aware validator deep-links.",
+		}, []string{"chain", "beaconchain_host"}),
 		SSEResubscribes: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "ETH2",
 			Name:      "sseResubscribes",
@@ -254,6 +264,7 @@ func NewMonitorMetrics(reg prometheus.Registerer) *MonitorMetrics {
 		m.CrossEpochAttestations,
 		m.BeaconAPIRequests,
 		m.BeaconAPIDuration,
+		m.Info,
 		m.SSEResubscribes,
 	} {
 		register(c)

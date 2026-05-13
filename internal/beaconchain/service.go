@@ -66,6 +66,22 @@ func (beacon *BeaconChain) Service() eth2client.Service {
 	return beacon.service
 }
 
+// Spec returns the chain config map from /eth/v1/config/spec. Used at
+// startup to identify the chain (CONFIG_NAME) so the dashboard can swap
+// the beaconcha.in host. Returns whatever go-eth2-client cached on first
+// call; subsequent calls are effectively free.
+func (beacon *BeaconChain) Spec(ctx context.Context) (map[string]any, error) {
+	provider, ok := beacon.service.(eth2client.SpecProvider)
+	if !ok {
+		return nil, fmt.Errorf("beacon.Service() does not satisfy eth2client.SpecProvider; library breaking change")
+	}
+	resp, err := provider.Spec(ctx, &api.SpecOpts{})
+	if err != nil {
+		return nil, err
+	}
+	return resp.Data, nil
+}
+
 func NormalizedPublicKey(pubkey string) string {
 	if !strings.HasPrefix(pubkey, "0x") {
 		panic(fmt.Sprintf("Public key did not have the expected 0x prefix: %v", pubkey))
