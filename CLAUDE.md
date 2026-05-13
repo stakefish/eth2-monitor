@@ -59,7 +59,9 @@ docs/                -- Onboarding reference (BEACON_API_USAGE, ERIGON_CAPLIN_CO
                        ETHEREUM_HARDFORK_TIMELINE, METRICS, attestant/ research notes).
                        Untracked in git but checked-out locally; useful for context.
 Dockerfile           -- Multi-stage: golang:alpine builder -> alpine runtime, non-root user; builds ./cmd/eth2-monitor
-Makefile             -- Targets: `build` (default), `lint`, `test` (= `go test -cover ./...`), `test-e2e` (build tag `e2e` against ./internal/beaconchain/...); output: bin/eth2-monitor with git version ldflags
+Makefile             -- Targets: `build` (default), `lint`, `test` (= `go test -cover ./...`), `test-e2e` (build tag `e2e` against ./internal/beaconchain/...), `refresh-fixtures` (regenerate testdata/ from a live beacon); output: bin/eth2-monitor with git version ldflags
+tools/
+  fixturegen/        -- `go run ./tools/fixturegen` captures raw beacon API responses + an SSE excerpt from the configured BEACON_CHAIN_API endpoint into internal/beaconchain/testdata/
 .tool-versions       -- Go version pinning (golang 1.25.10)
 .github/workflows/   -- GitHub Actions CI: `main.yml` (test + multi-arch build + Docker publish on tag), `golangci-lint.yml` (lint + coverage on PR)
 .gitlab-ci.yml       -- Legacy GitLab CI config
@@ -83,6 +85,10 @@ make lint
 # End-to-end tests against the staging Hoodi endpoint in test-env/.env
 # (build tag: `e2e`; reads BEACON_CHAIN_API from env or ../test-env/.env)
 make test-e2e
+
+# Regenerate testdata/ from the configured BEACON_CHAIN_API endpoint
+# Captures raw beacon JSON + an SSE excerpt into internal/beaconchain/testdata/
+make refresh-fixtures
 
 # Test environment (Docker Compose with Prometheus + Grafana)
 cd test-env && docker compose up --build
@@ -161,6 +167,20 @@ bin/eth2-monitor monitor --since-epoch 12000 ...
 - **Go features:** Generics (Set[E]), Go iterators (iter.Seq, slices.Chunk)
 - **Testing:** Table-driven tests with mock interfaces
 - **Fork target:** GetBlock expects Fulu/Fusaka fork blocks only; returns `*electra.SignedBeaconBlock` because Fulu reuses the Electra block structure in go-eth2-client
+
+## Test Fixtures
+
+Wire-format fixtures live under `internal/beaconchain/testdata/` and are refreshed via `make refresh-fixtures` (which runs `tools/fixturegen/main.go`). The generator captures raw HTTP and SSE responses from the configured `BEACON_CHAIN_API` endpoint — same env/`.env` resolution as the e2e tests — so unit tests can stand up an offline `httptest`-backed beacon without round-tripping through a parsed-and-re-serialised representation. Captured endpoints:
+
+- 6 go-eth2-client startup probes (`/eth/v1/node/{syncing,version}`, `/eth/v1/config/{spec,deposit_contract,fork_schedule}`, `/eth/v1/beacon/genesis`) — needed so the fake server can satisfy `BeaconChain.New()`.
+- The 7 endpoints the monitor uses (`finality_checkpoints`, `validators`, `blocks/{slot}`, `validator/duties/{proposer,attester}/{epoch}`, `states/{state_id}/committees`, `events`).
+- Plus a real 404 envelope (`block_missed.json`) so the 4xx path is fixture-verifiable.
+
+Loading helpers in `internal/beaconchain/testdata_test.go` provide `loadMeta(t)` (reads `meta.json` for the captured epoch/slot anchors), `loadFixture(t, name)` (`embed.FS`-backed), and `fixtureServer(t, routes)` (httptest server that auto-registers the startup probes plus caller-specified routes). Tests anchor assertions to `meta.json` (`HasMissed`, `CanonicalSlot`, etc.) rather than hard-coded slot numbers so they stay green across `make refresh-fixtures` runs.
+
+Tests using fixtures today: `caplin_parse_test.go` (direct `json.Unmarshal` of `block_canonical.json` into `*electra.SignedBeaconBlock` — catches schema drift the moment fixtures are refreshed against a different node) and `service_fixture_test.go` (`BeaconChain.GetBlock` canonical + missed against the fake server — offline counterpart to the e2e `get_block_caplin_compat` subtest). Existing tests still use inline Go struct construction; new fixture-backed tests are added where wire-format fidelity matters.
+
+`meta.json` records `finalized_epoch`, `test_epoch`, `canonical_slot`, `missed_slot`, `has_missed`, `captured_at`, and `generator_version`. It deliberately excludes any endpoint identifier (no host, no URL) so committed fixtures don't disclose which upstream the project uses for fixturing; the captured response bodies are pure beacon-API JSON and likewise contain no upstream identifiers. The 1 MiB per-fixture cap in `fixturegen` rejects oversized captures; the `committees.json` fixture is slot-filtered (`?slot=…`) because the unfiltered response exceeds the cap on networks with large validator sets (the wire format is identical between filtered and unfiltered forms).
 
 ## CI
 
