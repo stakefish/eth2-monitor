@@ -30,6 +30,27 @@ func gaugeValue(t *testing.T, g prometheus.Gauge) float64 {
 	return metric.GetGauge().GetValue()
 }
 
+// counterVecTotal sums the value of every child counter in a CounterVec.
+// Lets existing assertions that only care about "did the total tick?" stay
+// validator-agnostic after the per-validator labels were added.
+func counterVecTotal(t *testing.T, vec *prometheus.CounterVec) float64 {
+	t.Helper()
+	ch := make(chan prometheus.Metric, 1024)
+	go func() {
+		vec.Collect(ch)
+		close(ch)
+	}()
+	var total float64
+	for c := range ch {
+		var m dto.Metric
+		if err := c.Write(&m); err != nil {
+			t.Fatalf("CounterVec child Write: %v", err)
+		}
+		total += m.GetCounter().GetValue()
+	}
+	return total
+}
+
 // histogramSampleCount extracts the total sample count from a Prometheus histogram.
 func histogramSampleCount(t *testing.T, h prometheus.Histogram) uint64 {
 	t.Helper()

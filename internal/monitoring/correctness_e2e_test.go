@@ -668,7 +668,7 @@ func TestMonitorCorrectnessAgainstBeaconchaInE2E(t *testing.T) {
 	// monitored E duty unobserved across both iterations' scan windows.
 	// That same set is what the explorer reports as `status:"missed"`
 	// for the same (validator, slot) tuples.
-	if got, want := counterValue(t, metrics.TotalMissedAttestations), float64(expectedMissed); got != want {
+	if got, want := counterVecTotal(t, metrics.TotalMissedAttestations), float64(expectedMissed); got != want {
 		t.Errorf("TotalMissedAttestations: monitor=%v explorer=%v", got, want)
 	}
 

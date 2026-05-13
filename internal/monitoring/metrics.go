@@ -6,6 +6,7 @@ import (
 
 	"github.com/stakefish/eth2-monitor/internal/beaconchain"
 
+	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog/log"
 )
@@ -14,9 +15,9 @@ import (
 // Pass prometheus.DefaultRegisterer for production, prometheus.NewRegistry() for tests.
 type MonitorMetrics struct {
 	Epoch                         prometheus.Gauge
-	TotalCanonicalAttestations    prometheus.Counter
-	TotalDelayedOverTolerance     prometheus.Counter
-	TotalMissedAttestations       prometheus.Counter
+	TotalCanonicalAttestations    *prometheus.CounterVec
+	TotalDelayedOverTolerance     *prometheus.CounterVec
+	TotalMissedAttestations       *prometheus.CounterVec
 	CanonicalAttestationDistances prometheus.Histogram
 	TotalMissedProposals          prometheus.Counter
 	TotalCanonicalProposals       prometheus.Counter
@@ -29,10 +30,10 @@ type MonitorMetrics struct {
 	LastVanillaBlockSlot          prometheus.Gauge
 	LastVanillaBlockValidator     prometheus.Gauge
 	// New metrics from THE_FIX:
-	DuplicateAttestationsSkipped prometheus.Counter
+	DuplicateAttestationsSkipped *prometheus.CounterVec
 	RawAttestationDistances      prometheus.Histogram
 	MissedSlotsInEpoch           prometheus.Gauge
-	CrossEpochAttestations       prometheus.Counter
+	CrossEpochAttestations       *prometheus.CounterVec
 	// Beacon API request instrumentation
 	BeaconAPIRequests *prometheus.CounterVec
 	BeaconAPIDuration *prometheus.HistogramVec
@@ -45,12 +46,41 @@ type MonitorMetrics struct {
 	SSEResubscribes prometheus.Counter
 }
 
+// validatorEffectivenessLabels are the per-validator labels applied to every
+// attestation-effectiveness metric (counters + histograms) so operators can
+// slice dashboards by validator. Order is fixed and load-bearing: the same
+// order is used everywhere by validatorLabels in attestations.go.
+var validatorEffectivenessLabels = []string{"validator_index", "pubkey"}
+
 // BeaconRequestMetrics returns the subset of metrics consumed by the
 // beaconchain HTTP transport.
 func (m *MonitorMetrics) BeaconRequestMetrics() *beaconchain.RequestMetrics {
 	return &beaconchain.RequestMetrics{
 		Requests: m.BeaconAPIRequests,
 		Duration: m.BeaconAPIDuration,
+	}
+}
+
+// PrewarmValidators materializes a zero-valued child series for every tracked
+// validator on every per-validator metric. Without this, CounterVec /
+// HistogramVec children stay invisible to Prometheus until the first
+// WithLabelValues call from a real event, which makes a healthy cluster
+// indistinguishable from a broken monitor on the dashboard (Grafana renders
+// "No data" for `sum(rate(missed_counter))` instead of `0`).
+//
+// Safe to call repeatedly: WithLabelValues returns the existing child if one
+// was already created. Called per-epoch from the orchestrator so validators
+// that newly enter the tracked set (cache TTL expiry, key rotation) get
+// pre-warmed too. Future contributors adding new per-validator metrics
+// should extend this list to keep the dashboard zero-data invariant.
+func (m *MonitorMetrics) PrewarmValidators(pubkeysByIndex map[phase0.ValidatorIndex]string) {
+	for idx := range pubkeysByIndex {
+		idxLbl, pkLbl := validatorLabels(idx, pubkeysByIndex)
+		m.TotalCanonicalAttestations.WithLabelValues(idxLbl, pkLbl)
+		m.TotalMissedAttestations.WithLabelValues(idxLbl, pkLbl)
+		m.TotalDelayedOverTolerance.WithLabelValues(idxLbl, pkLbl)
+		m.DuplicateAttestationsSkipped.WithLabelValues(idxLbl, pkLbl)
+		m.CrossEpochAttestations.WithLabelValues(idxLbl, pkLbl)
 	}
 }
 
@@ -97,11 +127,11 @@ func NewMonitorMetrics(reg prometheus.Registerer) *MonitorMetrics {
 			Name:      "totalServedProposals",
 			Help:      "Canonical proposals since monitoring started",
 		}),
-		TotalMissedAttestations: prometheus.NewCounter(prometheus.CounterOpts{
+		TotalMissedAttestations: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: "ETH2",
 			Name:      "totalMissedAttestations",
 			Help:      "Attestations missed since monitoring started",
-		}),
+		}, validatorEffectivenessLabels),
 		TotalProposedEmptyBlocks: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "ETH2",
 			Name:      "totalProposedEmptyBlocks",
@@ -127,17 +157,17 @@ func NewMonitorMetrics(reg prometheus.Registerer) *MonitorMetrics {
 			Name:      "lastVanillaBlockValidator",
 			Help:      "Index of the last validator that proposed a vanilla block",
 		}),
-		TotalCanonicalAttestations: prometheus.NewCounter(prometheus.CounterOpts{
+		TotalCanonicalAttestations: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: "ETH2",
 			// TODO(deni): Rename to totalCanonicalAttestations
 			Name: "totalServedAttestations",
 			Help: "Canonical attestations since monitoring started",
-		}),
-		TotalDelayedOverTolerance: prometheus.NewCounter(prometheus.CounterOpts{
+		}, validatorEffectivenessLabels),
+		TotalDelayedOverTolerance: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: "ETH2",
 			Name:      "totalDelayedAttestationsOverTolerance",
 			Help:      "Attestations whose shifted inclusion distance exceeds 2 (spec-distance > 3 in Attestant's convention) after missed-slot adjustment",
-		}),
+		}, validatorEffectivenessLabels),
 		// https://www.attestant.io/posts/defining-attestation-effectiveness/
 		CanonicalAttestationDistances: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Namespace: "ETH2",
@@ -146,11 +176,11 @@ func NewMonitorMetrics(reg prometheus.Registerer) *MonitorMetrics {
 			Buckets:   prometheus.LinearBuckets(1, 1, 32),
 		}),
 		// New metrics for bug fixes
-		DuplicateAttestationsSkipped: prometheus.NewCounter(prometheus.CounterOpts{
+		DuplicateAttestationsSkipped: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: "ETH2",
 			Name:      "duplicateAttestationsSkipped",
 			Help:      "Attestations skipped due to duplicate (validator, slot) dedup",
-		}),
+		}, validatorEffectivenessLabels),
 		RawAttestationDistances: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Namespace: "ETH2",
 			Name:      "rawAttestationDistances",
@@ -162,11 +192,11 @@ func NewMonitorMetrics(reg prometheus.Registerer) *MonitorMetrics {
 			Name:      "missedSlotsInEpoch",
 			Help:      "Missed slots in the most recently processed epoch (updated once per non-skip iteration; stays at the previous value during ctx-cancel, epoch=0, or soft-skip iterations)",
 		}),
-		CrossEpochAttestations: prometheus.NewCounter(prometheus.CounterOpts{
+		CrossEpochAttestations: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: "ETH2",
 			Name:      "crossEpochAttestations",
 			Help:      "Attestations included in a block from a different epoch than the attested slot",
-		}),
+		}, validatorEffectivenessLabels),
 		BeaconAPIRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: "ETH2",
 			Name:      "beaconAPIRequestsTotal",

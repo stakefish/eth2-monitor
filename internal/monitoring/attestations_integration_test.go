@@ -109,10 +109,10 @@ func TestProcessAttestations_AcceptsRealAttestations(t *testing.T) {
 	// Soft assertions: counters must be non-negative (they always are
 	// — the assertion is that processAttestations completed without
 	// panic and the metric registry is intact).
-	if got := counterValue(t, m.TotalCanonicalAttestations); got < 0 {
+	if got := counterVecTotal(t, m.TotalCanonicalAttestations); got < 0 {
 		t.Errorf("TotalCanonicalAttestations = %v (impossible negative)", got)
 	}
-	if got := counterValue(t, m.DuplicateAttestationsSkipped); got < 0 {
+	if got := counterVecTotal(t, m.DuplicateAttestationsSkipped); got < 0 {
 		t.Errorf("DuplicateAttestationsSkipped = %v (impossible negative)", got)
 	}
 }

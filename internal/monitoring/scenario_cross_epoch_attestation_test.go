@@ -110,7 +110,7 @@ func TestScenarioCrossEpochAttestation(t *testing.T) {
 	// fixture exhibits the failure pattern, (2) the orchestrator code
 	// path tolerates real wire data without panic, (3) the impossible
 	// negative-counter state is unreachable.
-	if got := counterValue(t, rig.metrics.CrossEpochAttestations); got < 0 {
+	if got := counterVecTotal(t, rig.metrics.CrossEpochAttestations); got < 0 {
 		t.Errorf("CrossEpochAttestations = %v (impossible negative)", got)
 	}
 }

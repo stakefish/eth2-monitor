@@ -496,6 +496,13 @@ func MonitorAttestationsAndProposals(ctx context.Context, cancel context.CancelF
 			continue
 		}
 
+		// Pre-warm every per-validator CounterVec/HistogramVec child so a
+		// healthy cluster doesn't render "No data" on the dashboard. Without
+		// this, labeled metrics stay invisible until the first event from a
+		// validator, and queries like sum(rate(missed_counter)) return an
+		// empty instant vector instead of 0.
+		m.PrewarmValidators(ec.ValidatorPubkeyFromIndex)
+
 		// Seed unfulfilled duties for the *current* epoch only.
 		for _, duty := range ec.AttesterDuties {
 			// AttesterDuties is []*v1.AttesterDuty — slice of pointers.

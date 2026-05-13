@@ -3,6 +3,7 @@ package monitoring
 import (
 	"maps"
 	"slices"
+	"strconv"
 
 	"github.com/stakefish/eth2-monitor/internal/opts"
 	"github.com/stakefish/eth2-monitor/internal/spec"
@@ -92,6 +93,21 @@ func pubkeyOrUnknown(pubkeys map[phase0.ValidatorIndex]string, idx phase0.Valida
 		return pk
 	}
 	return "unknown"
+}
+
+// validatorLabels returns the (validator_index, pubkey) label pair for the
+// per-validator effectiveness metrics. The pubkey is the bare lowercase hex
+// emitted by beaconchain.NormalizedPublicKey — NO `0x` prefix.
+//
+// Dropping the prefix is deliberate: Grafana's Prometheus datasource sees
+// `0x806a…` as a valid JS hex literal and auto-parses the label value to a
+// JS Number, which overflows to scientific notation (`1.97e+115`) when
+// rendered in the table panel. Stripping the prefix forces string typing.
+// Consumers that need the canonical form (data links, Slack reports) must
+// re-prepend `0x` themselves. Order matches validatorEffectivenessLabels in
+// metrics.go.
+func validatorLabels(idx phase0.ValidatorIndex, pubkeys map[phase0.ValidatorIndex]string) (string, string) {
+	return strconv.FormatUint(uint64(idx), 10), pubkeyOrUnknown(pubkeys, idx)
 }
 
 // PruneSeenAttestations drops dedup entries older than cutoff, keeping only
@@ -213,6 +229,11 @@ func processAttestations(
 				if _, ok := validatorPubkeyFromIndex[validatorIndex]; !ok {
 					continue
 				}
+				// Hoisted once per tracked validator iteration: every metric
+				// emit below carries the same (index, pubkey) label pair, and
+				// validatorLabels does a small string allocation we'd
+				// otherwise repeat 3–4 times for the non-skipped paths.
+				idxLbl, pkLbl := validatorLabels(validatorIndex, validatorPubkeyFromIndex)
 
 				// Always clear unfulfilled, even on a duplicate observation.
 				// The earlier observation may have happened during the
@@ -228,7 +249,7 @@ func processAttestations(
 				}
 
 				if seenAttestations[attestedSlot].Contains(validatorIndex) {
-					m.DuplicateAttestationsSkipped.Inc()
+					m.DuplicateAttestationsSkipped.WithLabelValues(idxLbl, pkLbl).Inc()
 					continue
 				}
 				if seenAttestations[attestedSlot] == nil {
@@ -282,19 +303,19 @@ func processAttestations(
 				if attestationDistance > 2 {
 					Report("⚠️ 🧾 Validator %v (%v) attested slot %v at slot %v, epoch %v, attestation distance is %v",
 						validatorIndex, pubkeyOrUnknown(validatorPubkeyFromIndex, validatorIndex), attestedSlot, block.Message.Slot, attestedSlotEpoch, attestationDistance)
-					m.TotalDelayedOverTolerance.Inc()
+					m.TotalDelayedOverTolerance.WithLabelValues(idxLbl, pkLbl).Inc()
 				} else if opts.Monitor.PrintSuccessful {
 					Info("✅ 🧾 Validator %v (%v) attested slot %v at slot %v, epoch %v", validatorIndex, pubkeyOrUnknown(validatorPubkeyFromIndex, validatorIndex), attestedSlot, block.Message.Slot, attestedSlotEpoch)
 				}
 
-				m.TotalCanonicalAttestations.Inc()
+				m.TotalCanonicalAttestations.WithLabelValues(idxLbl, pkLbl).Inc()
 				m.CanonicalAttestationDistances.Observe(float64(attestationDistance))
 
 				// H09 fix: track cross-epoch attestations. Both
 				// blockSlotEpoch and attestedSlotEpoch are hoisted out
 				// of their respective inner loops.
 				if blockSlotEpoch != attestedSlotEpoch {
-					m.CrossEpochAttestations.Inc()
+					m.CrossEpochAttestations.WithLabelValues(idxLbl, pkLbl).Inc()
 				}
 			}
 		}
@@ -334,7 +355,8 @@ func FinalizeMissedAttestations(
 		slotEpoch := spec.EpochFromSlot(slot)
 		for validatorIndex := range unfulfilled[slot].Elems() {
 			Report("❌ 🧾 Validator %v (%v) did not attest slot %v (epoch %v)", validatorIndex, pubkeyOrUnknown(pubkeys, validatorIndex), slot, slotEpoch)
-			m.TotalMissedAttestations.Inc()
+			idxLbl, pkLbl := validatorLabels(validatorIndex, pubkeys)
+			m.TotalMissedAttestations.WithLabelValues(idxLbl, pkLbl).Inc()
 		}
 		delete(unfulfilled, slot)
 	}

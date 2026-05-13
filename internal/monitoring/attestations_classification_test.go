@@ -37,7 +37,7 @@ func TestFinalizeMissedAttestations(t *testing.T) {
 	FinalizeMissedAttestations(unfulfilled, cutoff, pubkeys, 2, m)
 
 	// Three missed-attestation reports: v1@31, v44@32 + v1@32, v2@63 = 4 total
-	if got := counterValue(t, m.TotalMissedAttestations); got != 4 {
+	if got := counterVecTotal(t, m.TotalMissedAttestations); got != 4 {
 		t.Errorf("TotalMissedAttestations = %v, want 4 (validators at slots ≤ cutoff)", got)
 	}
 	for _, s := range []phase0.Slot{31, 32, 63} {
@@ -121,10 +121,10 @@ func TestProcessAttestationsDedupsAcrossCalls(t *testing.T) {
 	// First call: epoch 0 — block at slot 32 is in the lookahead window.
 	processAttestations(epochBlocks, committeeLookup, validatorPubkeyFromIndex, unfulfilledAttesterDuties, seenAttestations, m, 0)
 
-	if got := counterValue(t, m.TotalCanonicalAttestations); got != 1 {
+	if got := counterVecTotal(t, m.TotalCanonicalAttestations); got != 1 {
 		t.Fatalf("after epoch 0 call: TotalCanonicalAttestations = %v, want 1", got)
 	}
-	if got := counterValue(t, m.DuplicateAttestationsSkipped); got != 0 {
+	if got := counterVecTotal(t, m.DuplicateAttestationsSkipped); got != 0 {
 		t.Fatalf("after epoch 0 call: DuplicateAttestationsSkipped = %v, want 0", got)
 	}
 	if got := histogramSampleCount(t, m.CanonicalAttestationDistances); got != 1 {
@@ -138,10 +138,10 @@ func TestProcessAttestationsDedupsAcrossCalls(t *testing.T) {
 	// Without the persistent dedup, this would double-count every metric.
 	processAttestations(epochBlocks, committeeLookup, validatorPubkeyFromIndex, unfulfilledAttesterDuties, seenAttestations, m, 1)
 
-	if got := counterValue(t, m.TotalCanonicalAttestations); got != 1 {
+	if got := counterVecTotal(t, m.TotalCanonicalAttestations); got != 1 {
 		t.Fatalf("after epoch 1 call: TotalCanonicalAttestations = %v, want 1 (dedup must skip)", got)
 	}
-	if got := counterValue(t, m.DuplicateAttestationsSkipped); got != 1 {
+	if got := counterVecTotal(t, m.DuplicateAttestationsSkipped); got != 1 {
 		t.Fatalf("after epoch 1 call: DuplicateAttestationsSkipped = %v, want 1", got)
 	}
 	if got := histogramSampleCount(t, m.CanonicalAttestationDistances); got != 1 {
@@ -227,7 +227,7 @@ func TestProcessAttestationsHonorsUntrackedCommitteeOffsets(t *testing.T) {
 
 	processAttestations(epochBlocks, committeeLookup, validatorPubkeyFromIndex, unfulfilledAttesterDuties, seenAttestations, m, 2)
 
-	if got := counterValue(t, m.TotalCanonicalAttestations); got != 1 {
+	if got := counterVecTotal(t, m.TotalCanonicalAttestations); got != 1 {
 		t.Fatalf("TotalCanonicalAttestations = %v, want 1 (validator's bit at offset 8 is set)", got)
 	}
 	if _, stillUnfulfilled := unfulfilledAttesterDuties[attestedSlot]; stillUnfulfilled {
@@ -289,7 +289,7 @@ func TestProcessAttestationsSkipsAttestationWithUnknownCommittee(t *testing.T) {
 
 	processAttestations(epochBlocks, committeeLookup, validatorPubkeyFromIndex, unfulfilledAttesterDuties, seenAttestations, m, 2)
 
-	if got := counterValue(t, m.TotalCanonicalAttestations); got != 0 {
+	if got := counterVecTotal(t, m.TotalCanonicalAttestations); got != 0 {
 		t.Fatalf("TotalCanonicalAttestations = %v, want 0 (attestation must be skipped)", got)
 	}
 	if _, stillUnfulfilled := unfulfilledAttesterDuties[attestedSlot]; !stillUnfulfilled {
@@ -398,7 +398,7 @@ func TestProcessAttestationsLookaheadDoesNotMaskAttestation(t *testing.T) {
 	if !seenAttestations[attestedSlot].Contains(validatorIndex) {
 		t.Fatalf("after epoch 0: seenAttestations missing validator %v at slot %v", validatorIndex, attestedSlot)
 	}
-	if got := counterValue(t, m.TotalCanonicalAttestations); got != 1 {
+	if got := counterVecTotal(t, m.TotalCanonicalAttestations); got != 1 {
 		t.Fatalf("after epoch 0: TotalCanonicalAttestations = %v, want 1", got)
 	}
 
@@ -412,10 +412,10 @@ func TestProcessAttestationsLookaheadDoesNotMaskAttestation(t *testing.T) {
 	if _, stillUnfulfilled := unfulfilledAttesterDuties[attestedSlot]; stillUnfulfilled {
 		t.Fatalf("after epoch 1: slot %v still in unfulfilled — dedup must not mask the Remove (regression)", attestedSlot)
 	}
-	if got := counterValue(t, m.DuplicateAttestationsSkipped); got != 1 {
+	if got := counterVecTotal(t, m.DuplicateAttestationsSkipped); got != 1 {
 		t.Errorf("DuplicateAttestationsSkipped = %v, want 1 (second observation is the duplicate)", got)
 	}
-	if got := counterValue(t, m.TotalCanonicalAttestations); got != 1 {
+	if got := counterVecTotal(t, m.TotalCanonicalAttestations); got != 1 {
 		t.Errorf("TotalCanonicalAttestations = %v, want 1 (no double count)", got)
 	}
 }
@@ -478,10 +478,10 @@ func TestProcessAttestationsSkipsDistanceMetricForPreScanInclusion(t *testing.T)
 	// Process as epoch 1 (epoch's lowest slot = 32 > earliestInclusion = 31).
 	processAttestations(epochBlocks, committeeLookup, validatorPubkeyFromIndex, unfulfilledAttesterDuties, seenAttestations, m, 1)
 
-	if got := counterValue(t, m.TotalCanonicalAttestations); got != 0 {
+	if got := counterVecTotal(t, m.TotalCanonicalAttestations); got != 0 {
 		t.Fatalf("TotalCanonicalAttestations = %v, want 0 (distance metric must be skipped for pre-scan inclusion)", got)
 	}
-	if got := counterValue(t, m.TotalDelayedOverTolerance); got != 0 {
+	if got := counterVecTotal(t, m.TotalDelayedOverTolerance); got != 0 {
 		t.Fatalf("TotalDelayedOverTolerance = %v, want 0 (must not emit delayed warning when actual inclusion is before scan)", got)
 	}
 	if got := histogramSampleCount(t, m.CanonicalAttestationDistances); got != 0 {
@@ -553,10 +553,10 @@ func TestProcessAttestationsSkipsNilAttestationEntry(t *testing.T) {
 	}()
 	processAttestations(epochBlocks, nil, nil, nil, nil, m, 1)
 	// Pin the skip invariant: no counter should fire for the nil entry.
-	if got := counterValue(t, m.TotalCanonicalAttestations); got != 0 {
+	if got := counterVecTotal(t, m.TotalCanonicalAttestations); got != 0 {
 		t.Errorf("TotalCanonicalAttestations = %v, want 0 (nil attestation entry must be skipped)", got)
 	}
-	if got := counterValue(t, m.DuplicateAttestationsSkipped); got != 0 {
+	if got := counterVecTotal(t, m.DuplicateAttestationsSkipped); got != 0 {
 		t.Errorf("DuplicateAttestationsSkipped = %v, want 0", got)
 	}
 }
@@ -594,10 +594,10 @@ func TestProcessAttestationsSkipsNilMessageOrBody(t *testing.T) {
 			processAttestations(epochBlocks, nil, nil, nil, nil, m, 1)
 			// Pin the bail invariant: skipped block must not touch any
 			// per-attestation counter.
-			if got := counterValue(t, m.TotalCanonicalAttestations); got != 0 {
+			if got := counterVecTotal(t, m.TotalCanonicalAttestations); got != 0 {
 				t.Errorf("%s: TotalCanonicalAttestations = %v, want 0", tc.name, got)
 			}
-			if got := counterValue(t, m.DuplicateAttestationsSkipped); got != 0 {
+			if got := counterVecTotal(t, m.DuplicateAttestationsSkipped); got != 0 {
 				t.Errorf("%s: DuplicateAttestationsSkipped = %v, want 0", tc.name, got)
 			}
 		})
@@ -643,7 +643,7 @@ func TestProcessAttestationsSkipsNilDataAttestation(t *testing.T) {
 	}()
 	processAttestations(epochBlocks, nil, map[phase0.ValidatorIndex]string{validatorIndex: "pk"}, unfulfilled, seen, m, 1)
 
-	if got := counterValue(t, m.TotalCanonicalAttestations); got != 0 {
+	if got := counterVecTotal(t, m.TotalCanonicalAttestations); got != 0 {
 		t.Errorf("TotalCanonicalAttestations = %v, want 0 (nil Data must be skipped)", got)
 	}
 	if _, still := unfulfilled[slot]; !still {
@@ -695,10 +695,10 @@ func TestProcessAttestationsSkipsMalformedAttestation(t *testing.T) {
 
 	processAttestations(epochBlocks, committeeLookup, validatorPubkeyFromIndex, unfulfilledAttesterDuties, seenAttestations, m, 1)
 
-	if got := counterValue(t, m.TotalCanonicalAttestations); got != 0 {
+	if got := counterVecTotal(t, m.TotalCanonicalAttestations); got != 0 {
 		t.Errorf("TotalCanonicalAttestations = %v, want 0 (malformed attestation must be skipped)", got)
 	}
-	if got := counterValue(t, m.TotalDelayedOverTolerance); got != 0 {
+	if got := counterVecTotal(t, m.TotalDelayedOverTolerance); got != 0 {
 		t.Errorf("TotalDelayedOverTolerance = %v, want 0 (must not emit delayed warning on underflow)", got)
 	}
 	if got := histogramSampleCount(t, m.CanonicalAttestationDistances); got != 0 {
@@ -750,10 +750,10 @@ func TestProcessAttestationsDedupsWithinCall(t *testing.T) {
 
 	processAttestations(epochBlocks, committeeLookup, validatorPubkeyFromIndex, unfulfilledAttesterDuties, seenAttestations, m, 0)
 
-	if got := counterValue(t, m.TotalCanonicalAttestations); got != 1 {
+	if got := counterVecTotal(t, m.TotalCanonicalAttestations); got != 1 {
 		t.Fatalf("TotalCanonicalAttestations = %v, want 1", got)
 	}
-	if got := counterValue(t, m.DuplicateAttestationsSkipped); got != 1 {
+	if got := counterVecTotal(t, m.DuplicateAttestationsSkipped); got != 1 {
 		t.Fatalf("DuplicateAttestationsSkipped = %v, want 1", got)
 	}
 }
