@@ -555,7 +555,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Beacon API non-2xx response share over the dashboard's selected time range. Infrastructure health, not a validator metric.",
+      "description": "Beacon API non-2xx response share over the dashboard's selected time range, excluding 4xx on /eth/v2/beacon/blocks/{block_id} (those 404s are the canonical missed-proposal signal the monitor relies on, not an infrastructure problem). Infrastructure health, not a validator metric.",
       "gridPos": {
         "x": 20,
         "y": 2,
@@ -613,7 +613,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(ETH2_beaconAPIRequestsTotal{service=~\"$service\",container!=\"\",container=~\"$container\",status_class=~\"4xx|5xx|error\"}[$__range])) / clamp_min(sum(rate(ETH2_beaconAPIRequestsTotal{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range])), 1e-9)",
+          "expr": "(sum(rate(ETH2_beaconAPIRequestsTotal{service=~\"$service\",container!=\"\",container=~\"$container\",status_class=~\"5xx|error\"}[$__range])) + sum(rate(ETH2_beaconAPIRequestsTotal{service=~\"$service\",container!=\"\",container=~\"$container\",status_class=\"4xx\",endpoint!=\"/eth/v2/beacon/blocks/{block_id}\"}[$__range]))) / clamp_min(sum(rate(ETH2_beaconAPIRequestsTotal{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range])), 1e-9)",
           "legendFormat": "{{container}}",
           "refId": "A",
           "instant": true,
