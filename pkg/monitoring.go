@@ -131,19 +131,41 @@ func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg 
 	if !ok {
 		panic("beacon.Service() does not satisfy eth2client.EventsProvider; library breaking change")
 	}
-	err = eventsProvider.Events(ctx, &api.EventsOpts{
+	err = runSSESubscription(ctx, eventsProvider, eventsHandlerFunc)
+	Must(err)
+	log.Info().Err(ctx.Err()).Msg("SubscribeToEpochs stopping on ctx cancel")
+}
+
+// runSSESubscription registers a head-event handler with eventsProvider
+// and owns the subscription's lifetime by blocking until ctx is cancelled.
+//
+// Why this exists: go-eth2-client/http's Events implementation is
+// non-blocking — it spawns an internal goroutine that runs the SSE loop
+// and returns nil immediately. The naïve "err = Events(...); Must(err)"
+// shape therefore falls through and lets the caller's goroutine exit, so
+// any deferred channel close (added in commit 8528d44) tears the
+// orchestrator down before the first head event arrives. Blocking on
+// ctx.Done here keeps the goroutine alive for the lifetime of the
+// subscription; the library's internal goroutine continues to deliver
+// events via the closure-captured handler in the meantime.
+//
+// Returns nil on ctx cancellation (clean shutdown — including the case
+// where Events itself returns a wrapped ctx.Canceled mid-handshake);
+// returns the Events error for any other failure so the caller panics
+// via Must as before.
+func runSSESubscription(ctx context.Context, eventsProvider eth2client.EventsProvider, handler func(*v1.Event)) error {
+	err := eventsProvider.Events(ctx, &api.EventsOpts{
 		Topics:  []string{"head"},
-		Handler: eventsHandlerFunc,
+		Handler: handler,
 	})
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		// Clean shutdown: ctx was cancelled (operator signal, orchestrator
-		// triggering cancel on exit, parent timeout). Return without
-		// panicking so defer close(epochsChan) + defer wg.Done propagate
-		// normal exit semantics rather than crashing the process.
-		log.Info().Err(err).Msg("SubscribeToEpochs stopping on ctx cancel")
-		return
+		return nil
 	}
-	Must(err)
+	if err != nil {
+		return err
+	}
+	<-ctx.Done()
+	return nil
 }
 
 // resumeEpoch picks the first epoch SubscribeToEpochs should emit on

@@ -2,19 +2,48 @@ package pkg
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"eth2-monitor/cmd/opts"
 
+	"github.com/attestantio/go-eth2-client/api"
+	v1 "github.com/attestantio/go-eth2-client/api/v1"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 )
+
+// fakeEventsProvider implements eth2client.EventsProvider for testing
+// runSSESubscription. The real go-eth2-client/http implementation returns
+// nil immediately after spawning an internal SSE goroutine; callers of
+// Events therefore MUST block until ctx cancellation themselves. This
+// fake mimics that contract — record the call, return whatever errFn
+// dictates, then leave the caller to wait on ctx.
+type fakeEventsProvider struct {
+	calls   atomic.Int32
+	topics  atomic.Value // []string
+	handler atomic.Value // func(*v1.Event)
+	errFn   func(ctx context.Context) error
+}
+
+func (f *fakeEventsProvider) Events(ctx context.Context, opts *api.EventsOpts) error {
+	f.calls.Add(1)
+	f.topics.Store(append([]string(nil), opts.Topics...))
+	if opts.Handler != nil {
+		f.handler.Store(opts.Handler)
+	}
+	if f.errFn != nil {
+		return f.errFn(ctx)
+	}
+	return nil
+}
 
 // TestMonitorAttestationsAndProposals_ShortCircuitsOnCancelledCtx pins the
 // early ctx.Err() bail at the top of the per-epoch loop. With ctx already
@@ -399,5 +428,93 @@ func TestResumeEpoch_StaleCacheSkipsAhead(t *testing.T) {
 	t.Parallel()
 	if got := resumeEpoch(1000, 10); got != 1000 {
 		t.Errorf("stale cache: got %d, want 1000 (justified, skipping gap)", got)
+	}
+}
+
+// TestRunSSESubscription_BlocksUntilCtxCancel regresses the silent-hang
+// bug from commit 8528d44: go-eth2-client/http Events() returns nil
+// immediately (the SSE loop runs in an internal goroutine), so the
+// outer SubscribeToEpochs goroutine MUST block after the call. Pre-fix
+// code returned straight after Events, the deferred close(epochsChan)
+// fired, and the orchestrator exited before any head event arrived
+// (observed in test-env: ETH2_epoch stuck at 0 with the binary
+// "running" but processing nothing).
+//
+// Assertions:
+//   - Events is called exactly once (handler registered).
+//   - The function does NOT return while ctx is alive (100ms grace).
+//   - The function returns promptly after ctx is cancelled.
+//   - Returned error is nil (ctx-cancel is a clean shutdown).
+func TestRunSSESubscription_BlocksUntilCtxCancel(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	fake := &fakeEventsProvider{}
+	done := make(chan error, 1)
+	go func() {
+		done <- runSSESubscription(ctx, fake, func(*v1.Event) {})
+	}()
+
+	// Block-while-ctx-alive: if runSSESubscription returns within this
+	// window the silent-hang bug has regressed. 100ms is a deliberate
+	// trade-off — long enough to catch a same-goroutine fallthrough,
+	// short enough to keep the test suite fast.
+	select {
+	case err := <-done:
+		t.Fatalf("runSSESubscription returned early (err=%v); should block until ctx cancel", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	if got := fake.calls.Load(); got != 1 {
+		t.Errorf("Events called %d times, want 1", got)
+	}
+	if topics, _ := fake.topics.Load().([]string); len(topics) != 1 || topics[0] != "head" {
+		t.Errorf("subscribed topics = %v, want [head]", topics)
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("runSSESubscription returned err=%v after ctx cancel; want nil (clean shutdown)", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("runSSESubscription did not return within 1s of ctx cancel; shutdown would deadlock SubscribeToEpochs")
+	}
+}
+
+// TestRunSSESubscription_ReturnsNilOnCtxCanceledError — if Events itself
+// returns a wrapped ctx.Canceled (mid-handshake cancellation), the
+// helper must treat it as a clean shutdown and return nil so the
+// caller's Must(err) does not panic.
+func TestRunSSESubscription_ReturnsNilOnCtxCanceledError(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	fake := &fakeEventsProvider{
+		errFn: func(context.Context) error { return context.Canceled },
+	}
+	if err := runSSESubscription(ctx, fake, func(*v1.Event) {}); err != nil {
+		t.Errorf("got err=%v; want nil for ctx.Canceled (clean shutdown)", err)
+	}
+}
+
+// TestRunSSESubscription_PropagatesGenuineError — any non-ctx-cancel
+// error must surface so the caller's Must(err) panics loudly. Pre-fix
+// the helper inlined the check and would have hidden a genuine
+// transport failure under the silent ctx-cancel path.
+func TestRunSSESubscription_PropagatesGenuineError(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sentinel := errors.New("relay rejected subscribe")
+	fake := &fakeEventsProvider{
+		errFn: func(context.Context) error { return sentinel },
+	}
+	if err := runSSESubscription(ctx, fake, func(*v1.Event) {}); !errors.Is(err, sentinel) {
+		t.Errorf("got err=%v; want %v (genuine error must propagate)", err, sentinel)
 	}
 }
