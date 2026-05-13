@@ -986,6 +986,10 @@
                     }
                   ]
                 }
+              },
+              {
+                "id": "decimals",
+                "value": 0
               }
             ]
           },
@@ -1064,6 +1068,34 @@
                     }
                   ]
                 }
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Validators"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Served"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
               }
             ]
           }
@@ -1331,6 +1363,10 @@
               {
                 "id": "custom.width",
                 "value": 90
+              },
+              {
+                "id": "decimals",
+                "value": 0
               }
             ]
           },
@@ -1392,6 +1428,10 @@
                     }
                   ]
                 }
+              },
+              {
+                "id": "decimals",
+                "value": 0
               }
             ]
           },
@@ -1478,6 +1518,10 @@
                     }
                   ]
                 }
+              },
+              {
+                "id": "decimals",
+                "value": 0
               }
             ]
           }
