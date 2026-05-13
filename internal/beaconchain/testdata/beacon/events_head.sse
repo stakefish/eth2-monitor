@@ -1,13 +1,13 @@
 event: head
-data: {"slot":"3035997","block":"0x159d7b29b9bbe0ae2cfd17e2f1fd2e8a17f095446130183ed8569c587b5bbd40","state":"0xdf6c600cf5d4e632893e411f32959608623766a9cb1cae567acfaa3d252946fa","epoch_transition":true,"previous_duty_dependent_root":"0x0d0152e1e0411f5a2ab8ef41b9660ea9a6d3db735f34895ed1b83ee492b405c5","current_duty_dependent_root":"0xa2d1b3060fa2ed111b15ae543ab01f549aca02d9cd663502a647422674ba2183","execution_optimistic":false}
+data: {"slot":"3036048","block":"0xbd56e7bb8b5b7b62d796032a45238ad41a78b8adce5400937edd44b6d0e82a73","state":"0xe350d703057a45f38d9322b480d3e0476fbebccc0dc52fc45d560869c9253d1e","epoch_transition":true,"previous_duty_dependent_root":"0x81110865bb9d1ae0dc7adeb675b08bc7fe186a1847a18a3c24ca7569cce79d65","current_duty_dependent_root":"0xf51b8c35d0f81f61f7413e18e34bcc82effe4ecec1ced7bb147f6b527df432e0","execution_optimistic":false}
 
 :
 
 event: head
-data: {"slot":"3035998","block":"0x761093a6751948fb3d6f418f811f90a874f457bd99357bd001cbcd0b780d1d06","state":"0xe31f6920973eb3bd8dff476f33eea477a1c1bfc44f88afa7ae1c86ada431f297","epoch_transition":true,"previous_duty_dependent_root":"0x0d0152e1e0411f5a2ab8ef41b9660ea9a6d3db735f34895ed1b83ee492b405c5","current_duty_dependent_root":"0xa2d1b3060fa2ed111b15ae543ab01f549aca02d9cd663502a647422674ba2183","execution_optimistic":false}
+data: {"slot":"3036049","block":"0xbc551e7238dd55131233fc17f9dc38420059e7176141e0e97552377d378b52cc","state":"0xd098ba2c932aa6e44d70320aef7c22d7f7458ef74e44e5738dee783488f72bed","epoch_transition":true,"previous_duty_dependent_root":"0x81110865bb9d1ae0dc7adeb675b08bc7fe186a1847a18a3c24ca7569cce79d65","current_duty_dependent_root":"0xf51b8c35d0f81f61f7413e18e34bcc82effe4ecec1ced7bb147f6b527df432e0","execution_optimistic":false}
 
 :
 
 event: head
-data: {"slot":"3035999","block":"0x81110865bb9d1ae0dc7adeb675b08bc7fe186a1847a18a3c24ca7569cce79d65","state":"0xed6020e210af2e59aab067af9ee3331029665e9c4873a45a944006698afde843","epoch_transition":true,"previous_duty_dependent_root":"0x0d0152e1e0411f5a2ab8ef41b9660ea9a6d3db735f34895ed1b83ee492b405c5","current_duty_dependent_root":"0xa2d1b3060fa2ed111b15ae543ab01f549aca02d9cd663502a647422674ba2183","execution_optimistic":false}
+data: {"slot":"3036050","block":"0x2d6a3c71114881545766d315bdee5abc5505edb5fd1a92c9952394b4eaaf8cdd","state":"0x9370fddb57ce568fb2cce87aff595a43d0053910c466fe0b9109ea5fa2aa326f","epoch_transition":true,"previous_duty_dependent_root":"0x81110865bb9d1ae0dc7adeb675b08bc7fe186a1847a18a3c24ca7569cce79d65","current_duty_dependent_root":"0xf51b8c35d0f81f61f7413e18e34bcc82effe4ecec1ced7bb147f6b527df432e0","execution_optimistic":false}
 

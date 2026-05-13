@@ -35,9 +35,32 @@ const (
 	epochSearchWindow = 64
 	beaconOutDir      = "internal/beaconchain/testdata/beacon"
 	metaPath          = "internal/beaconchain/testdata/meta.json"
+	mevOutDir         = "internal/monitoring/testdata/mev"
+	mevMetaPath       = "internal/monitoring/testdata/meta.json"
+	mevPageLimit      = 32 // matches what production code requests (SLOTS_PER_EPOCH)
 	maxFixtureBytes   = 1 << 20 // 1 MiB safety cap
-	generatorVersion  = "1"
+	generatorVersion  = "2"
 )
+
+// mevRelays lists public mainnet MEV relays we capture from. Mainnet
+// has steady traffic at every slot, so even a 1-page response always
+// yields enough traces to drive parser/sorting tests. Hoodi-specific
+// relays exist but their availability is sporadic.
+//
+// Captured for *wire-format* coverage only; the unit tests these
+// fixtures back don't care that the slot/proposer values are mainnet
+// rather than Hoodi (the production code processes both identically).
+//
+// Flashbots' proposer_payload_delivered endpoint is unauthenticated.
+// If the relay URL or path schema changes, update the loop in
+// captureMEVRelays. Adding more relays only requires appending here.
+var mevRelays = []struct {
+	name string // file-safe slug used in the fixture filename
+	url  string
+}{
+	{name: "flashbots", url: "https://boost-relay.flashbots.net"},
+	{name: "ultrasound", url: "https://relay.ultrasound.money"},
+}
 
 // meta records what the captured fixtures are anchored to so tests can
 // assert against the right slot/epoch numbers without hard-coding them.
@@ -53,6 +76,16 @@ type meta struct {
 	HasMissed        bool      `json:"has_missed"`
 	CapturedAt       time.Time `json:"captured_at"`
 	GeneratorVersion string    `json:"generator_version"`
+}
+
+// mevMeta records what slot the captured MEV bid traces are anchored to
+// so monitoring tests can pick a real slot/proposer that exists in the
+// captured data, rather than hard-coding mainnet slots.
+type mevMeta struct {
+	RelaysCaptured []string  `json:"relays_captured"`
+	CursorSlot     uint64    `json:"cursor_slot"`
+	PageLimit      uint64    `json:"page_limit"`
+	CapturedAt     time.Time `json:"captured_at"`
 }
 
 func main() {
@@ -178,6 +211,13 @@ func run() error {
 		fmt.Printf("fixturegen: WARN events SSE capture failed: %v\n", err)
 	}
 
+	// 9. MEV relay bid traces. Best-effort: a transient relay outage
+	//    or rate-limit shouldn't fail the whole run when the beacon
+	//    captures already succeeded.
+	if err := captureMEVRelays(ctx); err != nil {
+		fmt.Printf("fixturegen: WARN MEV relay capture failed: %v\n", err)
+	}
+
 	// meta.json — capture context for diagnosability. Deliberately
 	// excludes any endpoint identifier (see meta struct doc).
 	if err := writeMeta(meta{
@@ -249,6 +289,134 @@ func capture(ctx context.Context, base, method, path string, body io.Reader, nam
 	}
 	fmt.Printf("fixturegen: wrote %s (%d bytes, status %d)\n", dst, len(b), code)
 	return b, nil
+}
+
+// captureMEVRelays captures one page of bid traces from each relay in
+// the mevRelays table. Uses cursor=0 + limit=mevPageLimit, which
+// returns the most recent N delivered payloads — always non-empty on a
+// healthy mainnet relay. Stores each response under
+// internal/monitoring/testdata/mev/<name>_bidtraces.json plus a
+// monitoring meta.json recording the slot range so tests can pick a
+// real slot/proposer pair.
+//
+// One relay's failure doesn't stop the others — captures are
+// independent. The function returns an error only if NO relay
+// succeeded.
+func captureMEVRelays(ctx context.Context) error {
+	if err := os.MkdirAll(mevOutDir, 0o755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", mevOutDir, err)
+	}
+	captured := make([]string, 0, len(mevRelays))
+	var firstSlot uint64
+	for _, r := range mevRelays {
+		body, code, err := mevRelayPage(ctx, r.url, 0, mevPageLimit)
+		if err != nil {
+			fmt.Printf("fixturegen: WARN MEV relay %s capture failed: %v\n", r.name, err)
+			continue
+		}
+		if code != 200 {
+			fmt.Printf("fixturegen: WARN MEV relay %s returned status %d (body excerpt: %s)\n", r.name, code, truncate(string(body), 200))
+			continue
+		}
+		if len(body) > maxFixtureBytes {
+			fmt.Printf("fixturegen: WARN MEV relay %s response %d bytes exceeds %d cap; skipping\n", r.name, len(body), maxFixtureBytes)
+			continue
+		}
+		// Skip relays that returned an empty array — they're either
+		// rate-limiting us, using a different cursor convention, or
+		// genuinely have no recent traces. An empty fixture would
+		// just clutter testdata/ without exercising any test path.
+		if isEmptyJSONArray(body) {
+			fmt.Printf("fixturegen: WARN MEV relay %s returned empty array; skipping fixture\n", r.name)
+			continue
+		}
+		dst := filepath.Join(mevOutDir, r.name+"_bidtraces.json")
+		if err := os.WriteFile(dst, body, 0o644); err != nil {
+			return fmt.Errorf("write %s: %w", dst, err)
+		}
+		fmt.Printf("fixturegen: wrote %s (%d bytes, status %d)\n", dst, len(body), code)
+		captured = append(captured, r.name)
+		// Capture the slot of the *first* trace in the response (the
+		// most recent — relays return descending order). Tests use this
+		// as the anchor for "pick a real slot from the fixture".
+		if firstSlot == 0 {
+			if s, ok := firstBidTraceSlot(body); ok {
+				firstSlot = s
+			}
+		}
+	}
+	if len(captured) == 0 {
+		return fmt.Errorf("no MEV relays captured (all failed)")
+	}
+	mm := mevMeta{
+		RelaysCaptured: captured,
+		CursorSlot:     firstSlot,
+		PageLimit:      mevPageLimit,
+		CapturedAt:     time.Now().UTC(),
+	}
+	b, err := json.MarshalIndent(mm, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(mevMetaPath, append(b, '\n'), 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", mevMetaPath, err)
+	}
+	fmt.Printf("fixturegen: wrote %s\n", mevMetaPath)
+	return nil
+}
+
+// mevRelayPage GETs one page of /relay/v1/data/bidtraces/proposer_payload_delivered
+// from baseurl and returns (body, status, err). Caps body at the
+// maxFixtureBytes+1 limit so the caller can refuse oversized fixtures.
+func mevRelayPage(ctx context.Context, baseurl string, cursor, limit uint64) ([]byte, int, error) {
+	subCtx, cancel := context.WithTimeout(ctx, requestTimeout)
+	defer cancel()
+	url := fmt.Sprintf("%s/relay/v1/data/bidtraces/proposer_payload_delivered?cursor=%d&limit=%d", baseurl, cursor, limit)
+	req, err := http.NewRequestWithContext(subCtx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	req.Header.Set("Accept", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxFixtureBytes+1))
+	if err != nil {
+		return nil, resp.StatusCode, err
+	}
+	return body, resp.StatusCode, nil
+}
+
+// isEmptyJSONArray returns true if body parses as an empty JSON array.
+// Used to skip relays that responded successfully but with no traces —
+// the empty fixture has no test value.
+func isEmptyJSONArray(body []byte) bool {
+	var arr []json.RawMessage
+	if err := json.Unmarshal(body, &arr); err != nil {
+		return false
+	}
+	return len(arr) == 0
+}
+
+// firstBidTraceSlot returns the slot of the first entry in a
+// proposer_payload_delivered response. Used to record an anchor slot in
+// meta.json. Returns (0, false) if the body is empty / malformed —
+// meta.json then records cursor_slot=0, which tests treat as "pick the
+// first available slot from the fixture body itself".
+func firstBidTraceSlot(body []byte) (uint64, bool) {
+	var traces []struct {
+		Slot string `json:"slot"`
+	}
+	if err := json.Unmarshal(body, &traces); err != nil || len(traces) == 0 {
+		return 0, false
+	}
+	var n uint64
+	if _, err := fmt.Sscanf(traces[0].Slot, "%d", &n); err != nil {
+		return 0, false
+	}
+	return n, true
 }
 
 // captureSSE opens the events stream and copies up to sseDuration of bytes
