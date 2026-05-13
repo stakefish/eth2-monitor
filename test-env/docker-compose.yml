@@ -22,6 +22,8 @@ services:
       - "${VALIDATOR_KEYS_FILE}"
       - "--mev-relays"
       - "${MEV_RELAYS_FILE}"
+    ports:
+      - "1337:1337"
     volumes:
       - ./validators.txt:/app/validators.txt:ro
       - ./mev-relays.json:/app/mev-relays.json:ro
@@ -49,9 +51,10 @@ services:
     image: grafana/grafana:latest
     restart: unless-stopped
     environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
-      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+      - GF_AUTH_BASIC_ENABLED=false
       - GF_SERVER_ROOT_URL=http://localhost:3000
     volumes:
       - ./data/grafana:/var/lib/grafana

@@ -4,23 +4,18 @@
       {
         "builtIn": 1,
         "datasource": {
-          "type": "datasource",
-          "uid": "grafana"
+          "type": "grafana",
+          "uid": "-- Grafana --"
         },
         "enable": true,
         "hide": true,
         "iconColor": "rgba(0, 211, 255, 1)",
         "name": "Annotations & Alerts",
-        "target": {
-          "limit": 100,
-          "matchAny": false,
-          "tags": [],
-          "type": "dashboard"
-        },
         "type": "dashboard"
       }
     ]
   },
+  "description": "eth2-monitor watches a set of Ethereum staking validators for missed/delayed attestations, missed/empty/vanilla proposals, and beacon-API health. Top\u2192bottom = Global \u2192 Cluster \u2192 Validator. Click 'About this dashboard' (top row, collapsed) for the glossary, effectiveness model, and severity bands.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -28,11 +23,183 @@
   "links": [],
   "panels": [
     {
+      "id": 800,
+      "title": "About this dashboard",
+      "type": "row",
+      "collapsed": true,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": [
+        {
+          "id": 900,
+          "title": "What this dashboard is for",
+          "type": "text",
+          "gridPos": {
+            "x": 0,
+            "y": 1,
+            "w": 24,
+            "h": 3
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "<div style=\"border-left:4px solid #5794F2;padding:6px 12px;background:rgba(87,148,242,0.08);border-radius:2px\">\n\neth2-monitor watches a set of **Ethereum validators** \u2014 staking nodes that earn rewards for voting on the chain. This dashboard surfaces *how often the validators do their job*, *how on time they are*, and *which ones are struggling*, so a staking operator can spot incidents early and drill down to a single validator without reading raw Prometheus.\n\n</div>"
+          },
+          "pluginVersion": "12.2.1",
+          "transparent": false
+        },
+        {
+          "id": 901,
+          "title": "Quick glossary",
+          "type": "text",
+          "gridPos": {
+            "x": 0,
+            "y": 4,
+            "w": 12,
+            "h": 10
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "<dl style=\"margin:0\"><dt style=\"float:left;clear:left;width:130px;color:#5794F2;font-weight:600;padding:4px 12px 4px 0;text-align:right\">Validator</dt><dd style=\"margin-left:140px;padding:4px 0;border-bottom:1px solid rgba(128,128,128,0.15)\">a staked Ethereum node identity (32 ETH bonded) that votes on the chain in exchange for rewards.</dd><dt style=\"float:left;clear:left;width:130px;color:#5794F2;font-weight:600;padding:4px 12px 4px 0;text-align:right\">Attestation</dt><dd style=\"margin-left:140px;padding:4px 0;border-bottom:1px solid rgba(128,128,128,0.15)\">a validator's vote on what the head of the chain looks like. Each validator attests once per epoch (~6.4 min). Most rewards come from these.</dd><dt style=\"float:left;clear:left;width:130px;color:#5794F2;font-weight:600;padding:4px 12px 4px 0;text-align:right\">Block proposal</dt><dd style=\"margin-left:140px;padding:4px 0;border-bottom:1px solid rgba(128,128,128,0.15)\">once in a while a validator is picked to produce the next block. Far rarer than attestations, but each one pays a large reward.</dd><dt style=\"float:left;clear:left;width:130px;color:#5794F2;font-weight:600;padding:4px 12px 4px 0;text-align:right\">Slot</dt><dd style=\"margin-left:140px;padding:4px 0;border-bottom:1px solid rgba(128,128,128,0.15)\">a 12-second time bucket. One slot is one chance for someone to propose a block.</dd><dt style=\"float:left;clear:left;width:130px;color:#5794F2;font-weight:600;padding:4px 12px 4px 0;text-align:right\">Epoch</dt><dd style=\"margin-left:140px;padding:4px 0;border-bottom:1px solid rgba(128,128,128,0.15)\">32 slots (~6.4 min). The unit Ethereum uses to finalise rewards and penalties.</dd><dt style=\"float:left;clear:left;width:130px;color:#5794F2;font-weight:600;padding:4px 12px 4px 0;text-align:right\">Cluster</dt><dd style=\"margin-left:140px;padding:4px 0;border-bottom:1px solid rgba(128,128,128,0.15)\">a logical group of validators deployed together (e.g. one customer, one machine, one Kubernetes pod). Comes from the <code>container</code> Prometheus label.</dd><dt style=\"float:left;clear:left;width:130px;color:#5794F2;font-weight:600;padding:4px 12px 4px 0;text-align:right\">Inclusion distance</dt><dd style=\"margin-left:140px;padding:4px 0;border-bottom:1px solid rgba(128,128,128,0.15)\">how many slots elapsed between when a validator attested and when its vote was included in a block. Optimal = next slot; the larger the distance, the smaller the reward.</dd></dl>"
+          },
+          "pluginVersion": "12.2.1",
+          "transparent": false
+        },
+        {
+          "id": 902,
+          "title": "How to read this dashboard",
+          "type": "text",
+          "gridPos": {
+            "x": 12,
+            "y": 4,
+            "w": 12,
+            "h": 5
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "- <span style=\"background:#5794F2;color:#fff;padding:1px 6px;border-radius:3px;font-weight:600;font-size:0.8em;letter-spacing:0.5px\">TOP \u2192 BOTTOM</span> &nbsp; **Global \u2192 Cluster \u2192 Validator**. Fleet KPIs at the top, cluster comparison in the middle, individual validators at the bottom.\n- <span style=\"background:#5794F2;color:#fff;padding:1px 6px;border-radius:3px;font-weight:600;font-size:0.8em;letter-spacing:0.5px\">LEFT \u2192 RIGHT</span> &nbsp; *Least severe* (delayed votes) on the left, *most severe* (missed votes) on the right.\n- <span style=\"background:#5794F2;color:#fff;padding:1px 6px;border-radius:3px;font-weight:600;font-size:0.8em;letter-spacing:0.5px\">CLICK TO FILTER</span> &nbsp; Click a row in the Clusters or Validators table to scope the rest of the dashboard to that container or validator."
+          },
+          "pluginVersion": "12.2.1",
+          "transparent": false
+        },
+        {
+          "id": 903,
+          "title": "Variables",
+          "type": "text",
+          "gridPos": {
+            "x": 12,
+            "y": 9,
+            "w": 12,
+            "h": 5
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "<table style=\"border-collapse:collapse;width:100%\"><tr><td style=\"white-space:nowrap;padding:4px 12px 4px 0;text-align:right;color:#5794F2;font-weight:600;vertical-align:top\">Service</td><td style=\"padding:4px 0;vertical-align:top\">which monitor instance. Usually one.</td></tr><tr><td style=\"white-space:nowrap;padding:4px 12px 4px 0;text-align:right;color:#5794F2;font-weight:600;vertical-align:top\">Cluster</td><td style=\"padding:4px 0;vertical-align:top\">pick one cluster, or <em>All</em>.</td></tr><tr><td style=\"white-space:nowrap;padding:4px 12px 4px 0;text-align:right;color:#5794F2;font-weight:600;vertical-align:top\">Validator</td><td style=\"padding:4px 0;vertical-align:top\">drill to one validator. Usually <em>All</em> except during incident response.</td></tr><tr><td style=\"white-space:nowrap;padding:4px 12px 4px 0;text-align:right;color:#5794F2;font-weight:600;vertical-align:top\">Top N</td><td style=\"padding:4px 0;vertical-align:top\">how many rows to show in rankings (default 10).</td></tr><tr><td style=\"white-space:nowrap;padding:4px 12px 4px 0;text-align:right;color:#5794F2;font-weight:600;vertical-align:top\">Window</td><td style=\"padding:4px 0;vertical-align:top\">rolling time range for the KPI tiles. Default 24h. Does <em>not</em> affect the 7-day trend (fixed) or per-validator panels (fixed at 1 min).</td></tr></table>"
+          },
+          "pluginVersion": "12.2.1",
+          "transparent": false
+        },
+        {
+          "id": 904,
+          "title": "Effectiveness, explained",
+          "type": "text",
+          "gridPos": {
+            "x": 0,
+            "y": 14,
+            "w": 24,
+            "h": 8
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "**Effectiveness** is the one number that tells you whether your validators are doing their job well. It's the product of two simple components:\n\n1. <span style=\"background:#73BF69;color:#fff;padding:1px 6px;border-radius:3px;font-weight:600;font-size:0.8em;letter-spacing:0.5px\">AVAILABILITY</span> &nbsp; did the validator attest at all? `served / (served + missed)`.\n2. <span style=\"background:#5794F2;color:#fff;padding:1px 6px;border-radius:3px;font-weight:600;font-size:0.8em;letter-spacing:0.5px\">TIMING</span> &nbsp; was the vote included as early as possible? Read from the histogram of inclusion distances.\n\n**100%** means every validator attested at the earliest possible slot. Anything below **~98%** indicates a real problem. The **24h KPI tile** (top of the dashboard) reads live; the **7-day trend panel** under \"Global health\" is the steady SLO signal \u2014 single-attestation noise smooths out over a week.\n\n<div style=\"border-left:3px solid #8E8E8E;padding:6px 12px;background:rgba(142,142,142,0.06);border-radius:2px;color:#8E8E8E\">\n\n<strong style=\"color:#aaa\">Deeper detail (skip if new):</strong> the formal definition is Attestant's\n\n```\neffectiveness = (earliest_inclusion_slot \u2212 attestation_slot)\n              \u00f7 (actual_inclusion_slot \u2212 attestation_slot)\n```\n\nwhere `earliest_inclusion_slot` skips missed proposer slots so an offline block producer doesn't penalise the validator. eth2-monitor's `canonicalAttestationDistances` histogram is already missed-slot-adjusted to match this definition. See the Attestant link below for the full model.\n\n</div>"
+          },
+          "pluginVersion": "12.2.1",
+          "transparent": false
+        },
+        {
+          "id": 905,
+          "title": "Severity bands",
+          "type": "text",
+          "gridPos": {
+            "x": 0,
+            "y": 22,
+            "w": 12,
+            "h": 8
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "<em>Colour rules used on every chart and tile:</em>\n\n<table style=\"border-collapse:collapse;width:100%;font-size:0.95em\"><thead><tr><th style=\"text-align:left;padding:6px 12px\"></th><th style=\"padding:6px 12px;text-align:center\"><span style=\"background:#73BF69;color:#fff;padding:2px 8px;border-radius:3px;font-weight:600;font-size:0.9em\">GREEN</span></th><th style=\"padding:6px 12px;text-align:center\"><span style=\"background:#F2CC0C;color:#fff;padding:2px 8px;border-radius:3px;font-weight:600;font-size:0.9em\">YELLOW</span></th><th style=\"padding:6px 12px;text-align:center\"><span style=\"background:#E02F44;color:#fff;padding:2px 8px;border-radius:3px;font-weight:600;font-size:0.9em\">RED</span></th></tr></thead><tbody><tr><td style=\"padding:6px 12px;border-top:1px solid rgba(128,128,128,0.18)\">Attester Effectiveness</td><td style=\"padding:6px 12px;border-top:1px solid rgba(128,128,128,0.18);text-align:center;background:rgba(115,191,105,0.15)\">\u226599.5%</td><td style=\"padding:6px 12px;border-top:1px solid rgba(128,128,128,0.18);text-align:center;background:rgba(242,204,12,0.15)\">98\u201399.5%</td><td style=\"padding:6px 12px;border-top:1px solid rgba(128,128,128,0.18);text-align:center;background:rgba(224,47,68,0.15)\"><98%</td></tr><tr><td style=\"padding:6px 12px;border-top:1px solid rgba(128,128,128,0.18)\">Proposer Effectiveness</td><td style=\"padding:6px 12px;border-top:1px solid rgba(128,128,128,0.18);text-align:center;background:rgba(115,191,105,0.15)\">\u226595%</td><td style=\"padding:6px 12px;border-top:1px solid rgba(128,128,128,0.18);text-align:center;background:rgba(242,204,12,0.15)\">50\u201395%</td><td style=\"padding:6px 12px;border-top:1px solid rgba(128,128,128,0.18);text-align:center;background:rgba(224,47,68,0.15)\"><50%</td></tr><tr><td style=\"padding:6px 12px;border-top:1px solid rgba(128,128,128,0.18)\">Delayed / Miss rate</td><td style=\"padding:6px 12px;border-top:1px solid rgba(128,128,128,0.18);text-align:center;background:rgba(115,191,105,0.15)\"><0.5%</td><td style=\"padding:6px 12px;border-top:1px solid rgba(128,128,128,0.18);text-align:center;background:rgba(242,204,12,0.15)\">0.5\u20132%</td><td style=\"padding:6px 12px;border-top:1px solid rgba(128,128,128,0.18);text-align:center;background:rgba(224,47,68,0.15)\">>2%</td></tr><tr><td style=\"padding:6px 12px;border-top:1px solid rgba(128,128,128,0.18)\">Distance p99</td><td style=\"padding:6px 12px;border-top:1px solid rgba(128,128,128,0.18);text-align:center;background:rgba(115,191,105,0.15)\"><2</td><td style=\"padding:6px 12px;border-top:1px solid rgba(128,128,128,0.18);text-align:center;background:rgba(242,204,12,0.15)\">2\u20134</td><td style=\"padding:6px 12px;border-top:1px solid rgba(128,128,128,0.18);text-align:center;background:rgba(224,47,68,0.15)\">>4</td></tr><tr><td style=\"padding:6px 12px;border-top:1px solid rgba(128,128,128,0.18)\">API Errors</td><td style=\"padding:6px 12px;border-top:1px solid rgba(128,128,128,0.18);text-align:center;background:rgba(115,191,105,0.15)\"><1%</td><td style=\"padding:6px 12px;border-top:1px solid rgba(128,128,128,0.18);text-align:center;background:rgba(242,204,12,0.15)\">1\u20135%</td><td style=\"padding:6px 12px;border-top:1px solid rgba(128,128,128,0.18);text-align:center;background:rgba(224,47,68,0.15)\">>5%</td></tr></tbody></table>"
+          },
+          "pluginVersion": "12.2.1",
+          "transparent": false
+        },
+        {
+          "id": 906,
+          "title": "When effectiveness drops \u2014 what to check",
+          "type": "text",
+          "gridPos": {
+            "x": 12,
+            "y": 22,
+            "w": 12,
+            "h": 8
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "<div style=\"color:#aaa;font-size:0.9em;margin-bottom:8px\">Ordered most-likely \u2192 least-likely, most-actionable \u2192 least-actionable.</div>\n\n<table style=\"border-collapse:collapse;width:100%\"><tbody><tr><td style=\"white-space:nowrap;padding:6px 10px 6px 0;vertical-align:top\"><span style=\"background:#E02F44;color:#fff;padding:1px 6px;border-radius:3px;font-weight:600;font-size:0.8em;letter-spacing:0.5px\">TIER 1</span></td><td style=\"padding:6px 0 6px 0;vertical-align:top\"><strong>Your validator software is too slow.</strong><br/><span style=\"color:#bbb\">The validator client or beacon node is overloaded, low on RAM, or behind the chain. <strong>First check:</strong> CPU, memory, peer count.</span></td></tr><tr><td style=\"white-space:nowrap;padding:6px 10px 6px 0;vertical-align:top\"><span style=\"background:#FF9830;color:#fff;padding:1px 6px;border-radius:3px;font-weight:600;font-size:0.8em;letter-spacing:0.5px\">TIER 2</span></td><td style=\"padding:6px 0 6px 0;vertical-align:top\"><strong>Your validator can't reach peers fast enough.</strong><br/><span style=\"color:#bbb\">Network latency from your host to the wider Ethereum network is high. <strong>Check</strong> peer count and outbound bandwidth.</span></td></tr><tr><td style=\"white-space:nowrap;padding:6px 10px 6px 0;vertical-align:top\"><span style=\"background:#F2CC0C;color:#fff;padding:1px 6px;border-radius:3px;font-weight:600;font-size:0.8em;letter-spacing:0.5px\">TIER 3</span></td><td style=\"padding:6px 0 6px 0;vertical-align:top\"><strong>The aggregators are slow.</strong><br/><span style=\"color:#bbb\">Aggregators bundle everyone's votes for inclusion in a block. If they're under load, your on-time vote may still arrive late. Not directly fixable from your side; correlates with cluster load and a busy network.</span></td></tr><tr><td style=\"white-space:nowrap;padding:6px 10px 6px 0;vertical-align:top\"><span style=\"background:#8E8E8E;color:#fff;padding:1px 6px;border-radius:3px;font-weight:600;font-size:0.8em;letter-spacing:0.5px\">TIER 4</span></td><td style=\"padding:6px 0 6px 0;vertical-align:top\"><strong>The wider network is slow today.</strong><br/><span style=\"color:#bbb\">Aggregated votes are reaching block producers late. Least actionable from the operator side.</span></td></tr><tr><td style=\"white-space:nowrap;padding:6px 10px 6px 0;vertical-align:top\"><span style=\"background:#8E8E8E;color:#fff;padding:1px 6px;border-radius:3px;font-weight:600;font-size:0.8em;letter-spacing:0.5px\">TIER 5</span></td><td style=\"padding:6px 0 6px 0;vertical-align:top\"><strong>Upstream block proposer missed their slot.</strong><br/><span style=\"color:#bbb\">eth2-monitor already corrects for this case, so it won't drop <em>your</em> effectiveness directly \u2014 but it correlates with broader network stress.</span></td></tr></tbody></table>\n\n<div style=\"margin-top:10px;color:#bbb;font-size:0.9em\">Work top \u2192 bottom when the deficit chart's <em>Distance loss</em> line spikes on a specific cluster.</div>"
+          },
+          "pluginVersion": "12.2.1",
+          "transparent": false
+        },
+        {
+          "id": 907,
+          "title": "References",
+          "type": "text",
+          "gridPos": {
+            "x": 0,
+            "y": 30,
+            "w": 24,
+            "h": 5
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "<table style=\"border-collapse:collapse;width:100%\"><tr><td style=\"width:33%;vertical-align:top;padding:4px\"><div style=\"border-left:3px solid #5794F2;padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:2px;height:100%\"><a href=\"https://docs.beaconcha.in/beaconscore/introduction\" target=\"_blank\" style=\"color:#5794F2;font-weight:600;text-decoration:none\">BeaconScore methodology \u2192</a><div style=\"color:#bbb;font-size:0.9em;margin-top:4px\">beaconcha.in's \"is my validator OK?\" score. Operator-facing.</div></div></td><td style=\"width:33%;vertical-align:top;padding:4px\"><div style=\"border-left:3px solid #B877D9;padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:2px;height:100%\"><a href=\"https://docs.rated.network/documentation/methodologies/ethereum/rated-effectiveness-rating/raver-v3.0-current\" target=\"_blank\" style=\"color:#B877D9;font-weight:600;text-decoration:none\">Rated RAVER v3.0 \u2192</a><div style=\"color:#bbb;font-size:0.9em;margin-top:4px\">Rated.network's effectiveness scoring methodology. More technical than BeaconScore.</div></div></td><td style=\"width:33%;vertical-align:top;padding:4px\"><div style=\"border-left:3px solid #73BF69;padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:2px;height:100%\"><a href=\"https://www.attestant.io/posts/defining-attestation-effectiveness/\" target=\"_blank\" style=\"color:#73BF69;font-weight:600;text-decoration:none\">Attestant attestation effectiveness \u2192</a><div style=\"color:#bbb;font-size:0.9em;margin-top:4px\">Canonical write-up that defines effectiveness. Read this for the math and the 7-day-trend rationale.</div></div></td></tr></table>"
+          },
+          "pluginVersion": "12.2.1",
+          "transparent": false
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "title": "Global health",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 1,
+      "title": "Current Epoch",
+      "type": "stat",
       "datasource": {
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Latest justified epoch observed by the monitor.",
+      "description": "Most recently processed epoch (the just-ended one from the SSE head stream). One epoch \u2248 6.4 minutes, so this tile should tick up about every 6 minutes. If it stops climbing, the monitor or beacon endpoint is stuck.",
+      "gridPos": {
+        "x": 0,
+        "y": 2,
+        "w": 4,
+        "h": 4
+      },
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -43,7 +210,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "blue",
+                "color": "text",
                 "value": null
               }
             ]
@@ -52,18 +219,7 @@
         },
         "overrides": []
       },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 0,
-        "y": 0
-      },
-      "id": 1,
       "options": {
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -71,7 +227,11 @@
           "fields": "",
           "values": false
         },
-        "textMode": "auto"
+        "graphMode": "area",
+        "colorMode": "value",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "orientation": "auto"
       },
       "pluginVersion": "12.2.1",
       "targets": [
@@ -81,22 +241,29 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "max(ETH2_epoch{service=~\"$service\"}) by (service)",
-          "legendFormat": "{{service}}",
+          "expr": "max(ETH2_epoch{service=~\"$service\",container!=\"\",container=~\"$container\"}) by (container)",
+          "legendFormat": "{{container}}",
           "refId": "A",
           "instant": true,
           "range": false
         }
-      ],
-      "title": "Current Epoch",
-      "type": "stat"
+      ]
     },
     {
+      "id": 2,
+      "title": "Attester Eff. (${window})",
+      "type": "stat",
       "datasource": {
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "1 - missed / (served + missed) attestations, rolling 15m. Healthy \u2265 0.99.",
+      "description": "Attestant effectiveness \u00d7 availability over the selected $window. Effectiveness = earliest_inclusion / actual_inclusion, using the missed-slot-adjusted distance histogram (so a missed proposer slot doesn't penalise the validator). Short windows are noisy \u2014 see the 7d trend panel beside the deficit chart for a stable SLO-grade reading. BeaconScore / RAVER bands: \u226599.5% exceptional, \u226599% target, <98% concerning.",
+      "gridPos": {
+        "x": 4,
+        "y": 2,
+        "w": 4,
+        "h": 4
+      },
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -112,31 +279,22 @@
               },
               {
                 "color": "yellow",
-                "value": 0.95
+                "value": 0.98
               },
               {
                 "color": "green",
-                "value": 0.99
+                "value": 0.995
               }
             ]
           },
           "unit": "percentunit",
-          "decimals": 4
+          "decimals": 2,
+          "min": 0.9,
+          "max": 1
         },
         "overrides": []
       },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 6,
-        "y": 0
-      },
-      "id": 2,
       "options": {
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -144,7 +302,11 @@
           "fields": "",
           "values": false
         },
-        "textMode": "auto"
+        "graphMode": "area",
+        "colorMode": "value",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "orientation": "auto"
       },
       "pluginVersion": "12.2.1",
       "targets": [
@@ -154,22 +316,104 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "1 - (sum(rate(ETH2_totalMissedAttestations{service=~\"$service\"}[15m])) / clamp_min(sum(rate(ETH2_totalServedAttestations{service=~\"$service\"}[15m])) + sum(rate(ETH2_totalMissedAttestations{service=~\"$service\"}[15m])), 1))",
-          "legendFormat": "{{service}}",
+          "expr": "(1 - sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$window])) / clamp_min(sum(rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$window])) + sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$window])), 1e-9)) * (sum(rate(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[$window])) / clamp_min(sum(rate(ETH2_canonicalAttestationDistances_sum{service=~\"$service\",container!=\"\",container=~\"$container\"}[$window])) + sum(rate(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[$window])), 1e-9))",
+          "legendFormat": "{{container}}",
           "refId": "A",
           "instant": true,
           "range": false
         }
-      ],
-      "title": "Attestation Success Rate (15m)",
-      "type": "stat"
+      ]
     },
     {
+      "id": 6,
+      "title": "Proposer Eff. (24h)",
+      "type": "stat",
       "datasource": {
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "99th-percentile canonical inclusion distance in slots. Healthy < 5.",
+      "description": "RAVER-style proposer effectiveness over the last 24h. (non_empty + 0.25 \u00d7 empty) / (non_empty + empty + missed). Empty proposals score 25% credit; missed score 0. Reads 'No data' when fewer than 5 proposer duties fell in the window \u2014 a 1-of-2 miss on a sparse fleet would otherwise false-red the tile. Window is fixed at 24h (not tied to $window) because proposer duties are rare; shorter windows would read 'No data' more often than not.",
+      "gridPos": {
+        "x": 8,
+        "y": 2,
+        "w": 4,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.5
+              },
+              {
+                "color": "green",
+                "value": 0.95
+              }
+            ]
+          },
+          "unit": "percentunit",
+          "decimals": 2,
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "graphMode": "area",
+        "colorMode": "value",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "orientation": "auto"
+      },
+      "pluginVersion": "12.2.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "((sum(increase(ETH2_totalServedProposals{service=~\"$service\",container!=\"\",container=~\"$container\"}[24h])) - 0.75 * sum(increase(ETH2_totalProposedEmptyBlocks{service=~\"$service\",container!=\"\",container=~\"$container\"}[24h]))) / clamp_min(sum(increase(ETH2_totalServedProposals{service=~\"$service\",container!=\"\",container=~\"$container\"}[24h])) + sum(increase(ETH2_totalMissedProposals{service=~\"$service\",container!=\"\",container=~\"$container\"}[24h])), 1)) and (sum(increase(ETH2_totalServedProposals{service=~\"$service\",container!=\"\",container=~\"$container\"}[24h])) + sum(increase(ETH2_totalMissedProposals{service=~\"$service\",container!=\"\",container=~\"$container\"}[24h]))) >= 5",
+          "legendFormat": "{{container}}",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Delayed Rate (${window})",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "description": "Share of canonical attestations whose inclusion distance exceeds the spec-distance-3 tolerance, over the selected $window. Tier-2 severity indicator.",
+      "gridPos": {
+        "x": 12,
+        "y": 2,
+        "w": 4,
+        "h": 4
+      },
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -185,31 +429,21 @@
               },
               {
                 "color": "yellow",
-                "value": 5
+                "value": 0.005
               },
               {
                 "color": "red",
-                "value": 10
+                "value": 0.02
               }
             ]
           },
-          "unit": "none",
-          "decimals": 1
+          "unit": "percentunit",
+          "decimals": 2,
+          "min": 0
         },
         "overrides": []
       },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 12,
-        "y": 0
-      },
-      "id": 3,
       "options": {
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -217,7 +451,11 @@
           "fields": "",
           "values": false
         },
-        "textMode": "auto"
+        "graphMode": "area",
+        "colorMode": "value",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "orientation": "auto"
       },
       "pluginVersion": "12.2.1",
       "targets": [
@@ -227,22 +465,103 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.99, sum(rate(ETH2_canonicalAttestationDistances_bucket{service=~\"$service\"}[10m])) by (service, le))",
-          "legendFormat": "{{service}}",
+          "expr": "sum(rate(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$window])) / clamp_min(sum(rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$window])), 1e-9)",
+          "legendFormat": "{{container}}",
           "refId": "A",
           "instant": true,
           "range": false
         }
-      ],
-      "title": "Inclusion Distance p99 (10m)",
-      "type": "stat"
+      ]
     },
     {
+      "id": 3,
+      "title": "Distance p99 (${window})",
+      "type": "stat",
       "datasource": {
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Fraction of beacon API requests with 4xx/5xx/transport-error class. Healthy < 1%.",
+      "description": "99th-percentile canonical inclusion distance in shifted slots (0 = spec-distance 1 = optimal). Per container, over the selected $window. Tier-3 indicator (Attestant model).",
+      "gridPos": {
+        "x": 16,
+        "y": 2,
+        "w": 4,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 2
+              },
+              {
+                "color": "red",
+                "value": 4
+              }
+            ]
+          },
+          "unit": "none",
+          "decimals": 1,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "graphMode": "area",
+        "colorMode": "value",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "orientation": "auto"
+      },
+      "pluginVersion": "12.2.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.99, sum(rate(ETH2_canonicalAttestationDistances_bucket{service=~\"$service\",container!=\"\",container=~\"$container\"}[$window])) by (container, le))",
+          "legendFormat": "{{container}}",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "API Errors (${window})",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "description": "Beacon API non-2xx response share over the selected $window. Infrastructure health, not a validator metric.",
+      "gridPos": {
+        "x": 20,
+        "y": 2,
+        "w": 4,
+        "h": 4
+      },
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -267,30 +586,276 @@
             ]
           },
           "unit": "percentunit",
+          "decimals": 2,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "graphMode": "area",
+        "colorMode": "value",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "orientation": "auto"
+      },
+      "pluginVersion": "12.2.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(ETH2_beaconAPIRequestsTotal{service=~\"$service\",container!=\"\",container=~\"$container\",status_class=~\"4xx|5xx|error\"}[$window])) / clamp_min(sum(rate(ETH2_beaconAPIRequestsTotal{service=~\"$service\",container!=\"\",container=~\"$container\"}[$window])), 1e-9)",
+          "legendFormat": "{{container}}",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Attestation deficit (fleet)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "description": "Fleet-wide attestation deficit over time. 0% = optimal; spikes indicate trouble. Tier 1 (red) = missed, Tier 2 (orange) = delayed beyond tolerance, Tier 3 (yellow) = distance loss (Attestant 1 \u2212 1/avg_distance). Distance loss reads on the right y-axis since its scale is an order of magnitude wider than the Tier 1/2 lines.",
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 12,
+        "h": 7
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "unit": "percentunit",
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.005
+              },
+              {
+                "color": "red",
+                "value": 0.02
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Missed"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Delayed >tol"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Distance loss"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "yellow"
+                }
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "Distance loss"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "12.2.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$window])) / clamp_min(sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$window])) + sum(rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$window])), 1e-9)",
+          "legendFormat": "Missed",
+          "refId": "A",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$window])) / clamp_min(sum(rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$window])), 1e-9)",
+          "legendFormat": "Delayed >tol",
+          "refId": "B",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(ETH2_canonicalAttestationDistances_sum{service=~\"$service\",container!=\"\",container=~\"$container\"}[$window])) / clamp_min(sum(rate(ETH2_canonicalAttestationDistances_sum{service=~\"$service\",container!=\"\",container=~\"$container\"}[$window])) + sum(rate(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[$window])), 1e-9)",
+          "legendFormat": "Distance loss",
+          "refId": "C",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "title": "Attester effectiveness \u2014 7d rolling",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "description": "Attestant-recommended 7-day rolling trend for SLO-grade assessment of attester effectiveness. Effectiveness = earliest_inclusion / actual_inclusion, multiplied by availability. The 7d window is fixed (not tied to $window) per Attestant's guidance that single-attestation or short-window values are too noisy to act on. Threshold step-lines at the BeaconScore 99.5% and 98% bands.",
+      "gridPos": {
+        "x": 12,
+        "y": 6,
+        "w": 12,
+        "h": 7
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "green"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "unit": "percentunit",
+          "min": 0.9,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.98
+              },
+              {
+                "color": "green",
+                "value": 0.995
+              }
+            ]
+          },
           "decimals": 4
         },
         "overrides": []
       },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 18,
-        "y": 0
-      },
-      "id": 4,
       "options": {
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
+        "legend": {
           "calcs": [
-            "lastNotNull"
+            "mean",
+            "lastNotNull",
+            "min"
           ],
-          "fields": "",
-          "values": false
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
         },
-        "textMode": "auto"
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
       "pluginVersion": "12.2.1",
       "targets": [
@@ -300,39 +865,782 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(ETH2_beaconAPIRequestsTotal{service=~\"$service\",status_class=~\"4xx|5xx|error\"}[5m])) / clamp_min(sum(rate(ETH2_beaconAPIRequestsTotal{service=~\"$service\"}[5m])), 1)",
-          "legendFormat": "{{service}}",
+          "expr": "(1 - sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[7d])) / clamp_min(sum(rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[7d])) + sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[7d])), 1e-9)) * (sum(rate(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[7d])) / clamp_min(sum(rate(ETH2_canonicalAttestationDistances_sum{service=~\"$service\",container!=\"\",container=~\"$container\"}[7d])) + sum(rate(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[7d])), 1e-9))",
+          "legendFormat": "Effectiveness (7d)",
           "refId": "A",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 500,
+      "title": "Clusters (by container)",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 502,
+      "title": "Validator Clusters \u2014 top 50 by issue score",
+      "type": "table",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "description": "Per-cluster (container) rollup over the dashboard time range, ranked by issue score = missed + 0.5*delayed_over_tolerance + 0.1*any_delay. Rows depend on the View toggle: Problematic only shows clusters with score > 0; All shows top 50 regardless of score. Click a Container cell to filter the rest of the dashboard to that cluster. Success % = Served / (Served + Missed).",
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 24,
+        "h": 8
+      },
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        },
+        "cellHeight": "sm",
+        "frameIndex": 0
+      },
+      "pluginVersion": "12.2.1",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false,
+            "filterable": true
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Container"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Filter dashboard to this cluster",
+                    "url": "/d/eth2-monitor/?var-container=${__value.raw}&${__url_time_range}",
+                    "targetBlank": false
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Missed"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 1
+                    },
+                    {
+                      "color": "red",
+                      "value": 10
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Success %"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 0.99
+                    },
+                    {
+                      "color": "green",
+                      "value": 0.999
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Delayed >tol"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 1
+                    },
+                    {
+                      "color": "red",
+                      "value": 10
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "topk(50, sum by (container) (increase(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + 0.5 * sum by (container) (increase(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + 0.1 * (sum by (container) (increase(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range])) - sum by (container) (increase(ETH2_canonicalAttestationDistances_bucket{service=~\"$service\",container!=\"\",container=~\"$container\",le=\"1.0\"}[$__range])))) > $view_mode",
+          "format": "table",
           "instant": true,
-          "range": false
+          "range": false,
+          "legendFormat": "__auto",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "count by (container) (count by (validator_index, container) (ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"})) and on(container) (topk(50, sum by (container) (increase(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + 0.5 * sum by (container) (increase(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + 0.1 * (sum by (container) (increase(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range])) - sum by (container) (increase(ETH2_canonicalAttestationDistances_bucket{service=~\"$service\",container!=\"\",container=~\"$container\",le=\"1.0\"}[$__range])))) > $view_mode)",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "__auto",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by (container) (increase(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) and on(container) (topk(50, sum by (container) (increase(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + 0.5 * sum by (container) (increase(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + 0.1 * (sum by (container) (increase(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range])) - sum by (container) (increase(ETH2_canonicalAttestationDistances_bucket{service=~\"$service\",container!=\"\",container=~\"$container\",le=\"1.0\"}[$__range])))) > $view_mode)",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "__auto",
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by (container) (increase(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) and on(container) (topk(50, sum by (container) (increase(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + 0.5 * sum by (container) (increase(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + 0.1 * (sum by (container) (increase(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range])) - sum by (container) (increase(ETH2_canonicalAttestationDistances_bucket{service=~\"$service\",container!=\"\",container=~\"$container\",le=\"1.0\"}[$__range])))) > $view_mode)",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "__auto",
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by (container) (increase(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) and on(container) (topk(50, sum by (container) (increase(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + 0.5 * sum by (container) (increase(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + 0.1 * (sum by (container) (increase(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range])) - sum by (container) (increase(ETH2_canonicalAttestationDistances_bucket{service=~\"$service\",container!=\"\",container=~\"$container\",le=\"1.0\"}[$__range])))) > $view_mode)",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "__auto",
+          "refId": "E"
         }
       ],
-      "title": "Beacon API Error Rate (5m)",
-      "type": "stat"
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "Total",
+            "binary": {
+              "left": "Value #E",
+              "operator": "+",
+              "right": "Value #C"
+            },
+            "mode": "binary",
+            "replaceFields": false
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "Success %",
+            "binary": {
+              "left": "Value #E",
+              "operator": "/",
+              "right": "Total"
+            },
+            "mode": "binary",
+            "replaceFields": false
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Time 1": true,
+              "Time 2": true,
+              "Time 3": true,
+              "Time 4": true,
+              "Time 5": true,
+              "__name__": true,
+              "service": true,
+              "job": true,
+              "instance": true,
+              "Total": true,
+              "Value #A": true
+            },
+            "indexByName": {
+              "container": 0,
+              "Value #B": 1,
+              "Value #C": 2,
+              "Success %": 3,
+              "Value #D": 4,
+              "Value #E": 5
+            },
+            "renameByName": {
+              "container": "Container",
+              "Value #B": "Validators",
+              "Value #C": "Missed",
+              "Value #D": "Delayed >tol",
+              "Value #E": "Served"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "Missed",
+                "desc": true
+              },
+              {
+                "field": "Delayed >tol",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ]
     },
     {
+      "id": 600,
+      "title": "Validators (filter $container)",
+      "type": "row",
       "collapsed": false,
       "gridPos": {
-        "h": 1,
-        "w": 24,
         "x": 0,
-        "y": 4
+        "y": 23,
+        "w": 24,
+        "h": 1
       },
-      "id": 100,
-      "panels": [],
-      "title": "Attestations",
-      "type": "row"
+      "panels": []
     },
     {
+      "id": 501,
+      "title": "Validators \u2014 top $top by issue score",
+      "type": "table",
       "datasource": {
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Missed-attestation rate / served-attestation rate, 10m window.",
+      "description": "Per-validator effectiveness snapshot over the dashboard time range, ranked by issue score = missed + 0.5*delayed_over_tolerance. Rows depend on the View toggle: Problematic only shows validators with score > 0; All shows top-$top regardless of score. Click an Index to pin this validator in the drilldown row below; click a Pubkey to open beaconcha.in.",
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 24,
+        "h": 14
+      },
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        },
+        "cellHeight": "sm",
+        "frameIndex": 0
+      },
+      "pluginVersion": "12.2.1",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false,
+            "filterable": true
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none",
+          "decimals": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Pubkey"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "string"
+              },
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open on beaconcha.in",
+                    "url": "https://${beaconchain_host}/validator/0x${__value.raw}",
+                    "targetBlank": true
+                  }
+                ]
+              },
+              {
+                "id": "custom.width",
+                "value": 260
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Container"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 120
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Served"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Index"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              },
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Drill down to this validator",
+                    "url": "/d/eth2-monitor/?var-validator_index=${__value.raw}&${__url_time_range}",
+                    "targetBlank": false
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Missed"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 100
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 1
+                    },
+                    {
+                      "color": "red",
+                      "value": 10
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Success %"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.width",
+                "value": 120
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 0.99
+                    },
+                    {
+                      "color": "green",
+                      "value": 0.999
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Delayed >tol"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 130
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 1
+                    },
+                    {
+                      "color": "red",
+                      "value": 10
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "topk($top, sum by (validator_index, pubkey, container) (increase(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range]) + 0.5 * increase(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range]))) > $view_mode",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "__auto",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by (validator_index, pubkey, container) (increase(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) and on(validator_index, pubkey, container) (topk($top, sum by (validator_index, pubkey, container) (increase(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range]) + 0.5 * increase(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range]))) > $view_mode)",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "__auto",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by (validator_index, pubkey, container) (increase(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) and on(validator_index, pubkey, container) (topk($top, sum by (validator_index, pubkey, container) (increase(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range]) + 0.5 * increase(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range]))) > $view_mode)",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "__auto",
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by (validator_index, pubkey, container) (increase(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) and on(validator_index, pubkey, container) (topk($top, sum by (validator_index, pubkey, container) (increase(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range]) + 0.5 * increase(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range]))) > $view_mode)",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "__auto",
+          "refId": "D"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "Total",
+            "binary": {
+              "left": "Value #C",
+              "operator": "+",
+              "right": "Value #B"
+            },
+            "mode": "binary",
+            "replaceFields": false
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "Success %",
+            "binary": {
+              "left": "Value #C",
+              "operator": "/",
+              "right": "Total"
+            },
+            "mode": "binary",
+            "replaceFields": false
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Time 1": true,
+              "Time 2": true,
+              "Time 3": true,
+              "Time 4": true,
+              "__name__": true,
+              "service": true,
+              "job": true,
+              "instance": true,
+              "Total": true,
+              "Value #A": true
+            },
+            "indexByName": {
+              "validator_index": 0,
+              "container": 1,
+              "pubkey": 2,
+              "Value #B": 3,
+              "Success %": 4,
+              "Value #D": 5,
+              "Value #C": 6
+            },
+            "renameByName": {
+              "validator_index": "Index",
+              "pubkey": "Pubkey",
+              "container": "Container",
+              "Value #B": "Missed",
+              "Value #C": "Served",
+              "Value #D": "Delayed >tol"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "Missed",
+                "desc": true
+              },
+              {
+                "field": "Delayed >tol",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": 601,
+      "title": "% missed \u2014 top $top / selected (1m)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "description": "Per-validator deficit (1m). Top $top by deficit; click an Index in the table above to pin a specific validator. Severity bands: <0.5% green, 0.5\u20132% yellow, >2% red.",
+      "gridPos": {
+        "x": 0,
+        "y": 38,
+        "w": 12,
+        "h": 8
+      },
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "palette-classic"
+            "mode": "fixed",
+            "fixedColor": "red"
           },
           "custom": {
             "drawStyle": "line",
@@ -341,21 +1649,36 @@
             "lineWidth": 1,
             "pointSize": 5,
             "showPoints": "auto",
-            "spanNulls": false
+            "spanNulls": false,
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "axisSoftMax": 0.1
           },
           "mappings": [],
           "unit": "percentunit",
-          "min": 0
+          "min": 0,
+          "max": 0.05,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.005
+              },
+              {
+                "color": "red",
+                "value": 0.02
+              }
+            ]
+          }
         },
         "overrides": []
       },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 5
-      },
-      "id": 101,
       "options": {
         "legend": {
           "calcs": [
@@ -380,25 +1703,33 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "max(rate(ETH2_totalMissedAttestations{service=~\"$service\"}[10m]) / rate(ETH2_totalServedAttestations{service=~\"$service\"}[10m])) by (service)",
-          "legendFormat": "{{service}}",
+          "expr": "topk($top, sum by (validator_index, pubkey, container) (rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\",validator_index=~\"$validator_index\"}[1m])) / clamp_min(sum by (validator_index, pubkey, container) (rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\",validator_index=~\"$validator_index\"}[1m]) + rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\",validator_index=~\"$validator_index\"}[1m])), 1e-9))",
+          "legendFormat": "{{validator_index}} {{container}}",
           "refId": "A",
           "range": true
         }
-      ],
-      "title": "% Missed Attestations",
-      "type": "timeseries"
+      ]
     },
     {
+      "id": 602,
+      "title": "% delayed-over-tolerance \u2014 top $top / selected (1m)",
+      "type": "timeseries",
       "datasource": {
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Share of canonical attestations whose inclusion distance exceeds the tolerance.",
+      "description": "Per-validator deficit (1m). Top $top by deficit; click an Index in the table above to pin a specific validator. Severity bands: <0.5% green, 0.5\u20132% yellow, >2% red.",
+      "gridPos": {
+        "x": 12,
+        "y": 38,
+        "w": 12,
+        "h": 8
+      },
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "palette-classic"
+            "mode": "fixed",
+            "fixedColor": "orange"
           },
           "custom": {
             "drawStyle": "line",
@@ -407,102 +1738,227 @@
             "lineWidth": 1,
             "pointSize": 5,
             "showPoints": "auto",
-            "spanNulls": false
+            "spanNulls": false,
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "axisSoftMax": 0.1
           },
           "mappings": [],
           "unit": "percentunit",
-          "min": 0
+          "min": 0,
+          "max": 0.05,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.005
+              },
+              {
+                "color": "red",
+                "value": 0.02
+              }
+            ]
+          }
         },
         "overrides": []
       },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "12.2.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "topk($top, sum by (validator_index, pubkey, container) (rate(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\",validator_index=~\"$validator_index\"}[1m])) / clamp_min(sum by (validator_index, pubkey, container) (rate(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\",validator_index=~\"$validator_index\"}[1m]) + rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\",validator_index=~\"$validator_index\"}[1m])), 1e-9))",
+          "legendFormat": "{{validator_index}} {{container}}",
+          "refId": "A",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 603,
+      "title": "Missed attestations \u2014 per-validator timeline (top 5)",
+      "type": "state-timeline",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "description": "Per-validator on/off state - segments coloured when the validator missed/delayed an attestation in that minute. Top 5 by default; click an Index in the table above to pin a specific validator.",
       "gridPos": {
-        "h": 8,
+        "x": 0,
+        "y": 46,
         "w": 12,
+        "h": 10
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "lineWidth": 0,
+            "fillOpacity": 70,
+            "spanNulls": false,
+            "insertNulls": false
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "text": "ok",
+                  "color": "green"
+                },
+                "1": {
+                  "text": "miss",
+                  "color": "red"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        },
+        "mergeValues": true,
+        "showValue": "auto",
+        "rowHeight": 0.9,
+        "alignValue": "left"
+      },
+      "pluginVersion": "12.2.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "topk(5, sum by (validator_index, pubkey, container) (increase(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\",validator_index=~\"$validator_index\"}[1m])))",
+          "legendFormat": "{{validator_index}} {{container}}",
+          "refId": "A",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 604,
+      "title": "Delayed-over-tolerance \u2014 per-validator timeline (top 5)",
+      "type": "state-timeline",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "description": "Per-validator on/off state - segments coloured when the validator missed/delayed an attestation in that minute. Top 5 by default; click an Index in the table above to pin a specific validator.",
+      "gridPos": {
         "x": 12,
-        "y": 5
+        "y": 46,
+        "w": 12,
+        "h": 10
       },
-      "id": 102,
-      "options": {
-        "legend": {
-          "calcs": [
-            "mean",
-            "lastNotNull",
-            "max"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "pluginVersion": "12.2.1",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "max(rate(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\"}[10m]) / rate(ETH2_totalServedAttestations{service=~\"$service\"}[10m])) by (service)",
-          "legendFormat": "{{service}}",
-          "refId": "A",
-          "range": true
-        }
-      ],
-      "title": "% Delayed Attestations Over Tolerance",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "description": "Cumulative canonical attestations observed.",
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "palette-classic"
+            "mode": "thresholds"
           },
           "custom": {
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "showPoints": "auto",
-            "spanNulls": false
+            "lineWidth": 0,
+            "fillOpacity": 70,
+            "spanNulls": false,
+            "insertNulls": false
           },
-          "mappings": [],
-          "unit": "none",
-          "min": 0
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "text": "ok",
+                  "color": "green"
+                },
+                "1": {
+                  "text": "miss",
+                  "color": "red"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
         },
         "overrides": []
       },
-      "gridPos": {
-        "h": 8,
-        "w": 6,
-        "x": 0,
-        "y": 13
-      },
-      "id": 103,
       "options": {
         "legend": {
-          "calcs": [
-            "mean",
-            "lastNotNull",
-            "max"
-          ],
-          "displayMode": "table",
+          "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
         },
         "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
+          "mode": "single",
+          "sort": "none"
+        },
+        "mergeValues": true,
+        "showValue": "auto",
+        "rowHeight": 0.9,
+        "alignValue": "left"
       },
       "pluginVersion": "12.2.1",
       "targets": [
@@ -512,1299 +1968,1277 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "max(ETH2_totalServedAttestations{service=~\"$service\"}) by (service)",
-          "legendFormat": "{{service}}",
+          "expr": "topk(5, sum by (validator_index, pubkey, container) (increase(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\",validator_index=~\"$validator_index\"}[1m])))",
+          "legendFormat": "{{validator_index}} {{container}}",
           "refId": "A",
           "range": true
         }
-      ],
-      "title": "Total Served Attestations",
-      "type": "timeseries"
+      ]
     },
     {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "description": "Cumulative missed attestations.",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "showPoints": "auto",
-            "spanNulls": false
-          },
-          "mappings": [],
-          "unit": "none",
-          "min": 0
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 6,
-        "x": 6,
-        "y": 13
-      },
-      "id": 104,
-      "options": {
-        "legend": {
-          "calcs": [
-            "mean",
-            "lastNotNull",
-            "max"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "pluginVersion": "12.2.1",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "max(ETH2_totalMissedAttestations{service=~\"$service\"}) by (service)",
-          "legendFormat": "{{service}}",
-          "refId": "A",
-          "range": true
-        }
-      ],
-      "title": "Total Missed Attestations",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "description": "Cumulative canonical attestations with inclusion distance > tolerance.",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "showPoints": "auto",
-            "spanNulls": false
-          },
-          "mappings": [],
-          "unit": "none",
-          "min": 0
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 6,
-        "x": 12,
-        "y": 13
-      },
-      "id": 105,
-      "options": {
-        "legend": {
-          "calcs": [
-            "mean",
-            "lastNotNull",
-            "max"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "pluginVersion": "12.2.1",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "max(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\"}) by (service)",
-          "legendFormat": "{{service}}",
-          "refId": "A",
-          "range": true
-        }
-      ],
-      "title": "Total Delayed Over Tolerance",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "description": "Attestations included in a block belonging to a different epoch than the attested slot.",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "showPoints": "auto",
-            "spanNulls": false
-          },
-          "mappings": [],
-          "unit": "ops",
-          "min": 0
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 6,
-        "x": 18,
-        "y": 13
-      },
-      "id": 106,
-      "options": {
-        "legend": {
-          "calcs": [
-            "mean",
-            "lastNotNull",
-            "max"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "pluginVersion": "12.2.1",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "sum(rate(ETH2_crossEpochAttestations{service=~\"$service\"}[5m])) by (service)",
-          "legendFormat": "{{service}}",
-          "refId": "A",
-          "range": true
-        }
-      ],
-      "title": "Cross-Epoch Attestations (rate)",
-      "type": "timeseries"
-    },
-    {
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 21
-      },
       "id": 200,
-      "panels": [],
-      "title": "Inclusion Distance",
-      "type": "row"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "description": "P99 inclusion distance distribution for canonical (dedup'd) attestations.",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisSoftMin": 0,
-            "fillOpacity": 80,
-            "gradientMode": "scheme",
-            "lineWidth": 1
-          },
-          "mappings": [],
-          "min": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "unit": "none"
-        },
-        "overrides": []
-      },
+      "title": "Distance distribution",
+      "type": "row",
+      "collapsed": true,
       "gridPos": {
-        "h": 8,
-        "w": 12,
         "x": 0,
-        "y": 22
-      },
-      "id": 201,
-      "options": {
-        "barRadius": 0,
-        "barWidth": 0.97,
-        "fullHighlight": false,
-        "groupWidth": 0.7,
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "orientation": "vertical",
-        "showValue": "always",
-        "stacking": "none",
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        },
-        "xField": "Time",
-        "xTickLabelRotation": 0,
-        "xTickLabelSpacing": 0
-      },
-      "pluginVersion": "12.2.1",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "histogram_quantile(0.99, sum(rate(ETH2_canonicalAttestationDistances_bucket{service=~\"$service\"}[$__range])) by (service, le))",
-          "format": "time_series",
-          "instant": true,
-          "legendFormat": "{{service}}",
-          "range": false,
-          "refId": "A"
-        }
-      ],
-      "title": "Canonical Distances (99%)",
-      "type": "barchart"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "description": "P99 inclusion distance distribution before duplicate suppression.",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisSoftMin": 0,
-            "fillOpacity": 80,
-            "gradientMode": "scheme",
-            "lineWidth": 1
-          },
-          "mappings": [],
-          "min": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "unit": "none"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 22
-      },
-      "id": 202,
-      "options": {
-        "barRadius": 0,
-        "barWidth": 0.97,
-        "fullHighlight": false,
-        "groupWidth": 0.7,
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "orientation": "vertical",
-        "showValue": "always",
-        "stacking": "none",
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        },
-        "xField": "Time",
-        "xTickLabelRotation": 0,
-        "xTickLabelSpacing": 0
-      },
-      "pluginVersion": "12.2.1",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "histogram_quantile(0.99, sum(rate(ETH2_rawAttestationDistances_bucket{service=~\"$service\"}[$__range])) by (service, le))",
-          "format": "time_series",
-          "instant": true,
-          "legendFormat": "{{service}}",
-          "range": false,
-          "refId": "A"
-        }
-      ],
-      "title": "Raw Distances (99%)",
-      "type": "barchart"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "description": "(validator, slot) dedup skips per second.",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "showPoints": "auto",
-            "spanNulls": false
-          },
-          "mappings": [],
-          "unit": "ops",
-          "min": 0
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 12,
-        "x": 0,
-        "y": 30
-      },
-      "id": 203,
-      "options": {
-        "legend": {
-          "calcs": [
-            "mean",
-            "lastNotNull",
-            "max"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "pluginVersion": "12.2.1",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "sum(rate(ETH2_duplicateAttestationsSkipped{service=~\"$service\"}[5m])) by (service)",
-          "legendFormat": "{{service}}",
-          "refId": "A",
-          "range": true
-        }
-      ],
-      "title": "Duplicate Attestations Skipped (rate)",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "description": "Slots in the current epoch with no head block.",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "showPoints": "auto",
-            "spanNulls": false
-          },
-          "mappings": [],
-          "unit": "none",
-          "min": 0
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 12,
-        "x": 12,
-        "y": 30
-      },
-      "id": 204,
-      "options": {
-        "legend": {
-          "calcs": [
-            "mean",
-            "lastNotNull",
-            "max"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "pluginVersion": "12.2.1",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "max(ETH2_missedSlotsInEpoch{service=~\"$service\"}) by (service)",
-          "legendFormat": "{{service}}",
-          "refId": "A",
-          "range": true
-        }
-      ],
-      "title": "Missed Slots In Epoch",
-      "type": "timeseries"
-    },
-    {
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
+        "y": 56,
         "w": 24,
-        "x": 0,
-        "y": 34
+        "h": 1
       },
+      "panels": [
+        {
+          "id": 201,
+          "title": "Canonical Distances (heatmap, missed-slot-adjusted)",
+          "type": "heatmap",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "description": "Inclusion-distance distribution over time. Y axis = shifted slots (0 = optimal, included at attestedSlot+1). Cell colour intensity shows density. Preserves the full 32-bucket detail of the histogram (whereas a p99 stat collapses it).",
+          "gridPos": {
+            "x": 0,
+            "y": 57,
+            "w": 12,
+            "h": 8
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "scheme",
+                "scheme": "Oranges"
+              },
+              "custom": {
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                }
+              },
+              "mappings": []
+            },
+            "overrides": []
+          },
+          "options": {
+            "calculate": false,
+            "cellGap": 1,
+            "cellRadius": 0,
+            "cellValues": {
+              "unit": "short"
+            },
+            "color": {
+              "exponent": 0.5,
+              "fill": "dark-orange",
+              "min": 0,
+              "mode": "scheme",
+              "reverse": false,
+              "scale": "exponential",
+              "scheme": "Oranges",
+              "steps": 64
+            },
+            "exemplars": {
+              "color": "rgba(255,0,255,0.7)"
+            },
+            "filterValues": {
+              "le": 1e-09
+            },
+            "legend": {
+              "show": true
+            },
+            "rowsFrame": {
+              "layout": "auto"
+            },
+            "showValue": "never",
+            "tooltip": {
+              "mode": "single",
+              "show": true,
+              "yHistogram": false
+            },
+            "yAxis": {
+              "axisPlacement": "left",
+              "reverse": false,
+              "unit": "short"
+            }
+          },
+          "pluginVersion": "12.2.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (le) (rate(ETH2_canonicalAttestationDistances_bucket{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__rate_interval]))",
+              "format": "heatmap",
+              "legendFormat": "{{le}}",
+              "refId": "A",
+              "range": true
+            }
+          ]
+        },
+        {
+          "id": 202,
+          "title": "Raw Distances (heatmap)",
+          "type": "heatmap",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "description": "Inclusion-distance distribution over time. Y axis = shifted slots (0 = optimal, included at attestedSlot+1). Cell colour intensity shows density. Preserves the full 32-bucket detail of the histogram (whereas a p99 stat collapses it).",
+          "gridPos": {
+            "x": 12,
+            "y": 57,
+            "w": 12,
+            "h": 8
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "scheme",
+                "scheme": "Oranges"
+              },
+              "custom": {
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                }
+              },
+              "mappings": []
+            },
+            "overrides": []
+          },
+          "options": {
+            "calculate": false,
+            "cellGap": 1,
+            "cellRadius": 0,
+            "cellValues": {
+              "unit": "short"
+            },
+            "color": {
+              "exponent": 0.5,
+              "fill": "dark-orange",
+              "min": 0,
+              "mode": "scheme",
+              "reverse": false,
+              "scale": "exponential",
+              "scheme": "Oranges",
+              "steps": 64
+            },
+            "exemplars": {
+              "color": "rgba(255,0,255,0.7)"
+            },
+            "filterValues": {
+              "le": 1e-09
+            },
+            "legend": {
+              "show": true
+            },
+            "rowsFrame": {
+              "layout": "auto"
+            },
+            "showValue": "never",
+            "tooltip": {
+              "mode": "single",
+              "show": true,
+              "yHistogram": false
+            },
+            "yAxis": {
+              "axisPlacement": "left",
+              "reverse": false,
+              "unit": "short"
+            }
+          },
+          "pluginVersion": "12.2.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (le) (rate(ETH2_rawAttestationDistances_bucket{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__rate_interval]))",
+              "format": "heatmap",
+              "legendFormat": "{{le}}",
+              "refId": "A",
+              "range": true
+            }
+          ]
+        },
+        {
+          "id": 204,
+          "title": "Missed Slots In Epoch",
+          "type": "timeseries",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "description": "Missed slots in the most recently processed epoch, per container. \u22653 = network stress signal (chain-wide). If only one container shows this, more likely a monitor stall.",
+          "gridPos": {
+            "x": 0,
+            "y": 65,
+            "w": 12,
+            "h": 8
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "showPoints": "auto",
+                "spanNulls": false
+              },
+              "mappings": [],
+              "unit": "none",
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": [
+                "mean",
+                "lastNotNull",
+                "max"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "pluginVersion": "12.2.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "max(ETH2_missedSlotsInEpoch{service=~\"$service\",container!=\"\",container=~\"$container\"}) by (container)",
+              "legendFormat": "{{container}}",
+              "refId": "A",
+              "range": true
+            }
+          ]
+        },
+        {
+          "id": 205,
+          "title": "Cross-Epoch Attestations (rate)",
+          "type": "timeseries",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "description": "Attestations that were included in a later epoch than the one they attested to. A sustained non-zero rate suggests stale validator-client chain state (Attestant cause #1: generation delays). Counted per (validator_index, pubkey, container).",
+          "gridPos": {
+            "x": 12,
+            "y": 65,
+            "w": 12,
+            "h": 8
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "showPoints": "auto",
+                "spanNulls": false
+              },
+              "mappings": [],
+              "unit": "ops",
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": [
+                "mean",
+                "lastNotNull",
+                "max"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "pluginVersion": "12.2.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(ETH2_crossEpochAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$window])) by (container)",
+              "legendFormat": "{{container}}",
+              "refId": "A",
+              "range": true
+            }
+          ]
+        }
+      ]
+    },
+    {
       "id": 300,
-      "panels": [],
       "title": "Proposals",
-      "type": "row"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "description": "Cumulative canonical proposals by tracked validators.",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "showPoints": "auto",
-            "spanNulls": false
-          },
-          "mappings": [],
-          "unit": "none",
-          "min": 0
-        },
-        "overrides": []
-      },
+      "type": "row",
+      "collapsed": true,
       "gridPos": {
-        "h": 8,
-        "w": 8,
         "x": 0,
-        "y": 35
-      },
-      "id": 301,
-      "options": {
-        "legend": {
-          "calcs": [
-            "mean",
-            "lastNotNull",
-            "max"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "pluginVersion": "12.2.1",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "max(ETH2_totalServedProposals{service=~\"$service\"}) by (service)",
-          "legendFormat": "{{service}}",
-          "refId": "A",
-          "range": true
-        }
-      ],
-      "title": "Total Served Proposals",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "description": "Cumulative missed proposals.",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "showPoints": "auto",
-            "spanNulls": false
-          },
-          "mappings": [],
-          "unit": "none",
-          "min": 0
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 8,
-        "y": 35
-      },
-      "id": 302,
-      "options": {
-        "legend": {
-          "calcs": [
-            "mean",
-            "lastNotNull",
-            "max"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "pluginVersion": "12.2.1",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "max(ETH2_totalMissedProposals{service=~\"$service\"}) by (service)",
-          "legendFormat": "{{service}}",
-          "refId": "A",
-          "range": true
-        }
-      ],
-      "title": "Total Missed Proposals",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "description": "Cumulative blocks with zero txs (Empty) and blocks not matching any tracked MEV relay bid (Vanilla).",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "showPoints": "auto",
-            "spanNulls": false
-          },
-          "mappings": [],
-          "unit": "none",
-          "min": 0
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 16,
-        "y": 35
-      },
-      "id": 303,
-      "options": {
-        "legend": {
-          "calcs": [
-            "mean",
-            "lastNotNull",
-            "max"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "pluginVersion": "12.2.1",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "max(ETH2_totalProposedEmptyBlocks{service=~\"$service\"}) by (service)",
-          "legendFormat": "empty {{service}}",
-          "refId": "A",
-          "range": true
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "max(ETH2_totalVanillaBlocks{service=~\"$service\"}) by (service)",
-          "legendFormat": "vanilla {{service}}",
-          "refId": "B",
-          "range": true
-        }
-      ],
-      "title": "Empty / Vanilla Proposals",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "description": "Slot number of the most recent missed proposal.",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              }
-            ]
-          },
-          "unit": "none"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 5,
-        "x": 0,
-        "y": 43
-      },
-      "id": 304,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "pluginVersion": "12.2.1",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "max(ETH2_lastMissedProposalSlot{service=~\"$service\"}) by (service)",
-          "legendFormat": "{{service}}",
-          "refId": "A",
-          "instant": true,
-          "range": false
-        }
-      ],
-      "title": "Last Missed Proposal Slot",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "description": "Validator index of the most recent missed proposal.",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              }
-            ]
-          },
-          "unit": "none"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 5,
-        "x": 5,
-        "y": 43
-      },
-      "id": 305,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "pluginVersion": "12.2.1",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "max(ETH2_lastMissedProposalValidatorIndex{service=~\"$service\"}) by (service)",
-          "legendFormat": "{{service}}",
-          "refId": "A",
-          "instant": true,
-          "range": false
-        }
-      ],
-      "title": "Last Missed Proposal Validator",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "description": "Slot of the most recent empty (zero-tx) proposal.",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "orange",
-                "value": null
-              }
-            ]
-          },
-          "unit": "none"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 10,
-        "y": 43
-      },
-      "id": 306,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "pluginVersion": "12.2.1",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "max(ETH2_lastProposedEmptyBlockSlot{service=~\"$service\"}) by (service)",
-          "legendFormat": "{{service}}",
-          "refId": "A",
-          "instant": true,
-          "range": false
-        }
-      ],
-      "title": "Last Empty Block Slot",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "description": "Slot of the most recent vanilla (non-MEV) proposal.",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "orange",
-                "value": null
-              }
-            ]
-          },
-          "unit": "none"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 5,
-        "x": 14,
-        "y": 43
-      },
-      "id": 307,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "pluginVersion": "12.2.1",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "max(ETH2_lastVanillaBlockSlot{service=~\"$service\"}) by (service)",
-          "legendFormat": "{{service}}",
-          "refId": "A",
-          "instant": true,
-          "range": false
-        }
-      ],
-      "title": "Last Vanilla Block Slot",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "description": "Validator index of the most recent vanilla proposal.",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "orange",
-                "value": null
-              }
-            ]
-          },
-          "unit": "none"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 5,
-        "x": 19,
-        "y": 43
-      },
-      "id": 308,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "pluginVersion": "12.2.1",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "max(ETH2_lastVanillaBlockValidator{service=~\"$service\"}) by (service)",
-          "legendFormat": "{{service}}",
-          "refId": "A",
-          "instant": true,
-          "range": false
-        }
-      ],
-      "title": "Last Vanilla Block Validator",
-      "type": "stat"
-    },
-    {
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
+        "y": 57,
         "w": 24,
-        "x": 0,
-        "y": 47
+        "h": 1
       },
+      "panels": [
+        {
+          "id": 301,
+          "title": "Total Served Proposals",
+          "type": "timeseries",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 69,
+            "w": 8,
+            "h": 8
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "showPoints": "auto",
+                "spanNulls": false
+              },
+              "mappings": [],
+              "unit": "none",
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": [
+                "mean",
+                "lastNotNull",
+                "max"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "pluginVersion": "12.2.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(ETH2_totalServedProposals{service=~\"$service\",container!=\"\",container=~\"$container\"}) by (container)",
+              "legendFormat": "{{container}}",
+              "refId": "A",
+              "range": true
+            }
+          ]
+        },
+        {
+          "id": 302,
+          "title": "Total Missed Proposals",
+          "type": "timeseries",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "gridPos": {
+            "x": 8,
+            "y": 69,
+            "w": 8,
+            "h": 8
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "showPoints": "auto",
+                "spanNulls": false
+              },
+              "mappings": [],
+              "unit": "none",
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": [
+                "mean",
+                "lastNotNull",
+                "max"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "pluginVersion": "12.2.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(ETH2_totalMissedProposals{service=~\"$service\",container!=\"\",container=~\"$container\"}) by (container)",
+              "legendFormat": "{{container}}",
+              "refId": "A",
+              "range": true
+            }
+          ]
+        },
+        {
+          "id": 303,
+          "title": "Empty / Vanilla / Missing-bid Proposals",
+          "type": "timeseries",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "description": "Three MEV-related counters: empty blocks (no EL value), vanilla blocks (proposer didn't use a relay bid), and missing-bid-traces (no tracked relay returned any bid).",
+          "gridPos": {
+            "x": 16,
+            "y": 69,
+            "w": 8,
+            "h": 8
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "showPoints": "auto",
+                "spanNulls": false
+              },
+              "mappings": [],
+              "unit": "none",
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": [
+                "mean",
+                "lastNotNull",
+                "max"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "pluginVersion": "12.2.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(ETH2_totalProposedEmptyBlocks{service=~\"$service\",container!=\"\",container=~\"$container\"}) by (container)",
+              "legendFormat": "empty {{container}}",
+              "refId": "A",
+              "range": true
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(ETH2_totalVanillaBlocks{service=~\"$service\",container!=\"\",container=~\"$container\"}) by (container)",
+              "legendFormat": "vanilla {{container}}",
+              "refId": "B",
+              "range": true
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(ETH2_totalMissingBidTraces{service=~\"$service\",container!=\"\",container=~\"$container\"}) by (container)",
+              "legendFormat": "missing-bid {{container}}",
+              "refId": "C",
+              "range": true
+            }
+          ]
+        },
+        {
+          "id": 304,
+          "title": "Last Missed Proposal Slot",
+          "type": "stat",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 77,
+            "w": 5,
+            "h": 4
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              },
+              "unit": "none",
+              "links": [
+                {
+                  "title": "Open slot on beaconcha.in",
+                  "url": "https://${beaconchain_host}/slot/${__value.raw}",
+                  "targetBlank": true
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "graphMode": "none",
+            "colorMode": "value",
+            "justifyMode": "auto",
+            "textMode": "auto",
+            "orientation": "auto"
+          },
+          "pluginVersion": "12.2.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "max(ETH2_lastMissedProposalSlot{service=~\"$service\",container!=\"\",container=~\"$container\"}) by (container)",
+              "legendFormat": "{{container}}",
+              "refId": "A",
+              "instant": true,
+              "range": false
+            }
+          ]
+        },
+        {
+          "id": 305,
+          "title": "Last Missed Proposal Validator",
+          "type": "stat",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "gridPos": {
+            "x": 5,
+            "y": 77,
+            "w": 5,
+            "h": 4
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              },
+              "unit": "none",
+              "links": [
+                {
+                  "title": "Open validator on beaconcha.in",
+                  "url": "https://${beaconchain_host}/validator/${__value.raw}",
+                  "targetBlank": true
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "graphMode": "none",
+            "colorMode": "value",
+            "justifyMode": "auto",
+            "textMode": "auto",
+            "orientation": "auto"
+          },
+          "pluginVersion": "12.2.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "max(ETH2_lastMissedProposalValidatorIndex{service=~\"$service\",container!=\"\",container=~\"$container\"}) by (container)",
+              "legendFormat": "{{container}}",
+              "refId": "A",
+              "instant": true,
+              "range": false
+            }
+          ]
+        },
+        {
+          "id": 306,
+          "title": "Last Empty Block Slot",
+          "type": "stat",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "gridPos": {
+            "x": 10,
+            "y": 77,
+            "w": 4,
+            "h": 4
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              },
+              "unit": "none",
+              "links": [
+                {
+                  "title": "Open slot on beaconcha.in",
+                  "url": "https://${beaconchain_host}/slot/${__value.raw}",
+                  "targetBlank": true
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "graphMode": "none",
+            "colorMode": "value",
+            "justifyMode": "auto",
+            "textMode": "auto",
+            "orientation": "auto"
+          },
+          "pluginVersion": "12.2.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "max(ETH2_lastProposedEmptyBlockSlot{service=~\"$service\",container!=\"\",container=~\"$container\"}) by (container)",
+              "legendFormat": "{{container}}",
+              "refId": "A",
+              "instant": true,
+              "range": false
+            }
+          ]
+        },
+        {
+          "id": 307,
+          "title": "Last Vanilla Block Slot",
+          "type": "stat",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "gridPos": {
+            "x": 14,
+            "y": 77,
+            "w": 5,
+            "h": 4
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              },
+              "unit": "none",
+              "links": [
+                {
+                  "title": "Open slot on beaconcha.in",
+                  "url": "https://${beaconchain_host}/slot/${__value.raw}",
+                  "targetBlank": true
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "graphMode": "none",
+            "colorMode": "value",
+            "justifyMode": "auto",
+            "textMode": "auto",
+            "orientation": "auto"
+          },
+          "pluginVersion": "12.2.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "max(ETH2_lastVanillaBlockSlot{service=~\"$service\",container!=\"\",container=~\"$container\"}) by (container)",
+              "legendFormat": "{{container}}",
+              "refId": "A",
+              "instant": true,
+              "range": false
+            }
+          ]
+        },
+        {
+          "id": 308,
+          "title": "Last Vanilla Block Validator",
+          "type": "stat",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "gridPos": {
+            "x": 19,
+            "y": 77,
+            "w": 5,
+            "h": 4
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              },
+              "unit": "none",
+              "links": [
+                {
+                  "title": "Open validator on beaconcha.in",
+                  "url": "https://${beaconchain_host}/validator/${__value.raw}",
+                  "targetBlank": true
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "graphMode": "none",
+            "colorMode": "value",
+            "justifyMode": "auto",
+            "textMode": "auto",
+            "orientation": "auto"
+          },
+          "pluginVersion": "12.2.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "max(ETH2_lastVanillaBlockValidator{service=~\"$service\",container!=\"\",container=~\"$container\"}) by (container)",
+              "legendFormat": "{{container}}",
+              "refId": "A",
+              "instant": true,
+              "range": false
+            }
+          ]
+        }
+      ]
+    },
+    {
       "id": 400,
-      "panels": [],
-      "title": "Beacon API",
-      "type": "row"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "description": "Stacked beacon-API request rate by endpoint (5m).",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "drawStyle": "line",
-            "fillOpacity": 50,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": {
-              "mode": "normal",
-              "group": "A"
-            }
-          },
-          "mappings": [],
-          "unit": "reqps",
-          "min": 0
-        },
-        "overrides": []
-      },
+      "title": "Beacon API (infrastructure \u2014 operator detail)",
+      "type": "row",
+      "collapsed": true,
       "gridPos": {
-        "h": 8,
-        "w": 12,
         "x": 0,
-        "y": 48
-      },
-      "id": 401,
-      "options": {
-        "legend": {
-          "calcs": [
-            "mean",
-            "lastNotNull",
-            "max"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "pluginVersion": "12.2.1",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "sum(rate(ETH2_beaconAPIRequestsTotal{service=~\"$service\"}[5m])) by (endpoint)",
-          "legendFormat": "{{endpoint}}",
-          "refId": "A",
-          "range": true
-        }
-      ],
-      "title": "Request Rate by Endpoint",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "description": "Stacked 4xx/5xx/transport-error rate per endpoint (5m).",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "drawStyle": "line",
-            "fillOpacity": 50,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": {
-              "mode": "normal",
-              "group": "A"
-            }
-          },
-          "mappings": [],
-          "unit": "reqps",
-          "min": 0
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 48
-      },
-      "id": 402,
-      "options": {
-        "legend": {
-          "calcs": [
-            "mean",
-            "lastNotNull",
-            "max"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "pluginVersion": "12.2.1",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "sum(rate(ETH2_beaconAPIRequestsTotal{service=~\"$service\",status_class=~\"4xx|5xx|error\"}[5m])) by (endpoint, status_class)",
-          "legendFormat": "{{endpoint}} {{status_class}}",
-          "refId": "A",
-          "range": true
-        }
-      ],
-      "title": "Error Rate by Endpoint + status_class",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "description": "Beacon API request latency percentiles per endpoint (5m).",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "showPoints": "auto",
-            "spanNulls": false
-          },
-          "mappings": [],
-          "unit": "s",
-          "min": 0
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
+        "y": 58,
         "w": 24,
-        "x": 0,
-        "y": 56
+        "h": 1
       },
-      "id": 403,
-      "options": {
-        "legend": {
-          "calcs": [
-            "mean",
-            "lastNotNull",
-            "max"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "pluginVersion": "12.2.1",
-      "targets": [
+      "panels": [
         {
+          "id": 401,
+          "title": "Request Rate by Endpoint",
+          "type": "timeseries",
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "PBFA97CFB590B2093"
           },
-          "editorMode": "code",
-          "expr": "histogram_quantile(0.99, sum(rate(ETH2_beaconAPIRequestDurationSeconds_bucket{service=~\"$service\"}[5m])) by (endpoint, le))",
-          "legendFormat": "p99 {{endpoint}}",
-          "refId": "A",
-          "range": true
+          "description": "Stacked beacon-API request rate by endpoint (5m).",
+          "gridPos": {
+            "x": 0,
+            "y": 79,
+            "w": 12,
+            "h": 8
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 30,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "showPoints": "auto",
+                "spanNulls": false,
+                "stacking": {
+                  "mode": "normal",
+                  "group": "A"
+                }
+              },
+              "mappings": [],
+              "unit": "reqps",
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": [
+                "mean",
+                "lastNotNull",
+                "max"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "pluginVersion": "12.2.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (endpoint) (rate(ETH2_beaconAPIRequestsTotal{service=~\"$service\",container!=\"\",container=~\"$container\"}[$window]))",
+              "legendFormat": "{{endpoint}}",
+              "refId": "A",
+              "range": true
+            }
+          ]
         },
         {
+          "id": 402,
+          "title": "Error Rate by Endpoint + status_class",
+          "type": "timeseries",
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "PBFA97CFB590B2093"
           },
-          "editorMode": "code",
-          "expr": "histogram_quantile(0.50, sum(rate(ETH2_beaconAPIRequestDurationSeconds_bucket{service=~\"$service\"}[5m])) by (endpoint, le))",
-          "legendFormat": "p50 {{endpoint}}",
-          "refId": "B",
-          "range": true
+          "description": "Beacon-API non-2xx response rate by endpoint and status class (5m).",
+          "gridPos": {
+            "x": 12,
+            "y": 79,
+            "w": 12,
+            "h": 8
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "showPoints": "auto",
+                "spanNulls": false
+              },
+              "mappings": [],
+              "unit": "reqps",
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": [
+                "mean",
+                "lastNotNull",
+                "max"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "pluginVersion": "12.2.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (endpoint, status_class) (rate(ETH2_beaconAPIRequestsTotal{service=~\"$service\",container!=\"\",container=~\"$container\",status_class=~\"4xx|5xx|error\"}[5m]))",
+              "legendFormat": "{{endpoint}} {{status_class}}",
+              "refId": "A",
+              "range": true
+            }
+          ]
+        },
+        {
+          "id": 403,
+          "title": "Request Duration p50 by Endpoint",
+          "type": "timeseries",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "description": "Beacon-API request latency p50 by endpoint (10m).",
+          "gridPos": {
+            "x": 0,
+            "y": 87,
+            "w": 12,
+            "h": 8
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "showPoints": "auto",
+                "spanNulls": false
+              },
+              "mappings": [],
+              "unit": "s",
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": [
+                "mean",
+                "lastNotNull",
+                "max"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "pluginVersion": "12.2.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.50, sum(rate(ETH2_beaconAPIRequestDurationSeconds_bucket{service=~\"$service\",container!=\"\",container=~\"$container\"}[10m])) by (endpoint, le))",
+              "legendFormat": "{{endpoint}}",
+              "refId": "A",
+              "range": true
+            }
+          ]
+        },
+        {
+          "id": 404,
+          "title": "Request Duration p99 by Endpoint",
+          "type": "timeseries",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "description": "Beacon-API request latency p99 by endpoint (10m).",
+          "gridPos": {
+            "x": 12,
+            "y": 87,
+            "w": 12,
+            "h": 8
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "showPoints": "auto",
+                "spanNulls": false
+              },
+              "mappings": [],
+              "unit": "s",
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": [
+                "mean",
+                "lastNotNull",
+                "max"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "pluginVersion": "12.2.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.99, sum(rate(ETH2_beaconAPIRequestDurationSeconds_bucket{service=~\"$service\",container!=\"\",container=~\"$container\"}[10m])) by (endpoint, le))",
+              "legendFormat": "{{endpoint}}",
+              "refId": "A",
+              "range": true
+            }
+          ]
+        },
+        {
+          "id": 203,
+          "title": "Duplicate Attestations Skipped (rate)",
+          "type": "timeseries",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "description": "(validator, slot) dedup skip events per second - internal eth2-monitor indicator, not a validator-performance metric.",
+          "gridPos": {
+            "x": 0,
+            "y": 95,
+            "w": 24,
+            "h": 6
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "showPoints": "auto",
+                "spanNulls": false
+              },
+              "mappings": [],
+              "unit": "ops",
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": [
+                "mean",
+                "lastNotNull",
+                "max"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "pluginVersion": "12.2.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(ETH2_duplicateAttestationsSkipped{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$window])) by (container)",
+              "legendFormat": "{{container}}",
+              "refId": "A",
+              "range": true
+            }
+          ]
         }
-      ],
-      "title": "Request Duration p99 / p50 by Endpoint",
-      "type": "timeseries"
+      ]
     }
   ],
   "preload": false,
-  "refresh": "10s",
+  "refresh": "30s",
   "schemaVersion": 42,
   "tags": [
     "ethereum",
-    "eth2-monitor",
+    "prometheus",
     "validator",
-    "beacon"
+    "beacon",
+    "monitoring"
   ],
   "templating": {
     "list": [
@@ -1815,6 +3249,7 @@
         },
         "datasource": "Prometheus",
         "definition": "label_values(ETH2_epoch, service)",
+        "description": "Which eth2-monitor instance to read from. Usually one (alias: Job).",
         "hide": 0,
         "includeAll": true,
         "label": "Service",
@@ -1823,6 +3258,187 @@
         "options": [],
         "query": "label_values(ETH2_epoch, service)",
         "refresh": true,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": "Prometheus",
+        "definition": "label_values(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",validator_index!=\"\"}, container)",
+        "description": "A logical group of validators deployed together (Prometheus label: `container`). Pick one to scope the rest of the dashboard, or *All*.",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Cluster",
+        "multi": true,
+        "name": "container",
+        "options": [],
+        "query": "label_values(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",validator_index!=\"\"}, container)",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": "Prometheus",
+        "definition": "label_values(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}, validator_index)",
+        "description": "Drill to one validator index. Usually *All* except during incident response.",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Validator",
+        "multi": true,
+        "name": "validator_index",
+        "options": [],
+        "query": "label_values(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}, validator_index)",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "50",
+          "value": "50"
+        },
+        "description": "How many rows to show in topk rankings (tables and per-validator timeseries).",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Top N",
+        "multi": false,
+        "name": "top",
+        "options": [
+          {
+            "selected": false,
+            "text": "10",
+            "value": "10"
+          },
+          {
+            "selected": false,
+            "text": "25",
+            "value": "25"
+          },
+          {
+            "selected": true,
+            "text": "50",
+            "value": "50"
+          },
+          {
+            "selected": false,
+            "text": "100",
+            "value": "100"
+          },
+          {
+            "selected": false,
+            "text": "250",
+            "value": "250"
+          }
+        ],
+        "query": "10,25,50,100,250",
+        "queryValue": "",
+        "skipUrlSync": false,
+        "type": "custom"
+      },
+      {
+        "current": {
+          "text": "24h",
+          "value": "24h"
+        },
+        "description": "Rolling time window used by the KPI tiles, deficit chart, and Beacon API rate panels. Default 24h. Does NOT affect the 7-day trend (fixed) or per-validator timelines (fixed at 1 min).",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Window",
+        "multi": false,
+        "name": "window",
+        "options": [
+          {
+            "selected": false,
+            "text": "5m",
+            "value": "5m"
+          },
+          {
+            "selected": false,
+            "text": "15m",
+            "value": "15m"
+          },
+          {
+            "selected": false,
+            "text": "1h",
+            "value": "1h"
+          },
+          {
+            "selected": false,
+            "text": "6h",
+            "value": "6h"
+          },
+          {
+            "selected": true,
+            "text": "24h",
+            "value": "24h"
+          },
+          {
+            "selected": false,
+            "text": "7d",
+            "value": "7d"
+          }
+        ],
+        "query": "5m,15m,1h,6h,24h,7d",
+        "queryValue": "",
+        "skipUrlSync": false,
+        "type": "custom"
+      },
+      {
+        "current": {
+          "text": "Problematic only",
+          "value": "0"
+        },
+        "description": "Problematic only: ranking panels (cluster table, validator table, per-validator timeseries) show only entities with missed, delayed-over-tolerance, or any inclusion-delay attestations. All: show every entity (still topk-bounded).",
+        "hide": 0,
+        "includeAll": false,
+        "label": "View",
+        "multi": false,
+        "name": "view_mode",
+        "options": [
+          {
+            "selected": true,
+            "text": "Problematic only",
+            "value": "0"
+          },
+          {
+            "selected": false,
+            "text": "All",
+            "value": "-1"
+          }
+        ],
+        "query": "Problematic only : 0, All : -1",
+        "queryValue": "",
+        "skipUrlSync": false,
+        "type": "custom"
+      },
+      {
+        "current": {
+          "text": "beaconcha.in",
+          "value": "beaconcha.in"
+        },
+        "datasource": "Prometheus",
+        "definition": "label_values(ETH2_info, beaconchain_host)",
+        "hide": 2,
+        "includeAll": false,
+        "label": "Beaconchain host",
+        "multi": false,
+        "name": "beaconchain_host",
+        "options": [],
+        "query": "label_values(ETH2_info, beaconchain_host)",
+        "refresh": 1,
         "regex": "",
         "skipUrlSync": false,
         "sort": 0,
@@ -1836,7 +3452,7 @@
   },
   "timepicker": {},
   "timezone": "",
-  "title": "ETH2 Monitor Exporter Dashboard",
+  "title": "Validator Performance \u2014 eth2-monitor",
   "uid": "eth2-monitor",
-  "version": 3
+  "version": 14
 }
