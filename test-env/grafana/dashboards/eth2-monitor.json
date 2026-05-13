@@ -1345,25 +1345,9 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Container"
-            },
-            "properties": [
-              {
-                "id": "custom.width",
-                "value": 120
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
               "options": "Served"
             },
             "properties": [
-              {
-                "id": "custom.width",
-                "value": 90
-              },
               {
                 "id": "decimals",
                 "value": 0
@@ -1376,10 +1360,6 @@
               "options": "Index"
             },
             "properties": [
-              {
-                "id": "custom.width",
-                "value": 90
-              },
               {
                 "id": "links",
                 "value": [
@@ -1398,10 +1378,6 @@
               "options": "Missed"
             },
             "properties": [
-              {
-                "id": "custom.width",
-                "value": 100
-              },
               {
                 "id": "custom.cellOptions",
                 "value": {
@@ -1450,10 +1426,6 @@
                 "value": 2
               },
               {
-                "id": "custom.width",
-                "value": 120
-              },
-              {
                 "id": "custom.cellOptions",
                 "value": {
                   "type": "color-background",
@@ -1488,10 +1460,6 @@
               "options": "Delayed >tol"
             },
             "properties": [
-              {
-                "id": "custom.width",
-                "value": 130
-              },
               {
                 "id": "custom.cellOptions",
                 "value": {
