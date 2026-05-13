@@ -29,29 +29,47 @@ internal/
   opts/
     opts.go              -- Global CLI flag variables (package-level vars)
   beaconchain/
-    service.go             -- BeaconChain wrapper around go-eth2-client (HTTP)
-    caplin_compat.go       -- HTTP transport that rewrites unquoted amount/index JSON fields in Caplin block responses
-    metrics.go             -- Beacon API request CounterVec/HistogramVec instrumentation
-    caplin_compat_test.go  -- Mocked-server tests for the amount/index rewriter
-    metrics_test.go        -- Endpoint template + counter/histogram recording tests
-    service_e2e_test.go    -- Live-fire tests for all six BeaconChain methods (build tag: `e2e`; reads endpoint from $BEACON_CHAIN_API or test-env/.env)
+    service.go                          -- BeaconChain wrapper around go-eth2-client (HTTP)
+    caplin_compat.go                    -- HTTP transport that rewrites unquoted amount/index JSON fields in Caplin block responses
+    metrics.go                          -- Beacon API request CounterVec/HistogramVec instrumentation
+    caplin_compat_integration_test.go   -- Rewriter regex tests + real-block fixture pass-through via the production transport
+    caplin_parse_test.go                -- json.Unmarshal block_canonical.json into electra.SignedBeaconBlock (schema-drift detector)
+    service_fixture_test.go             -- Offline GetBlock canonical+missed via fixtureServer (no live endpoint)
+    metrics_e2e_test.go                 -- Live-fire metric-detection coverage for the 7 monitor endpoints (build tag: `e2e`)
+    service_e2e_test.go                 -- Live-fire tests for all six BeaconChain methods (build tag: `e2e`)
+    testdata_test.go                    -- embed.FS + loadFixture/loadMeta/fixtureServer helpers
+    testdata/
+      meta.json                         -- captured epoch/slot anchors (no endpoint info)
+      beacon/                           -- raw beacon API JSON + events_head.sse (refreshed via `make refresh-fixtures`)
   spec/
     consts.go          -- SLOTS_PER_EPOCH=32, SECONDS_PER_SLOT=12
     routines.go        -- Epoch/Slot conversion helpers
   monitoring/
-    monitoring.go        -- Orchestrator loop + SubscribeToEpochs + LoadKeys/LoadMEVRelays (package monitoring; was pkg/ before restructure)
-    epoch_context.go     -- Per-epoch state fetch: EpochContext + BuildEpochContext + ResolveValidatorKeys + ListProposerDuties / ListEpochBlocks + SlotsWithBlocks
-    attestations.go      -- Attestation-issue detection: processAttestations + BuildCommitteeLookup + PruneSeenAttestations + FinalizeMissedAttestations + CommitteeInfo
-    proposals.go         -- Proposal-issue detection: isBlockEmpty + CheckProposal + FinalizeMissedProposals
-    metrics.go           -- MonitorMetrics struct + NewMonitorMetrics(reg) factory; all Prometheus metrics
-    reporting.go         -- Slack webhook + log reporting (Report/Info helpers)
-    mev.go               -- MEV relay bid trace fetching (concurrent, paginated)
-    cache.go             -- Disk-backed JSON cache for validator index lookups
-    set.go               -- Generic Set[E comparable] collection
-    profiling.go         -- Measure() timing utility
-    utilities.go         -- Must() panic-on-error helper
-    *_test.go            -- One unit-test file per production file (attestations, cache, epoch_context, metrics, mev, monitoring, profiling, proposals, reporting, set)
-    test_helpers_test.go -- Shared helpers (counterValue, gaugeValue, histogramSampleCount, buildSingleValidatorAttestation)
+    monitoring.go                            -- Orchestrator loop + SubscribeToEpochs + LoadKeys/LoadMEVRelays (package monitoring; was pkg/ before restructure)
+    epoch_context.go                         -- Per-epoch state fetch: EpochContext + BuildEpochContext + ResolveValidatorKeys + ListProposerDuties / ListEpochBlocks + SlotsWithBlocks
+    attestations.go                          -- Attestation-issue detection: processAttestations + BuildCommitteeLookup + PruneSeenAttestations + FinalizeMissedAttestations + CommitteeInfo
+    proposals.go                             -- Proposal-issue detection: isBlockEmpty + CheckProposal + FinalizeMissedProposals
+    metrics.go                               -- MonitorMetrics struct + NewMonitorMetrics(reg) factory; all Prometheus metrics
+    reporting.go                             -- Slack webhook + log reporting (Report/Info helpers)
+    mev.go                                   -- MEV relay bid trace fetching (concurrent, paginated)
+    cache.go                                 -- Disk-backed JSON cache for validator index lookups
+    set.go                                   -- Generic Set[E comparable] collection
+    profiling.go                             -- Measure() timing utility
+    utilities.go                             -- Must() panic-on-error helper
+    epoch_context_integration_test.go        -- Real-BeaconChain-against-fixtureServer tests for BuildEpochContext / ResolveValidatorKeys / ListProposerDuties / ListEpochBlocks (incl. retry/cancel)
+    mev_integration_test.go                  -- ListBestBids against fakeRelay backed by captured Flashbots fixture + synthetic edge-case handlers
+    monitoring_integration_test.go           -- Orchestrator lifecycle + SubscribeToEpochs end-to-end through SSE-fixture replay
+    monitoring_helpers_test.go               -- sendEpoch / LoadKeys / LoadMEVRelays / ResumeEpoch / runSSESubscription tests (no beacon I/O to fixture)
+    proposals_integration_test.go            -- CheckProposal / isBlockEmpty / FinalizeMissedProposals on captured block + in-Go mutations for empty/MEV/vanilla
+    attestations_integration_test.go         -- BuildCommitteeLookup + processAttestations against captured fixtures (wire-format integration)
+    attestations_classification_test.go      -- Synthetic classification edge cases (cross-epoch dedup, AggregationBits offset drift) — see header comment for why these stay synthetic
+    cache_integration_test.go                -- Disk-backed cache round-trip / merge / atomic write tests (uses t.TempDir)
+    reporting_integration_test.go            -- Report/Info via httptest fake Slack server
+    test_helpers_test.go                     -- Shared helpers (counterValue, gaugeValue, histogramSampleCount, buildSingleValidatorAttestation)
+    testdata_test.go                         -- Cross-package os.ReadFile loaders + fixtureServer helper + embed.FS for testdata/mev
+    testdata/
+      meta.json                              -- captured MEV cursor slot + relays captured (no endpoint info)
+      mev/                                   -- captured MEV relay bid-trace JSON (refreshed via `make refresh-fixtures`)
 test-env/
   docker-compose.yml -- Full local stack: eth2-monitor + Prometheus + Grafana
   grafana/           -- Pre-provisioned dashboards and datasources
@@ -61,7 +79,7 @@ docs/                -- Onboarding reference (BEACON_API_USAGE, ERIGON_CAPLIN_CO
 Dockerfile           -- Multi-stage: golang:alpine builder -> alpine runtime, non-root user; builds ./cmd/eth2-monitor
 Makefile             -- Targets: `build` (default), `lint`, `test` (= `go test -cover ./...`), `test-e2e` (build tag `e2e` against ./internal/beaconchain/...), `refresh-fixtures` (regenerate testdata/ from a live beacon); output: bin/eth2-monitor with git version ldflags
 tools/
-  fixturegen/        -- `go run ./tools/fixturegen` captures raw beacon API responses + an SSE excerpt from the configured BEACON_CHAIN_API endpoint into internal/beaconchain/testdata/
+  fixturegen/        -- `go run ./tools/fixturegen` captures raw beacon API responses + an SSE excerpt from $BEACON_CHAIN_API into internal/beaconchain/testdata/, plus public-relay MEV bid traces into internal/monitoring/testdata/mev/
 .tool-versions       -- Go version pinning (golang 1.25.10)
 .github/workflows/   -- GitHub Actions CI: `main.yml` (test + multi-arch build + Docker publish on tag), `golangci-lint.yml` (lint + coverage on PR)
 .gitlab-ci.yml       -- Legacy GitLab CI config
@@ -165,22 +183,29 @@ bin/eth2-monitor monitor --since-epoch 12000 ...
 - **Reporting:** `monitoring.Report()` and `monitoring.Info()` log + send to Slack webhook
 - **Config:** Global mutable vars in `internal/opts` package (not dependency-injected)
 - **Go features:** Generics (Set[E]), Go iterators (iter.Seq, slices.Chunk)
-- **Testing:** Table-driven tests with mock interfaces
+- **Testing:** Fixture-backed integration tests are the default — production code runs against an httptest server replaying captured beacon JSON / SSE / MEV-relay responses. Only narrow classification edge cases (cross-epoch dedup in `attestations_classification_test.go`) and pure helpers (`monitoring_helpers_test.go`) stay as inline-data unit tests. See **Test Fixtures** below.
 - **Fork target:** GetBlock expects Fulu/Fusaka fork blocks only; returns `*electra.SignedBeaconBlock` because Fulu reuses the Electra block structure in go-eth2-client
 
 ## Test Fixtures
 
-Wire-format fixtures live under `internal/beaconchain/testdata/` and are refreshed via `make refresh-fixtures` (which runs `tools/fixturegen/main.go`). The generator captures raw HTTP and SSE responses from the configured `BEACON_CHAIN_API` endpoint — same env/`.env` resolution as the e2e tests — so unit tests can stand up an offline `httptest`-backed beacon without round-tripping through a parsed-and-re-serialised representation. Captured endpoints:
+Wire-format fixtures live under `internal/beaconchain/testdata/` (beacon API + SSE) and `internal/monitoring/testdata/mev/` (MEV relay bid traces). Both are refreshed via `make refresh-fixtures` (which runs `tools/fixturegen/main.go`). The generator captures raw HTTP/SSE responses from the configured `BEACON_CHAIN_API` endpoint — same env/`.env` resolution as the e2e tests — plus public mainnet relay traces from Flashbots. Captured endpoints:
 
 - 6 go-eth2-client startup probes (`/eth/v1/node/{syncing,version}`, `/eth/v1/config/{spec,deposit_contract,fork_schedule}`, `/eth/v1/beacon/genesis`) — needed so the fake server can satisfy `BeaconChain.New()`.
 - The 7 endpoints the monitor uses (`finality_checkpoints`, `validators`, `blocks/{slot}`, `validator/duties/{proposer,attester}/{epoch}`, `states/{state_id}/committees`, `events`).
-- Plus a real 404 envelope (`block_missed.json`) so the 4xx path is fixture-verifiable.
+- A real 404 envelope (`block_missed.json`) so the 4xx path is fixture-verifiable.
+- One page of `proposer_payload_delivered` per public MEV relay (Flashbots is always populated; ultrasound returns empty array for `cursor=0` and is auto-skipped).
 
-Loading helpers in `internal/beaconchain/testdata_test.go` provide `loadMeta(t)` (reads `meta.json` for the captured epoch/slot anchors), `loadFixture(t, name)` (`embed.FS`-backed), and `fixtureServer(t, routes)` (httptest server that auto-registers the startup probes plus caller-specified routes). Tests anchor assertions to `meta.json` (`HasMissed`, `CanonicalSlot`, etc.) rather than hard-coded slot numbers so they stay green across `make refresh-fixtures` runs.
+Loading helpers:
+- `internal/beaconchain/testdata_test.go` provides `loadMeta(t)`, `loadFixture(t, name)` (embed.FS), and `fixtureServer(t, routes)` (auto-registers startup probes + caller routes; routes can be a static fixture or a custom `Handler` for flaky/cancel/error injection).
+- `internal/monitoring/testdata_test.go` provides `loadBeaconFixture(t, name)` and `loadBeaconMeta(t)` (cross-package via `os.ReadFile("../beaconchain/testdata/...")`), the same `fixtureServer` shape, and `loadMEVFixture(t, name)` for the relay bidtraces.
 
-Tests using fixtures today: `caplin_parse_test.go` (direct `json.Unmarshal` of `block_canonical.json` into `*electra.SignedBeaconBlock` — catches schema drift the moment fixtures are refreshed against a different node) and `service_fixture_test.go` (`BeaconChain.GetBlock` canonical + missed against the fake server — offline counterpart to the e2e `get_block_caplin_compat` subtest). Existing tests still use inline Go struct construction; new fixture-backed tests are added where wire-format fidelity matters.
+Tests anchor assertions to `meta.json` (`HasMissed`, `CanonicalSlot`, etc.) rather than hard-coded slot numbers so they stay green across `make refresh-fixtures` runs. Most monitoring/beaconchain tests are now fixture-backed integration tests (see Codebase Structure for the full list). The exceptions:
+- `attestations_classification_test.go` — synthesised edge cases (cross-epoch dedup, AggregationBits offset drift) whose specific (validator, slot, committee) tuples can't be reproduced from a single captured block.
+- `monitoring_helpers_test.go` — pure file/goroutine helpers (sendEpoch, LoadKeys, LoadMEVRelays, ResumeEpoch, runSSESubscription) with no beacon I/O to fixture.
 
-`meta.json` records `finalized_epoch`, `test_epoch`, `canonical_slot`, `missed_slot`, `has_missed`, `captured_at`, and `generator_version`. It deliberately excludes any endpoint identifier (no host, no URL) so committed fixtures don't disclose which upstream the project uses for fixturing; the captured response bodies are pure beacon-API JSON and likewise contain no upstream identifiers. The 1 MiB per-fixture cap in `fixturegen` rejects oversized captures; the `committees.json` fixture is slot-filtered (`?slot=…`) because the unfiltered response exceeds the cap on networks with large validator sets (the wire format is identical between filtered and unfiltered forms).
+`meta.json` records `finalized_epoch`, `test_epoch`, `canonical_slot`, `missed_slot`, `has_missed`, `captured_at`, and `generator_version` — and **deliberately excludes any endpoint identifier** (no host, no URL) so committed fixtures don't disclose which upstream the project fixtures from. Captured response bodies are pure beacon-API JSON and likewise contain no upstream identifiers. The 1 MiB per-fixture cap rejects oversized captures; `committees.json` is slot-filtered (`?slot=…`) because the unfiltered response exceeds the cap on networks with large validator sets (the wire format is identical).
+
+**go-eth2-client SSE caveat (production observability gap):** `eth2http.WithHTTPClient` does NOT route SSE traffic through the configured transport — `Events()` doesn't increment the production beacon-API request counter. The `events_2xx_with_query_strip` subtest in `metrics_e2e_test.go` side-channels a direct `http.Client.Do` against the events URL via the same `instrumentingTransport` to keep fixture-based detection coverage for that endpoint.
 
 ## CI
 
