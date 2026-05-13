@@ -78,6 +78,7 @@ internal/
     scenario_empty_block_test.go             -- empty-block detection: CheckProposal on no-EL-value block + TotalProposedEmptyBlocks
     scenario_delayed_attestation_test.go     -- captured block with raw att distance > 3 + processAttestations wire-format integration
     scenario_cross_epoch_attestation_test.go -- captured cross-epoch block + prev-epoch block + cross-epoch wire-format integration
+    correctness_e2e_test.go                  -- Live-fire correctness E2E (build tag: `e2e`). Drives BuildEpochContext + processAttestations + FinalizeMissedAttestations + CheckProposal + FinalizeMissedProposals against the staging Hoodi beacon endpoint, then cross-checks every per-(validator, slot) decision against beaconcha.in V2 `/slot/attestation-duties`. Reads BEACON_CHAIN_API and BEACONCHAIN_API_KEY (from env or test-env/.env); t.Skip on either missing or on explorer indexer lag. Compares monitor distance against `inclusion_delay_without_missed_block` (canonical / missed-slot-adjusted), NOT `inclusion_delay` (raw).
     test_helpers_test.go                     -- Shared helpers (counterValue, gaugeValue, histogramSampleCount, buildSingleValidatorAttestation)
     testdata_test.go                         -- Cross-package os.ReadFile loaders + fixtureServer helper + embed.FS for testdata/mev
     testdata/
@@ -86,11 +87,8 @@ internal/
 test-env/
   docker-compose.yml -- Full local stack: eth2-monitor + Prometheus + Grafana
   grafana/           -- Pre-provisioned dashboards and datasources
-docs/                -- Onboarding reference (BEACON_API_USAGE, ERIGON_CAPLIN_COMPATIBILITY,
-                       ETHEREUM_HARDFORK_TIMELINE, METRICS, attestant/ research notes).
-                       Untracked in git but checked-out locally; useful for context.
 Dockerfile           -- Multi-stage: golang:alpine builder -> alpine runtime, non-root user; builds ./cmd/eth2-monitor
-Makefile             -- Targets: `build` (default), `lint`, `test` (= `go test -cover ./...`), `test-e2e` (build tag `e2e` against ./internal/beaconchain/...), `refresh-fixtures` (loop every scenario), `refresh-scenario SCENARIO=<name>` (single scenario); output: bin/eth2-monitor with git version ldflags
+Makefile             -- Targets: `build` (default), `lint`, `test` (= `go test -cover ./...`), `test-e2e` (build tag `e2e` against ./internal/beaconchain/... + ./internal/monitoring/...), `refresh-fixtures` (loop every scenario), `refresh-scenario SCENARIO=<name>` (single scenario); output: bin/eth2-monitor with git version ldflags
 tools/
   fixturegen/        -- `go run ./tools/fixturegen --scenario=<name> [--chain=<name>]` captures one scenario at a time. Subscribes to /eth/v1/events?topics=head on $BEACON_CHAIN_API and tails new heads waiting for one whose block matches the scenario predicate (empty / delayed att / cross-epoch att / slot gap); EVERY block fetched during the wait is recorded as block_<slot>.json so each scenario directory ends up densely populated with real beacon JSON, not just one anchor block. Output path: internal/beaconchain/testdata/beacon/<chain>/<scenario>/ (default chain: hoodi). See top-of-file doc comment for the scenario list.
 .tool-versions       -- Go version pinning (golang 1.25.10)
@@ -113,8 +111,10 @@ go test ./...                 # or `make test` for `go test -cover ./...`
 # Lint (matches CI; assumes golangci-lint is on $PATH)
 make lint
 
-# End-to-end tests against the staging Hoodi endpoint in test-env/.env
-# (build tag: `e2e`; reads BEACON_CHAIN_API from env or ../test-env/.env)
+# End-to-end tests against the staging Hoodi endpoint (build tag: `e2e`).
+# Reads BEACON_CHAIN_API (always) and BEACONCHAIN_API_KEY (correctness_e2e_test.go only)
+# from env or test-env/.env. Tests t.Skip cleanly when either is unset, so this
+# can run on a fresh checkout without setup.
 make test-e2e
 
 # Regenerate every scenario's testdata/ bundle from the configured
