@@ -6,7 +6,7 @@ Ethereum 2.0 validator performance monitor built by stakefish. Tracks attestatio
 
 ## Tech Stack
 
-- **Language:** Go 1.25 (go.mod: 1.25.10; `.tool-versions`: 1.25.8; CI: 1.25.x)
+- **Language:** Go 1.25 (go.mod: 1.25.10; `.tool-versions`: 1.25.10; CI: `'1.25'` in `golangci-lint.yml`, `1.25.x` in `main.yml`)
 - **CLI Framework:** Cobra (`github.com/spf13/cobra`)
 - **Beacon Chain Client:** `github.com/attestantio/go-eth2-client` v0.28.1 (HTTP transport)
 - **Logging:** zerolog (`github.com/rs/zerolog`)
@@ -23,10 +23,12 @@ cmd/
   root.go            -- Cobra root command, "monitor" and "version" subcommands
   opts/opts.go       -- Global CLI flag variables (package-level vars)
 beaconchain/
-  service.go         -- BeaconChain wrapper around go-eth2-client (HTTP)
-  caplin_compat.go   -- HTTP transport that rewrites unquoted amount/index JSON fields in Caplin block responses
-  metrics.go         -- Beacon API request CounterVec/HistogramVec instrumentation
-  *_test.go          -- Tests for service + caplin compat + API metrics
+  service.go             -- BeaconChain wrapper around go-eth2-client (HTTP)
+  caplin_compat.go       -- HTTP transport that rewrites unquoted amount/index JSON fields in Caplin block responses
+  metrics.go             -- Beacon API request CounterVec/HistogramVec instrumentation
+  caplin_compat_test.go  -- Mocked-server tests for the amount/index rewriter
+  metrics_test.go        -- Endpoint template + counter/histogram recording tests
+  service_e2e_test.go    -- Live-fire tests for all six BeaconChain methods (build tag: `e2e`; reads endpoint from $BEACON_CHAIN_API or test-env/.env)
 spec/
   consts.go          -- SLOTS_PER_EPOCH=32, SECONDS_PER_SLOT=12
   routines.go        -- Epoch/Slot conversion helpers
@@ -42,9 +44,8 @@ pkg/
   set.go               -- Generic Set[E comparable] collection
   profiling.go         -- Measure() timing utility
   utilities.go         -- Must() panic-on-error helper
-  attestations_test.go -- Tests for processAttestations, BuildCommitteeLookup, FinalizeMissedAttestations, PruneSeenAttestations
-  proposals_test.go    -- Tests for isBlockEmpty, CheckProposal, FinalizeMissedProposals
-  test_helpers_test.go -- Shared test helpers (counterValue, gaugeValue, histogramSampleCount, buildSingleValidatorAttestation)
+  *_test.go            -- One unit-test file per production file (attestations, cache, epoch_context, metrics, mev, monitoring, profiling, proposals, reporting, set)
+  test_helpers_test.go -- Shared helpers (counterValue, gaugeValue, histogramSampleCount, buildSingleValidatorAttestation)
 test-env/
   docker-compose.yml -- Full local stack: eth2-monitor + Prometheus + Grafana
   grafana/           -- Pre-provisioned dashboards and datasources
@@ -52,9 +53,9 @@ docs/                -- Onboarding reference (BEACON_API_USAGE, ERIGON_CAPLIN_CO
                        ETHEREUM_HARDFORK_TIMELINE, METRICS, attestant/ research notes).
                        Untracked in git but checked-out locally; useful for context.
 Dockerfile           -- Multi-stage: golang:alpine builder -> alpine runtime, non-root user
-Makefile             -- Targets: `all` -> `build` -> `eth2-monitor`; output: bin/eth2-monitor (with git version ldflags)
-.tool-versions       -- Go version pinning (golang 1.25.8)
-.github/workflows/   -- GitHub Actions CI (build, lint, Docker publish)
+Makefile             -- Targets: `build` (default), `lint`, `test` (= `go test -cover ./...`), `test-e2e` (build tag `e2e` against beaconchain/); output: bin/eth2-monitor with git version ldflags
+.tool-versions       -- Go version pinning (golang 1.25.10)
+.github/workflows/   -- GitHub Actions CI: `main.yml` (test + multi-arch build + Docker publish on tag), `golangci-lint.yml` (lint + coverage on PR)
 .gitlab-ci.yml       -- Legacy GitLab CI config
 ```
 
@@ -68,7 +69,14 @@ make build                    # -> bin/eth2-monitor
 bin/eth2-monitor monitor --beacon-chain-api http://localhost:3500 -k 0xPUBKEY...
 
 # Test
-go test ./...
+go test ./...                 # or `make test` for `go test -cover ./...`
+
+# Lint (matches CI; assumes golangci-lint is on $PATH)
+make lint
+
+# End-to-end tests against the staging Hoodi endpoint in test-env/.env
+# (build tag: `e2e`; reads BEACON_CHAIN_API from env or ../test-env/.env)
+make test-e2e
 
 # Test environment (Docker Compose with Prometheus + Grafana)
 cd test-env && docker compose up --build
@@ -151,6 +159,7 @@ bin/eth2-monitor monitor --since-epoch 12000 ...
 ## CI
 
 - **Linting:** golangci-lint `v2.12.2` (pinned in `golangci-lint.yml:27`) via `golangci/golangci-lint-action@v8`, runs on PRs
+- **Coverage:** `coverage` job in `golangci-lint.yml` runs `go test -cover ./...` on PRs; per-package coverage prints to the job log (no artifact, no third-party service). The `e2e`-tagged tests are excluded — they need a beacon endpoint that CI doesn't have.
 - **Tests:** `test` job in `main.yml` runs `go test ./...`; `build` depends on it so a failing test blocks the release
 - **Build:** Multi-arch (amd64 + arm64; linux/darwin/freebsd/windows) via `main.yml`, runs on push/PR
 - **Release:** Auto-publishes binaries + Docker image to GHCR on git tags (`softprops/action-gh-release` + `docker/build-push-action`)
@@ -160,6 +169,7 @@ bin/eth2-monitor monitor --since-epoch 12000 ...
 - **GetBlock fails on pre-Fusaka slots** -- returns error `"unsupported block version"` for any slot before the Fulu fork
 - **Validator cache has a 30-minute TTL** -- `pkg/cache.go` persists the `Validators` map plus `LastEpoch` to disk JSON (`$TMPDIR/stakefish-eth2-monitor-cache.json`). `CachedIndex.At` is consulted by `ResolveValidatorKeys` to refresh entries older than 30 minutes; `VALIDATOR_INDEX_INVALID` sentinel entries are also TTL-bounded so a newly-active validator becomes visible within the window. On restart `LastEpoch` gates skip-ahead so cumulative counters don't double-count re-processed epochs. Writes use atomic tmpfile + fsync + rename + dir-fsync for crash durability. Delete the file to force a clean run.
 - **Caplin `amount`/`index` JSON quoting** -- `beaconchain/caplin_compat.go` installs an HTTP transport that rewrites *only* the `"amount":N` and `"index":N` fields (regex `unquotedNumericField`) on `/eth/v2/beacon/blocks/` JSON responses. Other Caplin endpoints, other unquoted uint64 fields (e.g. anything under `solid/`), and SSZ responses are untouched -- those still need a fix upstream in go-eth2-client.
+- **Caplin returns 404 on slot-ID state queries for missed slots** -- `GetValidatorIndexes` uses `fmt.Sprintf("%d", spec.EpochLowestSlot(epoch))` as the state ID. Caplin resolves slot-id states by first finding the block at that slot, so if the first slot of the requested epoch was missed it returns `404 block not found`. Production code has no probe-back logic, so this is a latent flake at epoch-boundary missed slots; the `service_e2e_test.go` `get_validator_indexes_roundtrip` subtest works around it by walking back to an epoch whose first slot has a canonical block.
 - **Slashed validators silently excluded from monitoring** -- `GetValidatorIndexes` filters via `IsAttesting()`, which is false for `active_slashed` *and* for any post-exit state. Once a key is slashed it never reappears in duties or reports (slashed and exited are both filtered) -- surprising during incident response when "where is validator X?" has no log line.
 - **Attestation dedup requires consecutive epoch processing** -- `processAttestations` keys `seenAttestations` on `(validator, slot)` and the cross-epoch lookahead window assumes E and E+1 are processed in order. Skipping an epoch (SSE jump, replay-epoch gap) produces false missed-attestation reports.
 - **`vendor/` is not in git** -- `.gitignore` has `/vendor/` and the directory is genuinely untracked (`git ls-files vendor/` is empty). After a fresh clone vendor/ is absent; `go build` falls back to the module cache. Run `go mod vendor` only if you want a vendored local build. Older docs/comments that imply vendor/ is checked in are stale.
