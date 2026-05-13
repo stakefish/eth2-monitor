@@ -257,7 +257,7 @@ func TestBeaconChain_E2E(t *testing.T) {
 		}
 	})
 
-	t.Run("get_block_caplin_compat", func(t *testing.T) {
+	t.Run("get_block_caplin_native_parse", func(t *testing.T) {
 		// Walk forward through the epoch to find a canonical block. Missed
 		// slots are normal (especially on testnets); only fail if no block
 		// exists in the whole epoch.

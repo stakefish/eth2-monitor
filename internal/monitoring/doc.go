@@ -1,4 +1,4 @@
-// Package pkg implements the per-epoch monitoring loop, beacon-API
+// Package monitoring implements the per-epoch monitoring loop, beacon-API
 // interaction helpers, MEV bid integration, and Prometheus metrics
 // for the eth2-monitor binary.
 //

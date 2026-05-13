@@ -54,3 +54,5 @@ require (
 
 // See https://github.com/prysmaticlabs/prysm/blob/d035be29cd549ca38b257e67bb6d9e6e76e9fba7/go.mod#L270
 replace github.com/grpc-ecosystem/grpc-gateway/v2 => github.com/prysmaticlabs/grpc-gateway/v2 v2.3.1-0.20230315201114-09284ba20446
+
+replace github.com/attestantio/go-eth2-client => github.com/stakefish/go-eth2-client v0.0.0-20260513052533-781f0c7f902c

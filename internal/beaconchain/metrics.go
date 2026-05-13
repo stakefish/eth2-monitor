@@ -10,9 +10,11 @@ import (
 )
 
 // RequestMetrics is the metrics surface the beacon HTTP transport reports
-// against. It is owned and registered by pkg/metrics.go; beaconchain only
-// consumes it. A nil value disables instrumentation, which keeps
-// caplin_compat_test.go's transport-only test path free of Prometheus setup.
+// against. It is owned and registered by internal/monitoring/metrics.go;
+// beaconchain only consumes it. A nil value disables instrumentation, so
+// callers that wire the HTTP client outside of the orchestrator (e.g. ad-hoc
+// scripts, future tests that drive the transport directly) can pass nil
+// instead of setting up an isolated Prometheus registry.
 type RequestMetrics struct {
 	Requests *prometheus.CounterVec
 	Duration *prometheus.HistogramVec
@@ -22,9 +24,10 @@ type RequestMetrics struct {
 // the path from /eth/v* onward, with dynamic segments replaced by their
 // spec-standard placeholders ({state_id}, {block_id}, {epoch}, {validator_id}).
 //
-// The base URL can carry a credential segment ahead of /eth/... (see
-// caplin_compat.go's note), so the prefix is stripped before templating.
-// Any path that does not contain /eth/v is reported as "other".
+// The base URL can carry a credential segment ahead of /eth/... (some
+// hosted beacon endpoints inject a token path prefix), so the prefix is
+// stripped before templating. Any path that does not contain /eth/v is
+// reported as "other".
 func endpointTemplate(path string) string {
 	i := strings.Index(path, "/eth/v")
 	if i < 0 {

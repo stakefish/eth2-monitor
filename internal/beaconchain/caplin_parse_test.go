@@ -8,10 +8,11 @@ package beaconchain
 // Catches schema drift the moment fixtures are refreshed: if a future
 // fork or a different beacon client (Caplin, Lighthouse, Prysm) emits a
 // shape go-eth2-client can't decode, this test fails before any
-// integration test does. caplin_compat.go's amount/index rewriter only
-// runs in the HTTP transport path; this test parses the raw bytes
-// directly so any *new* unquoted-uint64 field in a future block payload
-// surfaces here as a json: cannot unmarshal error.
+// integration test does. It also acts as a regression guard for the
+// stakefish go-eth2-client fork — its Caplin-tolerant UnmarshalJSON
+// methods on phase0.Slot/Epoch/Gwei/ValidatorIndex and electra
+// DepositRequest are exactly what makes this raw-bytes parse succeed.
+// If the replace directive is ever dropped, this test fails first.
 
 import (
 	"encoding/json"
@@ -33,8 +34,9 @@ func TestParseCapturedBlock_ShapeMatchesElectra(t *testing.T) {
 		t.Fatalf("unmarshal block_canonical.json into electra.SignedBeaconBlock: %v\n"+
 			"This means the captured response shape no longer matches what "+
 			"go-eth2-client expects. Either the upstream beacon changed, the "+
-			"fork changed (Fulu->Glamsterdam?), or caplin_compat.go's rewriter "+
-			"needs extending to a new field. Inspect the fixture and align.", err)
+			"fork changed (Fulu->Glamsterdam?), or the stakefish go-eth2-client "+
+			"fork's Caplin tolerance no longer covers a new unquoted-uint64 "+
+			"field. Inspect the fixture and align.", err)
 	}
 	if envelope.Data == nil {
 		t.Fatal("envelope.data was nil after unmarshal — fixture is missing the .data field")

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"github.com/stakefish/eth2-monitor/internal/spec"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -18,6 +19,25 @@ import (
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 )
 
+func newInstrumentedHTTPClient(timeout time.Duration, m *RequestMetrics) *http.Client {
+	base := &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   timeout,
+			KeepAlive: 30 * time.Second,
+			DualStack: true,
+		}).DialContext,
+		MaxIdleConns:        64,
+		MaxConnsPerHost:     64,
+		MaxIdleConnsPerHost: 64,
+		IdleConnTimeout:     600 * time.Second,
+	}
+	var transport http.RoundTripper = base
+	if m != nil {
+		transport = &instrumentingTransport{base: transport, m: m}
+	}
+	return &http.Client{Transport: transport}
+}
+
 type BeaconChain struct {
 	service eth2client.Service
 	timeout time.Duration
@@ -27,7 +47,7 @@ func New(ctx context.Context, address string, timeout time.Duration, m *RequestM
 	service, err := eth2http.New(ctx,
 		eth2http.WithAddress(address),
 		eth2http.WithTimeout(time.Minute),
-		eth2http.WithHTTPClient(newCaplinCompatClient(time.Minute, m)),
+		eth2http.WithHTTPClient(newInstrumentedHTTPClient(time.Minute, m)),
 	)
 
 	if err != nil {
@@ -67,12 +87,32 @@ func (beacon *BeaconChain) GetValidatorIndexes(ctx context.Context, pubkeys []st
 		blspubkeys[i] = phase0.BLSPubKey(binkey)
 	}
 
-	resp, err := provider.Validators(ctx, &api.ValidatorsOpts{
-		State:   fmt.Sprintf("%d", spec.EpochLowestSlot(epoch)),
-		PubKeys: blspubkeys,
-	})
-	if err != nil {
-		return nil, err
+	// Caplin resolves a slot state_id by finding the block AT that slot,
+	// so a missed slot returns `404 block not found`. The active-validator
+	// set is stable within an epoch, so any canonical slot of `epoch`
+	// answers the same question. Walk forward from the epoch's first slot
+	// until we either hit a canonical slot or exhaust the epoch.
+	var (
+		resp      *api.Response[map[phase0.ValidatorIndex]*apiv1.Validator]
+		probedErr error
+	)
+	for slot := spec.EpochLowestSlot(epoch); slot <= spec.EpochHighestSlot(epoch); slot++ {
+		r, err := provider.Validators(ctx, &api.ValidatorsOpts{
+			State:   fmt.Sprintf("%d", slot),
+			PubKeys: blspubkeys,
+		})
+		if err == nil {
+			resp = r
+			break
+		}
+		var apiErr *api.Error
+		if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusNotFound {
+			return nil, err
+		}
+		probedErr = err
+	}
+	if resp == nil {
+		return nil, fmt.Errorf("no canonical slot in epoch %d (every slot 404'd): %w", epoch, probedErr)
 	}
 	if len(resp.Data) > len(pubkeys) {
 		panic(fmt.Sprintf("Expected at most %v validator in Beacon API response, got %v", len(pubkeys), len(resp.Data)))
