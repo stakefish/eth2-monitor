@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"iter"
 	"maps"
 	"os"
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/stakefish/eth2-monitor/internal/beaconchain"
 	"github.com/stakefish/eth2-monitor/internal/opts"
@@ -22,6 +24,47 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// sseRetryBackoffBase / sseRetryBackoffMaxExponent shape the retry
+// schedule between unexpected SSE-subscription returns: 1s, 2s, 4s, …,
+// 64s, then resets. Mirrors mev.go's relay-retry rhythm; tunable from
+// one place if operators want to tighten or loosen it.
+const (
+	sseRetryBackoffBase        = time.Second
+	sseRetryBackoffMaxExponent = 6
+)
+
+// RunMonitorPair spawns the SSE producer (SubscribeToEpochs) and the
+// orchestrator (MonitorAttestationsAndProposals) against a derived
+// child context and blocks until both goroutines exit, then returns.
+//
+// The function always returns nil; the supervisor caller treats
+// "returned" as "iteration ended — restart unless parent ctx is done".
+// Errors propagated via Must() panic the process intentionally; the
+// supervisor only handles graceful unexpected exits.
+//
+// Cancellation flow:
+//   - If the parent ctx is cancelled, both goroutines observe it via
+//     the derived runCtx and unwind.
+//   - If either goroutine returns first (e.g. orchestrator hits a
+//     wrapped ctx.DeadlineExceeded from a stale beacon endpoint), its
+//     deferred runCancel() cancels the sibling so wg.Wait() can return.
+//   - On any return path, the deferred runCancel() guarantees no
+//     leaked goroutines.
+func RunMonitorPair(ctx context.Context, beacon *beaconchain.BeaconChain, plainPubkeys []string, mevRelays []string, m *MonitorMetrics) error {
+	runCtx, runCancel := context.WithCancel(ctx)
+	defer runCancel()
+
+	var wg sync.WaitGroup
+	epochsChan := make(chan phase0.Epoch)
+
+	wg.Add(2)
+	go SubscribeToEpochs(runCtx, beacon, &wg, epochsChan, m)
+	go MonitorAttestationsAndProposals(runCtx, runCancel, beacon, plainPubkeys, mevRelays, &wg, epochsChan, m)
+
+	wg.Wait()
+	return nil
+}
+
 // SubscribeToEpochs is the producer side of the epoch channel. It runs
 // in one of three modes:
 //
@@ -30,22 +73,25 @@ import (
 //  2. --since-epoch N: emits epochs [N, current_justified) then closes.
 //  3. Default (SSE): subscribes to head events on the beacon chain and
 //     emits each newly-ended epoch as the head advances. Never returns
-//     under normal operation; exits only on Events() returning (typically
-//     ctx-cancel).
+//     under normal operation; exits only on ctx cancel.
 //
 // Shutdown semantics:
 //   - defer close(epochsChan) so the orchestrator's `for range epochsChan`
 //     unblocks on any exit (normal return OR Must(err) panic).
 //   - Each channel send goes through sendEpoch, which selects on ctx.Done
 //     so the producer can't hang on an unread channel during shutdown.
-//   - context.Canceled / DeadlineExceeded from Events() and the initial
-//     Finality() are detected via errors.Is and returned cleanly (Info
-//     log) rather than passed through Must.
+//   - context.Canceled / DeadlineExceeded from the initial Finality()
+//     bootstrap are detected via errors.Is and returned cleanly.
+//   - The SSE path is wrapped in subscribeWithRetry: an unexpected
+//     return from runSSESubscription (e.g. transport blip, server-side
+//     close that surfaces through go-eth2-client) increments the
+//     ETH2_sseResubscribes counter and reconnects after a bounded
+//     backoff. The function only returns when ctx is cancelled.
 //
 // Defensive guards on the SSE handler skip nil events and reject Data
 // that isn't a *v1.HeadEvent (two-value type assertion) so a malformed
 // SSE frame can't nil-deref the handler.
-func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg *sync.WaitGroup, epochsChan chan phase0.Epoch) {
+func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg *sync.WaitGroup, epochsChan chan phase0.Epoch, m *MonitorMetrics) {
 	defer wg.Done()
 	// Closing the channel on exit is critical: MonitorAttestationsAndProposals
 	// blocks on `for range epochsChan` and only unblocks when the channel is
@@ -131,9 +177,62 @@ func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg 
 	if !ok {
 		panic("beacon.Service() does not satisfy eth2client.EventsProvider; library breaking change")
 	}
-	err = runSSESubscription(ctx, eventsProvider, eventsHandlerFunc)
-	Must(err)
+	if err := subscribeWithRetry(ctx, eventsProvider, eventsHandlerFunc, m, ExptBackoff(sseRetryBackoffBase, sseRetryBackoffMaxExponent)); err != nil {
+		Must(err)
+	}
 	log.Info().Err(ctx.Err()).Msg("SubscribeToEpochs stopping on ctx cancel")
+}
+
+// subscribeWithRetry wraps runSSESubscription in a ctx-bounded retry
+// loop. Each unexpected return from the helper (genuine transport
+// error, server-side close that surfaced through go-eth2-client)
+// increments m.SSEResubscribes, logs a warning, sleeps according to
+// backoff, and re-subscribes. Returns nil only on ctx cancellation,
+// matching SubscribeToEpochs' clean-shutdown contract.
+//
+// Why a layer above runSSESubscription: go-eth2-client/http's Events
+// already implements internal SSE-stream reconnect (1s loop, exits
+// only on ctx). This outer loop is defence-in-depth — if a future
+// library change or unhandled error path surfaces an early return
+// from Events, the monitor still self-heals rather than crashing the
+// process via Must(err).
+func subscribeWithRetry(ctx context.Context, eventsProvider eth2client.EventsProvider, handler func(*v1.Event), m *MonitorMetrics, backoff iter.Seq[time.Duration]) error {
+	next, stop := iter.Pull(backoff)
+	defer stop()
+
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil
+		}
+
+		err := runSSESubscription(ctx, eventsProvider, handler)
+		if err == nil {
+			// runSSESubscription returns nil only on ctx-cancel (or
+			// when Events itself returns a wrapped ctx error). Either
+			// way, propagate the clean-shutdown signal.
+			return nil
+		}
+
+		if m != nil && m.SSEResubscribes != nil {
+			m.SSEResubscribes.Inc()
+		}
+
+		delay, ok := next()
+		if !ok {
+			delay = 0
+		}
+		log.Warn().Err(err).Dur("backoff", delay).Msg("SSE subscription returned unexpectedly; resubscribing")
+
+		if delay > 0 {
+			timer := time.NewTimer(delay)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return nil
+			case <-timer.C:
+			}
+		}
+	}
 }
 
 // runSSESubscription registers a head-event handler with eventsProvider

@@ -1,7 +1,7 @@
 package monitoring
 
 // Integration tests for mev.go. Replaces the previous test file's mix
-// of pure-function unit tests (exptBackoff math) and httptest-backed
+// of pure-function unit tests (ExptBackoff math) and httptest-backed
 // fakeRelay tests with end-to-end coverage that runs the production
 // HTTP transport, JSON decoder, retry loop, and pagination against:
 //
@@ -11,9 +11,9 @@ package monitoring
 //     don't exhibit (502 / sort-order violation / infinite loop /
 //     ctx cancel).
 //
-// exptBackoff math was previously covered by 3 unit tests; it is now
+// ExptBackoff math was previously covered by 3 unit tests; it is now
 // exercised through the retry-on-502 integration test below — a bug
-// in exptBackoff would surface as a wrong wall-clock time on the
+// in ExptBackoff would surface as a wrong wall-clock time on the
 // recovered request.
 
 import (

@@ -15,6 +15,7 @@ import (
 	"github.com/attestantio/go-eth2-client/api"
 	v1 "github.com/attestantio/go-eth2-client/api/v1"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // fakeEventsProvider implements eth2client.EventsProvider for testing
@@ -410,9 +411,10 @@ func TestRunSSESubscription_ReturnsNilOnCtxCanceledError(t *testing.T) {
 }
 
 // TestRunSSESubscription_PropagatesGenuineError — any non-ctx-cancel
-// error must surface so the caller's Must(err) panics loudly. Pre-fix
-// the helper inlined the check and would have hidden a genuine
-// transport failure under the silent ctx-cancel path.
+// error must surface to the helper's caller. Today subscribeWithRetry
+// catches it and resubscribes; pre-supervisor the caller's Must(err)
+// panicked. Either way the helper's contract is "report unexpected
+// errors faithfully".
 func TestRunSSESubscription_PropagatesGenuineError(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -424,5 +426,102 @@ func TestRunSSESubscription_PropagatesGenuineError(t *testing.T) {
 	}
 	if err := runSSESubscription(ctx, fake, func(*v1.Event) {}); !errors.Is(err, sentinel) {
 		t.Errorf("got err=%v; want %v (genuine error must propagate)", err, sentinel)
+	}
+}
+
+// TestSubscribeWithRetry_RetriesOnTransientErrorAndIncrementsCounter
+// regresses the zombie-monitor failure mode: a transient SSE drop
+// pre-supervisor would have surfaced through runSSESubscription, panicked
+// via Must(err), and crashed the process. With the retry layer the SSE
+// subscription self-heals, ETH2_sseResubscribes increments, and the
+// monitor stays alive.
+//
+// fakeEventsProvider returns a sentinel error on first invocation, then
+// nil (the eth2-client "non-blocking handshake succeeded — caller now
+// blocks on ctx" contract) on every subsequent invocation. The test
+// expects:
+//  1. Events() called at least twice (initial + 1 retry).
+//  2. ETH2_sseResubscribes incremented at least once.
+//  3. subscribeWithRetry returns nil after ctx cancel.
+func TestSubscribeWithRetry_RetriesOnTransientErrorAndIncrementsCounter(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	metrics := NewMonitorMetrics(prometheus.NewRegistry())
+
+	var attempts int32
+	fake := &fakeEventsProvider{
+		errFn: func(context.Context) error {
+			if atomic.AddInt32(&attempts, 1) == 1 {
+				return errors.New("transient SSE drop")
+			}
+			// Subsequent calls: mimic eth2-client's contract by returning
+			// nil so runSSESubscription falls through to <-ctx.Done(),
+			// keeping the goroutine alive until shutdown.
+			return nil
+		},
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- subscribeWithRetry(ctx, fake, func(*v1.Event) {}, metrics, zeroBackoff())
+	}()
+
+	deadline := time.Now().Add(time.Second)
+	for atomic.LoadInt32(&attempts) < 2 && time.Now().Before(deadline) {
+		time.Sleep(2 * time.Millisecond)
+	}
+	if got := atomic.LoadInt32(&attempts); got < 2 {
+		cancel()
+		<-done
+		t.Fatalf("subscribeWithRetry did not retry; Events called %d times, want >= 2", got)
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("subscribeWithRetry returned %v; want nil after ctx cancel", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("subscribeWithRetry did not return within 1s of ctx cancel")
+	}
+
+	if got := counterValue(t, metrics.SSEResubscribes); got < 1 {
+		t.Errorf("ETH2_sseResubscribes = %v, want >= 1 after retry", got)
+	}
+}
+
+// TestSubscribeWithRetry_ReturnsCleanlyOnCtxCancel: with no errors at
+// all, subscribeWithRetry must still exit on ctx cancel (returning nil)
+// rather than busy-looping or hanging.
+func TestSubscribeWithRetry_ReturnsCleanlyOnCtxCancel(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+
+	metrics := NewMonitorMetrics(prometheus.NewRegistry())
+	fake := &fakeEventsProvider{}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- subscribeWithRetry(ctx, fake, func(*v1.Event) {}, metrics, zeroBackoff())
+	}()
+
+	// Brief grace so the first Events() call lands, then cancel.
+	time.Sleep(20 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("subscribeWithRetry returned %v; want nil", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("subscribeWithRetry did not return within 1s of ctx cancel")
+	}
+
+	if got := counterValue(t, metrics.SSEResubscribes); got != 0 {
+		t.Errorf("ETH2_sseResubscribes = %v on no-error path; want 0", got)
 	}
 }

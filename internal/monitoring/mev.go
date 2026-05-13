@@ -192,7 +192,7 @@ func requestRelayEpochBidTraces(ctx context.Context, timeout time.Duration, base
 	return bidtraces, nil
 }
 
-// exptBackoff yields an infinite sequence of backoff durations: base,
+// ExptBackoff yields an infinite sequence of backoff durations: base,
 // 2*base, 4*base, ..., (2^maxExponent)*base, then resets to base and
 // cycles. Each yield is offset by [0, base) ms of jitter. Callers should
 // break out of the for-range when their work succeeds or context is
@@ -201,7 +201,7 @@ func requestRelayEpochBidTraces(ctx context.Context, timeout time.Duration, base
 // Defensive: callers passing base < 1ms get zero-jitter rather than the
 // integer-divide-by-zero panic the underlying rand.Uint() % baseMillis
 // would otherwise produce.
-func exptBackoff(base time.Duration, maxExponent uint) iter.Seq[time.Duration] {
+func ExptBackoff(base time.Duration, maxExponent uint) iter.Seq[time.Duration] {
 	// baseMillis is the modulus for the jitter draw. Anything less than 1
 	// would panic on `rand.Uint() % 0`; clamp so callers that pass sub-ms
 	// bases (or someone refactors the call site) get zero-jitter instead
@@ -248,7 +248,7 @@ func requestEpochBidTraces(ctx context.Context, timeout time.Duration, relays []
 			defer cancel()
 
 			var traces []BidTrace
-			for delay := range exptBackoff(time.Duration(500)*time.Millisecond, 4) {
+			for delay := range ExptBackoff(time.Duration(500)*time.Millisecond, 4) {
 				var err error
 				traces, err = requestRelayEpochBidTraces(relayCtx, timeout, baseurl, epoch)
 				if err == nil {

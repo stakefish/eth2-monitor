@@ -36,6 +36,13 @@ type MonitorMetrics struct {
 	// Beacon API request instrumentation
 	BeaconAPIRequests *prometheus.CounterVec
 	BeaconAPIDuration *prometheus.HistogramVec
+	// SSEResubscribes counts every unexpected return from
+	// runSSESubscription that the retry loop has caught and recovered
+	// from. A healthy monitor reports 0; a steadily-incrementing value
+	// means the upstream beacon endpoint or transport is dropping the
+	// /eth/v1/events stream and we are silently reconnecting. Operators
+	// can alert on rate(...) > 0 over a few minutes.
+	SSEResubscribes prometheus.Counter
 }
 
 // BeaconRequestMetrics returns the subset of metrics consumed by the
@@ -171,6 +178,11 @@ func NewMonitorMetrics(reg prometheus.Registerer) *MonitorMetrics {
 			Help:      "Beacon API request latency in seconds",
 			Buckets:   prometheus.DefBuckets,
 		}, []string{"endpoint", "method"}),
+		SSEResubscribes: prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: "ETH2",
+			Name:      "sseResubscribes",
+			Help:      "Count of times the head SSE subscription was re-established after an unexpected end-of-stream. A steadily-rising value indicates upstream beacon/transport instability while the retry loop keeps the monitor alive.",
+		}),
 	}
 
 	// Use Register (not MustRegister) so a name collision doesn't crash
@@ -212,6 +224,7 @@ func NewMonitorMetrics(reg prometheus.Registerer) *MonitorMetrics {
 		m.CrossEpochAttestations,
 		m.BeaconAPIRequests,
 		m.BeaconAPIDuration,
+		m.SSEResubscribes,
 	} {
 		register(c)
 	}

@@ -4,22 +4,34 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
+	"net/http"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/stakefish/eth2-monitor/internal/beaconchain"
 	"github.com/stakefish/eth2-monitor/internal/monitoring"
 	"github.com/stakefish/eth2-monitor/internal/opts"
 
-	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 
-	"net/http"
-
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+)
+
+// supervisorBackoffBase / supervisorBackoffMaxExponent shape the wait
+// between RunMonitorPair restarts when the inner goroutine pair has
+// exited unexpectedly: 1s, 2s, 4s, …, 64s, then resets. Mirrors the
+// SSE retry rhythm in monitoring.SubscribeToEpochs.
+const (
+	supervisorBackoffBase        = time.Second
+	supervisorBackoffMaxExponent = 6
+	// metricsShutdownTimeout bounds the graceful shutdown of the
+	// /metrics HTTP server on real-shutdown signals so a stuck handler
+	// can't block process exit indefinitely.
+	metricsShutdownTimeout = 5 * time.Second
 )
 
 var (
@@ -55,23 +67,18 @@ var (
 			return nil
 		},
 		Run: func(cmd *cobra.Command, args []string) {
-			ctx, cancel := context.WithCancel(context.Background())
-			var wg sync.WaitGroup
-			// Single composite defer: cancel FIRST so the SSE + orchestrator
-			// goroutines observe ctx.Done() and start winding down, then
-			// wg.Wait so the deferred Done() calls complete before we leave
-			// the function. The previous code split these into two defers
-			// in register-order, which LIFO'd to wg.Wait-then-cancel — that
-			// deadlocks because wg.Wait blocks for goroutines that haven't
-			// been told to stop yet.
-			defer func() {
-				cancel()
-				wg.Wait()
-			}()
+			// rootCtx is signal-aware: SIGINT/SIGTERM (Docker stop, Ctrl-C)
+			// cancel it cleanly, which the supervisor uses to distinguish
+			// "real shutdown" from "inner goroutine pair returned
+			// unexpectedly and should restart". Pre-supervisor the binary
+			// had no signal handling at all — Docker SIGTERM was a no-op
+			// while http.ListenAndServe blocked the main goroutine.
+			rootCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+			defer stop()
 
 			metrics := monitoring.NewMonitorMetrics(prometheus.DefaultRegisterer)
 
-			beacon, err := beaconchain.New(ctx, opts.BeaconChainAPI, time.Minute, metrics.BeaconRequestMetrics())
+			beacon, err := beaconchain.New(rootCtx, opts.BeaconChainAPI, time.Minute, metrics.BeaconRequestMetrics())
 			monitoring.Must(err)
 
 			plainPubkeys, err := monitoring.LoadKeys(args)
@@ -88,16 +95,40 @@ var (
 				log.Info().Msgf("Loaded MEV relays: %v", len(mevRelays))
 			}
 
-			epochsChan := make(chan phase0.Epoch)
+			// Metrics HTTP server runs in its own goroutine and shuts
+			// down gracefully when rootCtx fires. Pre-supervisor the
+			// bare http.ListenAndServe blocked the main goroutine
+			// forever, which is what kept the process alive as a zombie
+			// after both monitor goroutines died.
+			metricsMux := http.NewServeMux()
+			metricsMux.Handle("/metrics", promhttp.Handler())
+			metricsSrv := &http.Server{Addr: ":" + opts.MetricsPort, Handler: metricsMux}
+			go func() {
+				if err := metricsSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+					log.Error().Err(err).Msg("metrics server stopped with error")
+				}
+			}()
+			defer func() {
+				shutdownCtx, cancel := context.WithTimeout(context.Background(), metricsShutdownTimeout)
+				defer cancel()
+				_ = metricsSrv.Shutdown(shutdownCtx)
+			}()
 
-			wg.Add(2)
-			go monitoring.SubscribeToEpochs(ctx, beacon, &wg, epochsChan)
-			go monitoring.MonitorAttestationsAndProposals(ctx, cancel, beacon, plainPubkeys, mevRelays, &wg, epochsChan, metrics)
-
-			//Create Prometheus Metrics Client
-			http.Handle("/metrics", promhttp.Handler())
-			err = http.ListenAndServe(":"+opts.MetricsPort, nil)
-			monitoring.Must(err)
+			// Supervisor loop: each iteration spawns the SSE producer +
+			// orchestrator goroutine pair against a child ctx and waits
+			// for them to exit. An unexpected exit (transient beacon
+			// timeout, anything that surfaces as
+			// errors.Is(err, ctx.{Canceled,DeadlineExceeded}) inside the
+			// orchestrator) leads to restart with exponential backoff;
+			// a real shutdown signal causes rootCtx to fire and
+			// Supervise returns.
+			runOnce := func(runCtx context.Context) error {
+				return monitoring.RunMonitorPair(runCtx, beacon, plainPubkeys, mevRelays, metrics)
+			}
+			err = monitoring.Supervise(rootCtx, runOnce, monitoring.ExptBackoff(supervisorBackoffBase, supervisorBackoffMaxExponent))
+			if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+				log.Error().Err(err).Msg("supervisor exited with error")
+			}
 		},
 	}
 
