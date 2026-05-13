@@ -1,20 +1,21 @@
 package monitoring
 
-// Helpers for fixture-backed integration tests in this package.
-// Cross-package: ../beaconchain/testdata/beacon/*.json — captured
-// beacon API responses, used by monitoring integration tests that
-// stand up a real BeaconChain against an httptest fake server. Loaded
-// via os.ReadFile with a relative path; `go test` runs each test
-// binary with cwd set to the package directory, so the path resolves
-// deterministically.
+// Helpers for fixture-backed integration tests in this package. There
+// are two fixture sources:
 //
-// MEV fixture loaders (testdata/mev/*) are added in Phase C.2 when the
-// first mev_integration_test.go lands; the embed.FS + helpers are
-// kept out of this file until then to avoid lint's "unused" warning.
+//   - In-package: testdata/mev/*_bidtraces.json — captured from public
+//     MEV relays, embedded via embed.FS.
+//   - Cross-package: ../beaconchain/testdata/beacon/*.json — captured
+//     beacon API responses, used by monitoring integration tests that
+//     stand up a real BeaconChain against an httptest fake server.
+//     Loaded via os.ReadFile with a relative path; `go test` runs
+//     each test binary with cwd set to the package directory, so the
+//     path resolves deterministically.
 //
-// `make refresh-fixtures` regenerates the underlying testdata files.
+// `make refresh-fixtures` regenerates both sets via tools/fixturegen.
 
 import (
+	"embed"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -22,6 +23,20 @@ import (
 	"path/filepath"
 	"testing"
 )
+
+//go:embed testdata/mev/*.json
+var monitoringFixtures embed.FS
+
+// loadMEVFixture reads testdata/mev/<name>_bidtraces.json (raw HTTP
+// response from a relay's proposer_payload_delivered endpoint).
+func loadMEVFixture(t *testing.T, name string) []byte {
+	t.Helper()
+	b, err := monitoringFixtures.ReadFile("testdata/mev/" + name + "_bidtraces.json")
+	if err != nil {
+		t.Fatalf("read MEV fixture %s: %v (run `make refresh-fixtures`)", name, err)
+	}
+	return b
+}
 
 // beaconFixtureMeta mirrors the fixtureMeta struct in
 // internal/beaconchain/testdata_test.go. Duplicated rather than
