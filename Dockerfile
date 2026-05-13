@@ -16,7 +16,7 @@ RUN go mod download
 RUN go mod verify
 
 COPY . .
-RUN go build -o /go/bin/eth2-monitor -ldflags '-extldflags "-static"'
+RUN go build -o /go/bin/eth2-monitor -ldflags '-extldflags "-static"' ./cmd/eth2-monitor
 
 # second step to build minimal image
 FROM alpine:3.23

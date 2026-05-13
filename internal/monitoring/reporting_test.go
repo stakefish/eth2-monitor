@@ -1,4 +1,4 @@
-package pkg
+package monitoring
 
 import (
 	"net/http"
@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"eth2-monitor/cmd/opts"
+	"github.com/stakefish/eth2-monitor/internal/opts"
 )
 
 // TestReportToSlack_NilRespOnDialFailure regresses the crash where http.Post

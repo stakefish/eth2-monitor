@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
-	"eth2-monitor/spec"
+	"github.com/stakefish/eth2-monitor/internal/spec"
 	"fmt"
 	"net/http"
 	"strings"

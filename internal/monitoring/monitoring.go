@@ -1,4 +1,4 @@
-package pkg
+package monitoring
 
 import (
 	"bufio"
@@ -11,9 +11,9 @@ import (
 	"strings"
 	"sync"
 
-	"eth2-monitor/beaconchain"
-	"eth2-monitor/cmd/opts"
-	"eth2-monitor/spec"
+	"github.com/stakefish/eth2-monitor/internal/beaconchain"
+	"github.com/stakefish/eth2-monitor/internal/opts"
+	"github.com/stakefish/eth2-monitor/internal/spec"
 
 	eth2client "github.com/attestantio/go-eth2-client"
 	"github.com/attestantio/go-eth2-client/api"

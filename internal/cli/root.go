@@ -1,4 +1,4 @@
-package cmd
+package cli
 
 import (
 	"context"
@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"eth2-monitor/beaconchain"
-	"eth2-monitor/cmd/opts"
-	"eth2-monitor/pkg"
+	"github.com/stakefish/eth2-monitor/internal/beaconchain"
+	"github.com/stakefish/eth2-monitor/internal/monitoring"
+	"github.com/stakefish/eth2-monitor/internal/opts"
 
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/rs/zerolog"
@@ -69,13 +69,13 @@ var (
 				wg.Wait()
 			}()
 
-			metrics := pkg.NewMonitorMetrics(prometheus.DefaultRegisterer)
+			metrics := monitoring.NewMonitorMetrics(prometheus.DefaultRegisterer)
 
 			beacon, err := beaconchain.New(ctx, opts.BeaconChainAPI, time.Minute, metrics.BeaconRequestMetrics())
-			pkg.Must(err)
+			monitoring.Must(err)
 
-			plainPubkeys, err := pkg.LoadKeys(args)
-			pkg.Must(err)
+			plainPubkeys, err := monitoring.LoadKeys(args)
+			monitoring.Must(err)
 			if len(plainPubkeys) == 0 {
 				panic("No validators to monitor")
 			}
@@ -83,21 +83,21 @@ var (
 
 			mevRelays := []string{}
 			if opts.Monitor.MEVRelaysFilePath != "" {
-				mevRelays, err = pkg.LoadMEVRelays(opts.Monitor.MEVRelaysFilePath)
-				pkg.Must(err)
+				mevRelays, err = monitoring.LoadMEVRelays(opts.Monitor.MEVRelaysFilePath)
+				monitoring.Must(err)
 				log.Info().Msgf("Loaded MEV relays: %v", len(mevRelays))
 			}
 
 			epochsChan := make(chan phase0.Epoch)
 
 			wg.Add(2)
-			go pkg.SubscribeToEpochs(ctx, beacon, &wg, epochsChan)
-			go pkg.MonitorAttestationsAndProposals(ctx, cancel, beacon, plainPubkeys, mevRelays, &wg, epochsChan, metrics)
+			go monitoring.SubscribeToEpochs(ctx, beacon, &wg, epochsChan)
+			go monitoring.MonitorAttestationsAndProposals(ctx, cancel, beacon, plainPubkeys, mevRelays, &wg, epochsChan, metrics)
 
 			//Create Prometheus Metrics Client
 			http.Handle("/metrics", promhttp.Handler())
 			err = http.ListenAndServe(":"+opts.MetricsPort, nil)
-			pkg.Must(err)
+			monitoring.Must(err)
 		},
 	}
 

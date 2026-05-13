@@ -1,10 +1,10 @@
-package pkg
+package monitoring
 
 import (
 	"errors"
 	"fmt"
 
-	"eth2-monitor/beaconchain"
+	"github.com/stakefish/eth2-monitor/internal/beaconchain"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog/log"

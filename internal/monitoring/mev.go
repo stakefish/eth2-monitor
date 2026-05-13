@@ -1,9 +1,9 @@
-package pkg
+package monitoring
 
 import (
 	"context"
 	"encoding/json"
-	"eth2-monitor/spec"
+	"github.com/stakefish/eth2-monitor/internal/spec"
 	"fmt"
 	"io"
 	"iter"

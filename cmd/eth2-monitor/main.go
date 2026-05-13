@@ -5,7 +5,7 @@ import (
 	"os"
 	"time"
 
-	"eth2-monitor/cmd"
+	"github.com/stakefish/eth2-monitor/internal/cli"
 
 	isatty "github.com/mattn/go-isatty"
 	"github.com/rs/zerolog"
@@ -24,7 +24,7 @@ func init() {
 }
 
 func main() {
-	if err := cmd.Execute(); err != nil {
+	if err := cli.Execute(); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}

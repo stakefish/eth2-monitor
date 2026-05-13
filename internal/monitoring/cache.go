@@ -1,4 +1,4 @@
-package pkg
+package monitoring
 
 import (
 	"encoding/json"

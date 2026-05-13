@@ -1,9 +1,9 @@
-package pkg
+package monitoring
 
 import (
 	"bytes"
 	"encoding/json"
-	"eth2-monitor/cmd/opts"
+	"github.com/stakefish/eth2-monitor/internal/opts"
 	"fmt"
 	"net/http"
 	"time"

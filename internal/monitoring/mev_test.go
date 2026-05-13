@@ -1,4 +1,4 @@
-package pkg
+package monitoring
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"eth2-monitor/spec"
+	"github.com/stakefish/eth2-monitor/internal/spec"
 
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 )

@@ -1,11 +1,11 @@
-package pkg
+package monitoring
 
 import (
 	"maps"
 	"slices"
 	"strings"
 
-	"eth2-monitor/cmd/opts"
+	"github.com/stakefish/eth2-monitor/internal/opts"
 
 	"github.com/attestantio/go-eth2-client/spec/electra"
 	"github.com/attestantio/go-eth2-client/spec/phase0"

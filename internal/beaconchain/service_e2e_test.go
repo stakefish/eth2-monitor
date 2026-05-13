@@ -22,7 +22,7 @@ import (
 	"testing"
 	"time"
 
-	"eth2-monitor/spec"
+	"github.com/stakefish/eth2-monitor/internal/spec"
 
 	eth2client "github.com/attestantio/go-eth2-client"
 	"github.com/attestantio/go-eth2-client/api"

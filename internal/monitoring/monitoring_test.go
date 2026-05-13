@@ -1,4 +1,4 @@
-package pkg
+package monitoring
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"eth2-monitor/cmd/opts"
+	"github.com/stakefish/eth2-monitor/internal/opts"
 
 	"github.com/attestantio/go-eth2-client/api"
 	v1 "github.com/attestantio/go-eth2-client/api/v1"

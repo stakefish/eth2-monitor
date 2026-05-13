@@ -26,4 +26,4 @@
 // shapes shouldn't occur in valid Beacon API responses but the
 // defenses prevent orchestrator crashes on malformed JSON from
 // non-conforming clients.
-package pkg
+package monitoring
