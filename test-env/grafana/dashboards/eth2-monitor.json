@@ -100,81 +100,6 @@
       ]
     },
     {
-      "id": 6,
-      "title": "Proposer Success % (24h)",
-      "type": "stat",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "description": "Share of proposer duties where the validator actually produced a block (empty or non-empty), over the last 24h. Reads 'No data' when fewer than 5 proposer duties fell in the window \u2014 proposer duties are rare, so a 1-of-2 miss on a sparse fleet would otherwise false-red the tile. Window is fixed at 24h because of this rarity.",
-      "gridPos": {
-        "x": 4,
-        "y": 2,
-        "w": 4,
-        "h": 4
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 0.5
-              },
-              {
-                "color": "green",
-                "value": 0.95
-              }
-            ]
-          },
-          "unit": "percentunit",
-          "decimals": 2,
-          "min": 0,
-          "max": 1
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "graphMode": "area",
-        "colorMode": "value",
-        "justifyMode": "auto",
-        "textMode": "auto",
-        "orientation": "auto"
-      },
-      "pluginVersion": "12.2.1",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "(sum(increase(ETH2_totalServedProposals{service=~\"$service\",container!=\"\",container=~\"$container\"}[24h])) / clamp_min(sum(increase(ETH2_totalServedProposals{service=~\"$service\",container!=\"\",container=~\"$container\"}[24h])) + sum(increase(ETH2_totalMissedProposals{service=~\"$service\",container!=\"\",container=~\"$container\"}[24h])), 1)) and (sum(increase(ETH2_totalServedProposals{service=~\"$service\",container!=\"\",container=~\"$container\"}[24h])) + sum(increase(ETH2_totalMissedProposals{service=~\"$service\",container!=\"\",container=~\"$container\"}[24h]))) >= 5",
-          "legendFormat": "{{container}}",
-          "refId": "A",
-          "instant": false,
-          "range": true
-        }
-      ]
-    },
-    {
       "id": 5,
       "title": "Delayed Rate",
       "type": "stat",
@@ -184,7 +109,7 @@
       },
       "description": "Share of canonical attestations whose inclusion distance exceeds the spec-distance-3 tolerance, over the dashboard's selected time range. Tier-2 severity indicator.",
       "gridPos": {
-        "x": 8,
+        "x": 4,
         "y": 2,
         "w": 4,
         "h": 4
@@ -258,7 +183,7 @@
       },
       "description": "99th-percentile canonical inclusion distance in shifted slots (0 = optimal, included one slot after attesting). Per container, over the dashboard's selected time range. Tracks how far each cluster's worst-case inclusion is from optimal.",
       "gridPos": {
-        "x": 12,
+        "x": 8,
         "y": 2,
         "w": 4,
         "h": 4
@@ -332,7 +257,7 @@
       },
       "description": "Beacon API non-2xx response share over the dashboard's selected time range, excluding 4xx on /eth/v2/beacon/blocks/{block_id} (those 404s are the canonical missed-proposal signal the monitor relies on, not an infrastructure problem). Infrastructure health, not a validator metric.",
       "gridPos": {
-        "x": 16,
+        "x": 12,
         "y": 2,
         "w": 4,
         "h": 4
