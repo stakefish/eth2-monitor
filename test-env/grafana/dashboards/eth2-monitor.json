@@ -554,9 +554,9 @@
       },
       "description": "Fleet-wide attestation deficit over time. 0% = optimal; spikes indicate trouble. Tier 1 (red) = missed, Tier 2 (orange) = delayed beyond tolerance.",
       "gridPos": {
-        "x": 0,
+        "x": 12,
         "y": 10,
-        "w": 24,
+        "w": 12,
         "h": 7
       },
       "fieldConfig": {
@@ -1235,7 +1235,8 @@
               "job": true,
               "instance": true,
               "Total": true,
-              "Value #A": true
+              "Value #A": true,
+              "Served": true
             },
             "indexByName": {
               "container": 0,
@@ -1669,9 +1670,9 @@
       },
       "description": "Per-cluster attestation miss rate over the last 15 minutes. One line per scrape container. Severity bands: <0.5% green, 0.5\u20132% yellow, >2% red.",
       "gridPos": {
-        "x": 0,
+        "x": 8,
         "y": 26,
-        "w": 12,
+        "w": 8,
         "h": 8
       },
       "fieldConfig": {
@@ -1758,9 +1759,9 @@
       },
       "description": "Per-cluster share of attestations delayed beyond the spec-distance tolerance over the last 15 minutes. One line per scrape container. Severity bands: <0.5% green, 0.5\u20132% yellow, >2% red.",
       "gridPos": {
-        "x": 12,
+        "x": 16,
         "y": 26,
-        "w": 12,
+        "w": 8,
         "h": 8
       },
       "fieldConfig": {
@@ -2989,6 +2990,147 @@
           "editorMode": "code",
           "expr": "histogram_quantile(0.99, sum(rate(ETH2_beaconAPIRequestDurationSeconds_bucket{service=~\"$service\",container!=\"\",container=~\"$container\"}[15m])) by (endpoint, le))",
           "legendFormat": "{{endpoint}}",
+          "refId": "A",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "Attestation served rate (15m)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "description": "Fleet-wide rate of canonical attestations being recorded by the monitor, smoothed over a 15-minute trailing window. Pairs with the Attestation deficit panel: this shows healthy throughput, that shows failures. A sudden drop indicates validators going offline or the monitor falling behind.",
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 12,
+        "h": 7
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "green"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "unit": "ops",
+          "decimals": 1,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.2.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[15m]))",
+          "legendFormat": "Served",
+          "refId": "A",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 605,
+      "title": "Attestation served rate (per cluster, 15m)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "description": "Per-cluster rate of canonical attestations recorded over a 15-minute trailing window. One line per container \u2014 the healthy baseline view paired with the per-cluster miss / delayed-over-tolerance panels to the right.",
+      "gridPos": {
+        "x": 0,
+        "y": 26,
+        "w": 8,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "unit": "ops",
+          "decimals": 1,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "12.2.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by (container) (rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[15m]))",
+          "legendFormat": "{{container}}",
           "refId": "A",
           "range": true
         }
