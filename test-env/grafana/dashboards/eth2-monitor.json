@@ -107,7 +107,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "99th-percentile canonical inclusion distance in shifted slots (0 = optimal, included one slot after attesting). Per container, over the dashboard's selected time range. Tracks how far each cluster's worst-case inclusion is from optimal.",
+      "description": "99th-percentile canonical inclusion distance in shifted slots (0 = optimal, included one slot after attesting). Per cluster, over the dashboard's selected time range. Tracks how far each cluster's worst-case inclusion is from optimal.",
       "gridPos": {
         "x": 8,
         "y": 6,
@@ -674,7 +674,7 @@
     },
     {
       "id": 500,
-      "title": "Clusters (by container)",
+      "title": "Clusters",
       "type": "row",
       "collapsed": false,
       "gridPos": {
@@ -693,7 +693,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Per-cluster (container) rollup over the dashboard time range, ranked by issue score = missed + 0.5*delayed_over_tolerance + 0.1*any_delay. Only clusters with a non-zero issue score are shown (top 50 by score). Click a Container cell to filter the rest of the dashboard to that cluster. Success % = Served / (Served + Missed). Delayed = count of canonical attestations included 2+ slots later than optimal (spec distance \u2265 3, computed from the canonical-distance histogram as count \u2212 bucket{le=1.0}); Delayed >tol uses the stricter threshold (spec distance > 3). The three rate columns are each count / (Served + Missed).",
+      "description": "Per-cluster rollup over the dashboard time range, ranked by issue score = missed + 0.5*delayed_over_tolerance + 0.1*any_delay. Only clusters with a non-zero issue score are shown (top 50 by score). Click a Cluster cell to filter the rest of the dashboard to that cluster. Success % = Served / (Served + Missed). Delayed = count of canonical attestations included 2+ slots later than optimal (spec distance \u2265 3, computed from the canonical-distance histogram as count \u2212 bucket{le=1.0}); Delayed >tol uses the stricter threshold (spec distance > 3). The three rate columns are each count / (Served + Missed).",
       "gridPos": {
         "x": 0,
         "y": 18,
@@ -739,7 +739,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Container"
+              "options": "Cluster"
             },
             "properties": [
               {
@@ -1251,7 +1251,7 @@
               "Value #E": 9
             },
             "renameByName": {
-              "container": "Container",
+              "container": "Cluster",
               "Value #B": "Validators",
               "Value #C": "Missed",
               "Value #D": "Delayed >tol",
@@ -1635,7 +1635,7 @@
             "renameByName": {
               "validator_index": "Index",
               "pubkey": "Pubkey",
-              "container": "Container",
+              "container": "Cluster",
               "Value #B": "Missed",
               "Value #C": "Served",
               "Value #D": "Delayed >tol"
@@ -1668,7 +1668,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Per-cluster attestation miss rate over the last 15 minutes. One line per scrape container. Severity bands: <0.5% green, 0.5\u20132% yellow, >2% red.",
+      "description": "Per-cluster attestation miss rate over the last 15 minutes. One line per scrape cluster. Severity bands: <0.5% green, 0.5\u20132% yellow, >2% red.",
       "gridPos": {
         "x": 8,
         "y": 26,
@@ -1757,7 +1757,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Per-cluster share of attestations delayed beyond the spec-distance tolerance over the last 15 minutes. One line per scrape container. Severity bands: <0.5% green, 0.5\u20132% yellow, >2% red.",
+      "description": "Per-cluster share of attestations delayed beyond the spec-distance tolerance over the last 15 minutes. One line per scrape cluster. Severity bands: <0.5% green, 0.5\u20132% yellow, >2% red.",
       "gridPos": {
         "x": 16,
         "y": 26,
@@ -2009,7 +2009,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Missed slots in the most recently processed epoch, per container. \u22653 = network stress signal (chain-wide). If only one container shows this, more likely a monitor stall.",
+      "description": "Missed slots in the most recently processed epoch, per cluster. \u22653 = network stress signal (chain-wide). If only one cluster shows this, more likely a monitor stall.",
       "gridPos": {
         "x": 0,
         "y": 59,
@@ -3074,7 +3074,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Per-cluster rate of canonical attestations recorded over a 15-minute trailing window. One line per container \u2014 the healthy baseline view paired with the per-cluster miss / delayed-over-tolerance panels to the right.",
+      "description": "Per-cluster rate of canonical attestations recorded over a 15-minute trailing window. One line per cluster \u2014 the healthy baseline view paired with the per-cluster miss / delayed-over-tolerance panels to the right.",
       "gridPos": {
         "x": 0,
         "y": 26,
@@ -3177,7 +3177,7 @@
         },
         "datasource": "Prometheus",
         "definition": "label_values(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",validator_index!=\"\"}, container)",
-        "description": "A logical group of validators deployed together (Prometheus label: `container`). Pick one to scope the rest of the dashboard, or *All*.",
+        "description": "A logical group of validators deployed together. Pick one to scope the rest of the dashboard, or *All*.",
         "hide": 0,
         "includeAll": true,
         "label": "Cluster",
