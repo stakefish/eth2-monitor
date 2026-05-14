@@ -94,8 +94,8 @@
           "expr": "max(ETH2_epoch{service=~\"$service\",container!=\"\",container=~\"$container\"}) by (container)",
           "legendFormat": "{{container}}",
           "refId": "A",
-          "instant": true,
-          "range": false
+          "instant": false,
+          "range": true
         }
       ]
     },
@@ -169,8 +169,8 @@
           "expr": "(sum(increase(ETH2_totalServedProposals{service=~\"$service\",container!=\"\",container=~\"$container\"}[24h])) / clamp_min(sum(increase(ETH2_totalServedProposals{service=~\"$service\",container!=\"\",container=~\"$container\"}[24h])) + sum(increase(ETH2_totalMissedProposals{service=~\"$service\",container!=\"\",container=~\"$container\"}[24h])), 1)) and (sum(increase(ETH2_totalServedProposals{service=~\"$service\",container!=\"\",container=~\"$container\"}[24h])) + sum(increase(ETH2_totalMissedProposals{service=~\"$service\",container!=\"\",container=~\"$container\"}[24h]))) >= 5",
           "legendFormat": "{{container}}",
           "refId": "A",
-          "instant": true,
-          "range": false
+          "instant": false,
+          "range": true
         }
       ]
     },
@@ -240,11 +240,11 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) / clamp_min(sum(rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])), 1e-9)",
+          "expr": "sum(rate(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[15m])) / clamp_min(sum(rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[15m])), 1e-9)",
           "legendFormat": "{{container}}",
           "refId": "A",
-          "instant": true,
-          "range": false
+          "instant": false,
+          "range": true
         }
       ]
     },
@@ -314,11 +314,11 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.99, sum(rate(ETH2_canonicalAttestationDistances_bucket{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range])) by (container, le))",
+          "expr": "histogram_quantile(0.99, sum(rate(ETH2_canonicalAttestationDistances_bucket{service=~\"$service\",container!=\"\",container=~\"$container\"}[15m])) by (container, le))",
           "legendFormat": "{{container}}",
           "refId": "A",
-          "instant": true,
-          "range": false
+          "instant": false,
+          "range": true
         }
       ]
     },
@@ -388,11 +388,11 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "((sum(rate(ETH2_beaconAPIRequestsTotal{service=~\"$service\",container!=\"\",container=~\"$container\",status_class=~\"5xx|error\"}[$__range])) or vector(0)) + (sum(rate(ETH2_beaconAPIRequestsTotal{service=~\"$service\",container!=\"\",container=~\"$container\",status_class=\"4xx\",endpoint!=\"/eth/v2/beacon/blocks/{block_id}\"}[$__range])) or vector(0))) / clamp_min(sum(rate(ETH2_beaconAPIRequestsTotal{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range])), 1e-9)",
+          "expr": "((sum(rate(ETH2_beaconAPIRequestsTotal{service=~\"$service\",container!=\"\",container=~\"$container\",status_class=~\"5xx|error\"}[15m])) or vector(0)) + (sum(rate(ETH2_beaconAPIRequestsTotal{service=~\"$service\",container!=\"\",container=~\"$container\",status_class=\"4xx\",endpoint!=\"/eth/v2/beacon/blocks/{block_id}\"}[15m])) or vector(0))) / clamp_min(sum(rate(ETH2_beaconAPIRequestsTotal{service=~\"$service\",container!=\"\",container=~\"$container\"}[15m])), 1e-9)",
           "legendFormat": "{{container}}",
           "refId": "A",
-          "instant": true,
-          "range": false
+          "instant": false,
+          "range": true
         }
       ]
     },
@@ -463,11 +463,11 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) / clamp_min(sum(rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])), 1e-9)",
+          "expr": "sum(rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[15m])) / clamp_min(sum(rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[15m])) + sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[15m])), 1e-9)",
           "legendFormat": "Success %",
           "refId": "A",
-          "instant": true,
-          "range": false
+          "instant": false,
+          "range": true
         }
       ]
     },
@@ -537,11 +537,11 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) / clamp_min(sum(rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])), 1e-9)",
+          "expr": "sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[15m])) / clamp_min(sum(rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[15m])) + sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[15m])), 1e-9)",
           "legendFormat": "Missed %",
           "refId": "A",
-          "instant": true,
-          "range": false
+          "instant": false,
+          "range": true
         }
       ]
     },
@@ -611,11 +611,11 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) / clamp_min(sum(rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])), 1e-9)",
+          "expr": "sum(rate(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[15m])) / clamp_min(sum(rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[15m])) + sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[15m])), 1e-9)",
           "legendFormat": "Delayed >tol %",
           "refId": "A",
-          "instant": true,
-          "range": false
+          "instant": false,
+          "range": true
         }
       ]
     },
@@ -685,11 +685,11 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(sum(rate(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range])) - sum(rate(ETH2_canonicalAttestationDistances_bucket{service=~\"$service\",container!=\"\",container=~\"$container\",le=\"1.0\"}[$__range]))) / clamp_min(sum(rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])), 1e-9)",
+          "expr": "(sum(rate(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[15m])) - sum(rate(ETH2_canonicalAttestationDistances_bucket{service=~\"$service\",container!=\"\",container=~\"$container\",le=\"1.0\"}[15m]))) / clamp_min(sum(rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[15m])) + sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[15m])), 1e-9)",
           "legendFormat": "Delayed %",
           "refId": "A",
-          "instant": true,
-          "range": false
+          "instant": false,
+          "range": true
         }
       ]
     },
@@ -2223,7 +2223,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Attestations that were included in a later epoch than the one they attested to. A sustained non-zero rate usually means stale validator-client chain state — the validator missed the slot transition before signing.",
+      "description": "Attestations that were included in a later epoch than the one they attested to. A sustained non-zero rate usually means stale validator-client chain state \u2014 the validator missed the slot transition before signing.",
       "gridPos": {
         "x": 12,
         "y": 59,
