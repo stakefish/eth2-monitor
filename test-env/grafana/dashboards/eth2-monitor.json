@@ -555,7 +555,7 @@
       "description": "Fleet-wide attestation deficit over time. 0% = optimal; spikes indicate trouble. Tier 1 (red) = missed, Tier 2 (orange) = delayed beyond tolerance.",
       "gridPos": {
         "x": 12,
-        "y": 10,
+        "y": 14,
         "w": 12,
         "h": 7
       },
@@ -679,7 +679,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 17,
+        "y": 21,
         "w": 24,
         "h": 1
       },
@@ -696,7 +696,7 @@
       "description": "Per-cluster rollup over the dashboard time range, ranked by issue score = missed + 0.5*delayed_over_tolerance + 0.1*any_delay. Only clusters with a non-zero issue score are shown (top 50 by score). Click a Cluster cell to filter the rest of the dashboard to that cluster. Success % = Served / (Served + Missed). Delayed = count of canonical attestations included 2+ slots later than optimal (spec distance \u2265 3, computed from the canonical-distance histogram as count \u2212 bucket{le=1.0}); Delayed >tol uses the stricter threshold (spec distance > 3). The three rate columns are each count / (Served + Missed).",
       "gridPos": {
         "x": 0,
-        "y": 18,
+        "y": 22,
         "w": 24,
         "h": 8
       },
@@ -1285,7 +1285,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 35,
+        "y": 39,
         "w": 24,
         "h": 1
       },
@@ -1302,7 +1302,7 @@
       "description": "Per-validator snapshot over the dashboard time range, ranked by issue score = missed + 0.5*delayed_over_tolerance. Only validators with a non-zero issue score are shown (top-$top by score). Click an Index to filter the dashboard to this validator; click a Pubkey to open beaconcha.in.",
       "gridPos": {
         "x": 0,
-        "y": 36,
+        "y": 40,
         "w": 24,
         "h": 14
       },
@@ -1671,7 +1671,7 @@
       "description": "Per-cluster attestation miss rate over the last 15 minutes. One line per scrape cluster. Severity bands: <0.5% green, 0.5\u20132% yellow, >2% red.",
       "gridPos": {
         "x": 8,
-        "y": 26,
+        "y": 30,
         "w": 8,
         "h": 8
       },
@@ -1760,7 +1760,7 @@
       "description": "Per-cluster share of attestations delayed beyond the spec-distance tolerance over the last 15 minutes. One line per scrape cluster. Severity bands: <0.5% green, 0.5\u20132% yellow, >2% red.",
       "gridPos": {
         "x": 16,
-        "y": 26,
+        "y": 30,
         "w": 8,
         "h": 8
       },
@@ -1845,7 +1845,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 50,
+        "y": 54,
         "w": 24,
         "h": 1
       },
@@ -1862,7 +1862,7 @@
       "description": "Snapshot distribution of canonical inclusion distances over the dashboard time range. X = shifted slots (0 = optimal, included at attestedSlot+1). Y = sample count. Histogram panel rendering of the de-cumulated bucket frame; each bar = count of attestations with that shifted distance.",
       "gridPos": {
         "x": 0,
-        "y": 51,
+        "y": 55,
         "w": 12,
         "h": 8
       },
@@ -1937,7 +1937,7 @@
       "description": "Snapshot distribution of raw inclusion distances over the dashboard time range (before missed-slot adjustment). X = shifted slots (0 = optimal, included at attestedSlot+1). Y = sample count. Histogram panel rendering of the de-cumulated bucket frame; each bar = count of attestations with that shifted distance.",
       "gridPos": {
         "x": 12,
-        "y": 51,
+        "y": 55,
         "w": 12,
         "h": 8
       },
@@ -2012,7 +2012,7 @@
       "description": "Missed slots in the most recently processed epoch, per cluster. \u22653 = network stress signal (chain-wide). If only one cluster shows this, more likely a monitor stall.",
       "gridPos": {
         "x": 0,
-        "y": 59,
+        "y": 63,
         "w": 12,
         "h": 8
       },
@@ -2078,7 +2078,7 @@
       "description": "Attestations that were included in a later epoch than the one they attested to. A sustained non-zero rate usually means stale validator-client chain state \u2014 the validator missed the slot transition before signing.",
       "gridPos": {
         "x": 12,
-        "y": 59,
+        "y": 63,
         "w": 12,
         "h": 8
       },
@@ -2140,7 +2140,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 67,
+        "y": 71,
         "w": 24,
         "h": 1
       },
@@ -2156,7 +2156,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 68,
+        "y": 72,
         "w": 8,
         "h": 8
       },
@@ -2221,7 +2221,7 @@
       },
       "gridPos": {
         "x": 8,
-        "y": 68,
+        "y": 72,
         "w": 8,
         "h": 8
       },
@@ -2287,7 +2287,7 @@
       "description": "Three MEV-related counters: empty blocks (no EL value), vanilla blocks (proposer didn't use a relay bid), and missing-bid-traces (no tracked relay returned any bid).",
       "gridPos": {
         "x": 16,
-        "y": 68,
+        "y": 72,
         "w": 8,
         "h": 8
       },
@@ -2374,7 +2374,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 76,
+        "y": 80,
         "w": 5,
         "h": 4
       },
@@ -2444,7 +2444,7 @@
       },
       "gridPos": {
         "x": 5,
-        "y": 76,
+        "y": 80,
         "w": 5,
         "h": 4
       },
@@ -2514,7 +2514,7 @@
       },
       "gridPos": {
         "x": 10,
-        "y": 76,
+        "y": 80,
         "w": 4,
         "h": 4
       },
@@ -2584,7 +2584,7 @@
       },
       "gridPos": {
         "x": 14,
-        "y": 76,
+        "y": 80,
         "w": 5,
         "h": 4
       },
@@ -2654,7 +2654,7 @@
       },
       "gridPos": {
         "x": 19,
-        "y": 76,
+        "y": 80,
         "w": 5,
         "h": 4
       },
@@ -2721,7 +2721,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 80,
+        "y": 84,
         "w": 24,
         "h": 1
       },
@@ -2738,7 +2738,7 @@
       "description": "Stacked beacon-API request rate by endpoint ($__rate_interval; auto-sized to viewport). $__rate_interval is used so rate() doesn't underreport during cold-start uptime over a long fixed window (which produces a misleading upward ramp).",
       "gridPos": {
         "x": 0,
-        "y": 81,
+        "y": 85,
         "w": 12,
         "h": 8
       },
@@ -2808,7 +2808,7 @@
       "description": "Beacon-API non-2xx response rate by endpoint and status class (5m).",
       "gridPos": {
         "x": 12,
-        "y": 81,
+        "y": 85,
         "w": 12,
         "h": 8
       },
@@ -2874,7 +2874,7 @@
       "description": "Beacon-API request latency p50 by endpoint (10m).",
       "gridPos": {
         "x": 0,
-        "y": 89,
+        "y": 93,
         "w": 12,
         "h": 8
       },
@@ -2940,7 +2940,7 @@
       "description": "Beacon-API request latency p99 by endpoint (10m).",
       "gridPos": {
         "x": 12,
-        "y": 89,
+        "y": 93,
         "w": 12,
         "h": 8
       },
@@ -3006,7 +3006,7 @@
       "description": "Fleet-wide rate of canonical attestations being recorded by the monitor, smoothed over a 15-minute trailing window. Pairs with the Attestation deficit panel: this shows healthy throughput, that shows failures. A sudden drop indicates validators going offline or the monitor falling behind.",
       "gridPos": {
         "x": 0,
-        "y": 10,
+        "y": 14,
         "w": 12,
         "h": 7
       },
@@ -3077,7 +3077,7 @@
       "description": "Per-cluster rate of canonical attestations recorded over a 15-minute trailing window. One line per cluster \u2014 the healthy baseline view paired with the per-cluster miss / delayed-over-tolerance panels to the right.",
       "gridPos": {
         "x": 0,
-        "y": 26,
+        "y": 30,
         "w": 8,
         "h": 8
       },
@@ -3133,6 +3133,224 @@
           "legendFormat": "{{container}}",
           "refId": "A",
           "range": true
+        }
+      ]
+    },
+    {
+      "id": 34,
+      "title": "Total Served",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "description": "Total served attestations across the fleet over the dashboard's selected time range.",
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 8,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short",
+          "decimals": 0,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "graphMode": "none",
+        "colorMode": "value",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "orientation": "auto"
+      },
+      "pluginVersion": "12.2.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range]))",
+          "legendFormat": "Total Served",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 35,
+      "title": "Total Missed",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "description": "Total missed attestations across the fleet over the dashboard's selected time range.",
+      "gridPos": {
+        "x": 8,
+        "y": 10,
+        "w": 8,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          },
+          "unit": "short",
+          "decimals": 0,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "graphMode": "none",
+        "colorMode": "value",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "orientation": "auto"
+      },
+      "pluginVersion": "12.2.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range]))",
+          "legendFormat": "Total Missed",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 36,
+      "title": "Total Delayed >tol",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "description": "Total attestations included more than 3 spec-slots late, across the fleet over the dashboard's selected time range.",
+      "gridPos": {
+        "x": 16,
+        "y": 10,
+        "w": 8,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          },
+          "unit": "short",
+          "decimals": 0,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "graphMode": "none",
+        "colorMode": "value",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "orientation": "auto"
+      },
+      "pluginVersion": "12.2.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range]))",
+          "legendFormat": "Total Delayed >tol",
+          "refId": "A",
+          "instant": true,
+          "range": false
         }
       ]
     }
