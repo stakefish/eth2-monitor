@@ -731,7 +731,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__rate_interval])) / clamp_min(sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__rate_interval])) + sum(rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__rate_interval])), 1e-9)",
+          "expr": "sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[15m])) / clamp_min(sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[15m])) + sum(rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[15m])), 1e-9)",
           "legendFormat": "Missed",
           "refId": "A",
           "range": true
@@ -742,7 +742,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__rate_interval])) / clamp_min(sum(rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__rate_interval])) + sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__rate_interval])), 1e-9)",
+          "expr": "sum(rate(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[15m])) / clamp_min(sum(rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[15m])) + sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[15m])), 1e-9)",
           "legendFormat": "Delayed >tol",
           "refId": "B",
           "range": true
@@ -2290,7 +2290,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(rate(ETH2_crossEpochAttestations{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__rate_interval])) by (container)",
+              "expr": "sum(rate(ETH2_crossEpochAttestations{service=~\"$service\",container!=\"\",container=~\"$container\"}[15m])) by (container)",
               "legendFormat": "{{container}}",
               "refId": "A",
               "range": true
@@ -3220,7 +3220,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(rate(ETH2_duplicateAttestationsSkipped{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__rate_interval])) by (container)",
+              "expr": "sum(rate(ETH2_duplicateAttestationsSkipped{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[15m])) by (container)",
               "legendFormat": "{{container}}",
               "refId": "A",
               "range": true
