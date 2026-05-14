@@ -3184,7 +3184,7 @@
           "fields": "",
           "values": false
         },
-        "graphMode": "none",
+        "graphMode": "area",
         "colorMode": "value",
         "justifyMode": "auto",
         "textMode": "auto",
@@ -3201,8 +3201,8 @@
           "expr": "sum(increase(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range]))",
           "legendFormat": "Total Served",
           "refId": "A",
-          "instant": true,
-          "range": false
+          "instant": false,
+          "range": true
         }
       ]
     },
@@ -3258,7 +3258,7 @@
           "fields": "",
           "values": false
         },
-        "graphMode": "none",
+        "graphMode": "area",
         "colorMode": "value",
         "justifyMode": "auto",
         "textMode": "auto",
@@ -3275,8 +3275,8 @@
           "expr": "sum(increase(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range]))",
           "legendFormat": "Total Missed",
           "refId": "A",
-          "instant": true,
-          "range": false
+          "instant": false,
+          "range": true
         }
       ]
     },
@@ -3332,7 +3332,7 @@
           "fields": "",
           "values": false
         },
-        "graphMode": "none",
+        "graphMode": "area",
         "colorMode": "value",
         "justifyMode": "auto",
         "textMode": "auto",
@@ -3349,8 +3349,8 @@
           "expr": "sum(increase(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range]))",
           "legendFormat": "Total Delayed >tol",
           "refId": "A",
-          "instant": true,
-          "range": false
+          "instant": false,
+          "range": true
         }
       ]
     }
