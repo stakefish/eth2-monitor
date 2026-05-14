@@ -15,163 +15,13 @@
       }
     ]
   },
-  "description": "eth2-monitor watches a set of Ethereum staking validators for missed/delayed attestations, missed/empty/vanilla proposals, and beacon-API health. Top\u2192bottom = Global \u2192 Cluster \u2192 Validator. Click 'About this dashboard' (top row, collapsed) for the glossary, effectiveness model, and severity bands.",
+  "description": "eth2-monitor watches a set of Ethereum staking validators for missed/delayed attestations, missed/empty/vanilla proposals, and beacon-API health. Top\u2192bottom = Global \u2192 Cluster \u2192 Validator.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
   "id": 1,
   "links": [],
   "panels": [
-    {
-      "id": 800,
-      "title": "About this dashboard",
-      "type": "row",
-      "collapsed": true,
-      "gridPos": {
-        "x": 0,
-        "y": 0,
-        "w": 24,
-        "h": 1
-      },
-      "panels": [
-        {
-          "id": 900,
-          "title": "What this dashboard is for",
-          "type": "text",
-          "gridPos": {
-            "x": 0,
-            "y": 1,
-            "w": 24,
-            "h": 3
-          },
-          "options": {
-            "mode": "markdown",
-            "content": "<div style=\"border-left:4px solid #5794F2;padding:6px 12px;background:rgba(87,148,242,0.08);border-radius:2px\">\n\neth2-monitor watches a set of **Ethereum validators** \u2014 staking nodes that earn rewards for voting on the chain. This dashboard surfaces *how often the validators do their job*, *how on time they are*, and *which ones are struggling*, so a staking operator can spot incidents early and drill down to a single validator without reading raw Prometheus.\n\n</div>"
-          },
-          "pluginVersion": "12.2.1",
-          "transparent": false
-        },
-        {
-          "id": 901,
-          "title": "Quick glossary",
-          "type": "text",
-          "gridPos": {
-            "x": 0,
-            "y": 4,
-            "w": 12,
-            "h": 10
-          },
-          "options": {
-            "mode": "markdown",
-            "content": "<dl style=\"margin:0\"><dt style=\"float:left;clear:left;width:130px;color:#5794F2;font-weight:600;padding:4px 12px 4px 0;text-align:right\">Validator</dt><dd style=\"margin-left:140px;padding:4px 0;border-bottom:1px solid rgba(128,128,128,0.15)\">a staked Ethereum node identity (32 ETH bonded) that votes on the chain in exchange for rewards.</dd><dt style=\"float:left;clear:left;width:130px;color:#5794F2;font-weight:600;padding:4px 12px 4px 0;text-align:right\">Attestation</dt><dd style=\"margin-left:140px;padding:4px 0;border-bottom:1px solid rgba(128,128,128,0.15)\">a validator's vote on what the head of the chain looks like. Each validator attests once per epoch (~6.4 min). Most rewards come from these.</dd><dt style=\"float:left;clear:left;width:130px;color:#5794F2;font-weight:600;padding:4px 12px 4px 0;text-align:right\">Block proposal</dt><dd style=\"margin-left:140px;padding:4px 0;border-bottom:1px solid rgba(128,128,128,0.15)\">once in a while a validator is picked to produce the next block. Far rarer than attestations, but each one pays a large reward.</dd><dt style=\"float:left;clear:left;width:130px;color:#5794F2;font-weight:600;padding:4px 12px 4px 0;text-align:right\">Slot</dt><dd style=\"margin-left:140px;padding:4px 0;border-bottom:1px solid rgba(128,128,128,0.15)\">a 12-second time bucket. One slot is one chance for someone to propose a block.</dd><dt style=\"float:left;clear:left;width:130px;color:#5794F2;font-weight:600;padding:4px 12px 4px 0;text-align:right\">Epoch</dt><dd style=\"margin-left:140px;padding:4px 0;border-bottom:1px solid rgba(128,128,128,0.15)\">32 slots (~6.4 min). The unit Ethereum uses to finalise rewards and penalties.</dd><dt style=\"float:left;clear:left;width:130px;color:#5794F2;font-weight:600;padding:4px 12px 4px 0;text-align:right\">Cluster</dt><dd style=\"margin-left:140px;padding:4px 0;border-bottom:1px solid rgba(128,128,128,0.15)\">a logical group of validators deployed together (e.g. one customer, one machine, one Kubernetes pod). Comes from the <code>container</code> Prometheus label.</dd><dt style=\"float:left;clear:left;width:130px;color:#5794F2;font-weight:600;padding:4px 12px 4px 0;text-align:right\">Inclusion distance</dt><dd style=\"margin-left:140px;padding:4px 0;border-bottom:1px solid rgba(128,128,128,0.15)\">how many slots elapsed between when a validator attested and when its vote was included in a block. Optimal = next slot; the larger the distance, the smaller the reward.</dd></dl>"
-          },
-          "pluginVersion": "12.2.1",
-          "transparent": false
-        },
-        {
-          "id": 902,
-          "title": "How to read this dashboard",
-          "type": "text",
-          "gridPos": {
-            "x": 12,
-            "y": 4,
-            "w": 12,
-            "h": 5
-          },
-          "options": {
-            "mode": "markdown",
-            "content": "- <span style=\"background:#5794F2;color:#fff;padding:1px 6px;border-radius:3px;font-weight:600;font-size:0.8em;letter-spacing:0.5px\">TOP \u2192 BOTTOM</span> &nbsp; **Global \u2192 Cluster \u2192 Validator**. Fleet KPIs at the top, cluster comparison in the middle, individual validators at the bottom.\n- <span style=\"background:#5794F2;color:#fff;padding:1px 6px;border-radius:3px;font-weight:600;font-size:0.8em;letter-spacing:0.5px\">LEFT \u2192 RIGHT</span> &nbsp; *Least severe* (delayed votes) on the left, *most severe* (missed votes) on the right.\n- <span style=\"background:#5794F2;color:#fff;padding:1px 6px;border-radius:3px;font-weight:600;font-size:0.8em;letter-spacing:0.5px\">CLICK TO FILTER</span> &nbsp; Click a row in the Clusters or Validators table to scope the rest of the dashboard to that container or validator."
-          },
-          "pluginVersion": "12.2.1",
-          "transparent": false
-        },
-        {
-          "id": 903,
-          "title": "Variables",
-          "type": "text",
-          "gridPos": {
-            "x": 12,
-            "y": 9,
-            "w": 12,
-            "h": 5
-          },
-          "options": {
-            "mode": "markdown",
-            "content": "<table style=\"border-collapse:collapse;width:100%\"><tr><td style=\"white-space:nowrap;padding:4px 12px 4px 0;text-align:right;color:#5794F2;font-weight:600;vertical-align:top\">Service</td><td style=\"padding:4px 0;vertical-align:top\">which monitor instance. Usually one.</td></tr><tr><td style=\"white-space:nowrap;padding:4px 12px 4px 0;text-align:right;color:#5794F2;font-weight:600;vertical-align:top\">Cluster</td><td style=\"padding:4px 0;vertical-align:top\">pick one cluster, or <em>All</em>.</td></tr><tr><td style=\"white-space:nowrap;padding:4px 12px 4px 0;text-align:right;color:#5794F2;font-weight:600;vertical-align:top\">Validator</td><td style=\"padding:4px 0;vertical-align:top\">drill to one validator. Usually <em>All</em> except during incident response.</td></tr><tr><td style=\"white-space:nowrap;padding:4px 12px 4px 0;text-align:right;color:#5794F2;font-weight:600;vertical-align:top\">Top N</td><td style=\"padding:4px 0;vertical-align:top\">how many rows to show in rankings (default 10).</td></tr><tr><td style=\"white-space:nowrap;padding:4px 12px 4px 0;text-align:right;color:#5794F2;font-weight:600;vertical-align:top\">Window</td><td style=\"padding:4px 0;vertical-align:top\">rolling time range for the KPI tiles. Default 24h. Does <em>not</em> affect the 7-day trend (fixed) or per-validator panels (fixed at 1 min).</td></tr></table>"
-          },
-          "pluginVersion": "12.2.1",
-          "transparent": false
-        },
-        {
-          "id": 904,
-          "title": "Effectiveness, explained",
-          "type": "text",
-          "gridPos": {
-            "x": 0,
-            "y": 14,
-            "w": 24,
-            "h": 8
-          },
-          "options": {
-            "mode": "markdown",
-            "content": "**Effectiveness** is the one number that tells you whether your validators are doing their job well. It's the product of two simple components:\n\n1. <span style=\"background:#73BF69;color:#fff;padding:1px 6px;border-radius:3px;font-weight:600;font-size:0.8em;letter-spacing:0.5px\">AVAILABILITY</span> &nbsp; did the validator attest at all? `served / (served + missed)`.\n2. <span style=\"background:#5794F2;color:#fff;padding:1px 6px;border-radius:3px;font-weight:600;font-size:0.8em;letter-spacing:0.5px\">TIMING</span> &nbsp; was the vote included as early as possible? Read from the histogram of inclusion distances.\n\n**100%** means every validator attested at the earliest possible slot. Anything below **~98%** indicates a real problem. The **24h KPI tile** (top of the dashboard) reads live; the **7-day trend panel** under \"Global health\" is the steady SLO signal \u2014 single-attestation noise smooths out over a week.\n\n<div style=\"border-left:3px solid #8E8E8E;padding:6px 12px;background:rgba(142,142,142,0.06);border-radius:2px;color:#8E8E8E\">\n\n<strong style=\"color:#aaa\">Deeper detail (skip if new):</strong> the formal definition is Attestant's\n\n```\neffectiveness = (earliest_inclusion_slot \u2212 attestation_slot)\n              \u00f7 (actual_inclusion_slot \u2212 attestation_slot)\n```\n\nwhere `earliest_inclusion_slot` skips missed proposer slots so an offline block producer doesn't penalise the validator. eth2-monitor's `canonicalAttestationDistances` histogram is already missed-slot-adjusted to match this definition. See the Attestant link below for the full model.\n\n</div>"
-          },
-          "pluginVersion": "12.2.1",
-          "transparent": false
-        },
-        {
-          "id": 905,
-          "title": "Severity bands",
-          "type": "text",
-          "gridPos": {
-            "x": 0,
-            "y": 22,
-            "w": 12,
-            "h": 8
-          },
-          "options": {
-            "mode": "markdown",
-            "content": "<em>Colour rules used on every chart and tile:</em>\n\n<table style=\"border-collapse:collapse;width:100%;font-size:0.95em\"><thead><tr><th style=\"text-align:left;padding:6px 12px\"></th><th style=\"padding:6px 12px;text-align:center\"><span style=\"background:#73BF69;color:#fff;padding:2px 8px;border-radius:3px;font-weight:600;font-size:0.9em\">GREEN</span></th><th style=\"padding:6px 12px;text-align:center\"><span style=\"background:#F2CC0C;color:#fff;padding:2px 8px;border-radius:3px;font-weight:600;font-size:0.9em\">YELLOW</span></th><th style=\"padding:6px 12px;text-align:center\"><span style=\"background:#E02F44;color:#fff;padding:2px 8px;border-radius:3px;font-weight:600;font-size:0.9em\">RED</span></th></tr></thead><tbody><tr><td style=\"padding:6px 12px;border-top:1px solid rgba(128,128,128,0.18)\">Attester Effectiveness</td><td style=\"padding:6px 12px;border-top:1px solid rgba(128,128,128,0.18);text-align:center;background:rgba(115,191,105,0.15)\">\u226599.5%</td><td style=\"padding:6px 12px;border-top:1px solid rgba(128,128,128,0.18);text-align:center;background:rgba(242,204,12,0.15)\">98\u201399.5%</td><td style=\"padding:6px 12px;border-top:1px solid rgba(128,128,128,0.18);text-align:center;background:rgba(224,47,68,0.15)\"><98%</td></tr><tr><td style=\"padding:6px 12px;border-top:1px solid rgba(128,128,128,0.18)\">Proposer Effectiveness</td><td style=\"padding:6px 12px;border-top:1px solid rgba(128,128,128,0.18);text-align:center;background:rgba(115,191,105,0.15)\">\u226595%</td><td style=\"padding:6px 12px;border-top:1px solid rgba(128,128,128,0.18);text-align:center;background:rgba(242,204,12,0.15)\">50\u201395%</td><td style=\"padding:6px 12px;border-top:1px solid rgba(128,128,128,0.18);text-align:center;background:rgba(224,47,68,0.15)\"><50%</td></tr><tr><td style=\"padding:6px 12px;border-top:1px solid rgba(128,128,128,0.18)\">Delayed / Miss rate</td><td style=\"padding:6px 12px;border-top:1px solid rgba(128,128,128,0.18);text-align:center;background:rgba(115,191,105,0.15)\"><0.5%</td><td style=\"padding:6px 12px;border-top:1px solid rgba(128,128,128,0.18);text-align:center;background:rgba(242,204,12,0.15)\">0.5\u20132%</td><td style=\"padding:6px 12px;border-top:1px solid rgba(128,128,128,0.18);text-align:center;background:rgba(224,47,68,0.15)\">>2%</td></tr><tr><td style=\"padding:6px 12px;border-top:1px solid rgba(128,128,128,0.18)\">Distance p99</td><td style=\"padding:6px 12px;border-top:1px solid rgba(128,128,128,0.18);text-align:center;background:rgba(115,191,105,0.15)\"><2</td><td style=\"padding:6px 12px;border-top:1px solid rgba(128,128,128,0.18);text-align:center;background:rgba(242,204,12,0.15)\">2\u20134</td><td style=\"padding:6px 12px;border-top:1px solid rgba(128,128,128,0.18);text-align:center;background:rgba(224,47,68,0.15)\">>4</td></tr><tr><td style=\"padding:6px 12px;border-top:1px solid rgba(128,128,128,0.18)\">API Errors</td><td style=\"padding:6px 12px;border-top:1px solid rgba(128,128,128,0.18);text-align:center;background:rgba(115,191,105,0.15)\"><1%</td><td style=\"padding:6px 12px;border-top:1px solid rgba(128,128,128,0.18);text-align:center;background:rgba(242,204,12,0.15)\">1\u20135%</td><td style=\"padding:6px 12px;border-top:1px solid rgba(128,128,128,0.18);text-align:center;background:rgba(224,47,68,0.15)\">>5%</td></tr></tbody></table>"
-          },
-          "pluginVersion": "12.2.1",
-          "transparent": false
-        },
-        {
-          "id": 906,
-          "title": "When effectiveness drops \u2014 what to check",
-          "type": "text",
-          "gridPos": {
-            "x": 12,
-            "y": 22,
-            "w": 12,
-            "h": 8
-          },
-          "options": {
-            "mode": "markdown",
-            "content": "<div style=\"color:#aaa;font-size:0.9em;margin-bottom:8px\">Ordered most-likely \u2192 least-likely, most-actionable \u2192 least-actionable.</div>\n\n<table style=\"border-collapse:collapse;width:100%\"><tbody><tr><td style=\"white-space:nowrap;padding:6px 10px 6px 0;vertical-align:top\"><span style=\"background:#E02F44;color:#fff;padding:1px 6px;border-radius:3px;font-weight:600;font-size:0.8em;letter-spacing:0.5px\">TIER 1</span></td><td style=\"padding:6px 0 6px 0;vertical-align:top\"><strong>Your validator software is too slow.</strong><br/><span style=\"color:#bbb\">The validator client or beacon node is overloaded, low on RAM, or behind the chain. <strong>First check:</strong> CPU, memory, peer count.</span></td></tr><tr><td style=\"white-space:nowrap;padding:6px 10px 6px 0;vertical-align:top\"><span style=\"background:#FF9830;color:#fff;padding:1px 6px;border-radius:3px;font-weight:600;font-size:0.8em;letter-spacing:0.5px\">TIER 2</span></td><td style=\"padding:6px 0 6px 0;vertical-align:top\"><strong>Your validator can't reach peers fast enough.</strong><br/><span style=\"color:#bbb\">Network latency from your host to the wider Ethereum network is high. <strong>Check</strong> peer count and outbound bandwidth.</span></td></tr><tr><td style=\"white-space:nowrap;padding:6px 10px 6px 0;vertical-align:top\"><span style=\"background:#F2CC0C;color:#fff;padding:1px 6px;border-radius:3px;font-weight:600;font-size:0.8em;letter-spacing:0.5px\">TIER 3</span></td><td style=\"padding:6px 0 6px 0;vertical-align:top\"><strong>The aggregators are slow.</strong><br/><span style=\"color:#bbb\">Aggregators bundle everyone's votes for inclusion in a block. If they're under load, your on-time vote may still arrive late. Not directly fixable from your side; correlates with cluster load and a busy network.</span></td></tr><tr><td style=\"white-space:nowrap;padding:6px 10px 6px 0;vertical-align:top\"><span style=\"background:#8E8E8E;color:#fff;padding:1px 6px;border-radius:3px;font-weight:600;font-size:0.8em;letter-spacing:0.5px\">TIER 4</span></td><td style=\"padding:6px 0 6px 0;vertical-align:top\"><strong>The wider network is slow today.</strong><br/><span style=\"color:#bbb\">Aggregated votes are reaching block producers late. Least actionable from the operator side.</span></td></tr><tr><td style=\"white-space:nowrap;padding:6px 10px 6px 0;vertical-align:top\"><span style=\"background:#8E8E8E;color:#fff;padding:1px 6px;border-radius:3px;font-weight:600;font-size:0.8em;letter-spacing:0.5px\">TIER 5</span></td><td style=\"padding:6px 0 6px 0;vertical-align:top\"><strong>Upstream block proposer missed their slot.</strong><br/><span style=\"color:#bbb\">eth2-monitor already corrects for this case, so it won't drop <em>your</em> effectiveness directly \u2014 but it correlates with broader network stress.</span></td></tr></tbody></table>\n\n<div style=\"margin-top:10px;color:#bbb;font-size:0.9em\">Work top \u2192 bottom when the deficit chart's <em>Distance loss</em> line spikes on a specific cluster.</div>"
-          },
-          "pluginVersion": "12.2.1",
-          "transparent": false
-        },
-        {
-          "id": 907,
-          "title": "References",
-          "type": "text",
-          "gridPos": {
-            "x": 0,
-            "y": 30,
-            "w": 24,
-            "h": 5
-          },
-          "options": {
-            "mode": "markdown",
-            "content": "<table style=\"border-collapse:collapse;width:100%\"><tr><td style=\"width:33%;vertical-align:top;padding:4px\"><div style=\"border-left:3px solid #5794F2;padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:2px;height:100%\"><a href=\"https://docs.beaconcha.in/beaconscore/introduction\" target=\"_blank\" style=\"color:#5794F2;font-weight:600;text-decoration:none\">BeaconScore methodology \u2192</a><div style=\"color:#bbb;font-size:0.9em;margin-top:4px\">beaconcha.in's \"is my validator OK?\" score. Operator-facing.</div></div></td><td style=\"width:33%;vertical-align:top;padding:4px\"><div style=\"border-left:3px solid #B877D9;padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:2px;height:100%\"><a href=\"https://docs.rated.network/documentation/methodologies/ethereum/rated-effectiveness-rating/raver-v3.0-current\" target=\"_blank\" style=\"color:#B877D9;font-weight:600;text-decoration:none\">Rated RAVER v3.0 \u2192</a><div style=\"color:#bbb;font-size:0.9em;margin-top:4px\">Rated.network's effectiveness scoring methodology. More technical than BeaconScore.</div></div></td><td style=\"width:33%;vertical-align:top;padding:4px\"><div style=\"border-left:3px solid #73BF69;padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:2px;height:100%\"><a href=\"https://www.attestant.io/posts/defining-attestation-effectiveness/\" target=\"_blank\" style=\"color:#73BF69;font-weight:600;text-decoration:none\">Attestant attestation effectiveness \u2192</a><div style=\"color:#bbb;font-size:0.9em;margin-top:4px\">Canonical write-up that defines effectiveness. Read this for the math and the 7-day-trend rationale.</div></div></td></tr></table>"
-          },
-          "pluginVersion": "12.2.1",
-          "transparent": false
-        }
-      ]
-    },
     {
       "id": 20,
       "title": "Global health",
@@ -852,7 +702,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Fleet-wide share of attestations included 2+ slots later than optimal (spec distance ≥ 3): (sum(canonical_count) − sum(bucket{le=1.0})) / (sum(served) + sum(missed)).",
+      "description": "Fleet-wide share of attestations included 2+ slots later than optimal (spec distance \u2265 3): (sum(canonical_count) \u2212 sum(bucket{le=1.0})) / (sum(served) + sum(missed)).",
       "gridPos": {
         "x": 18,
         "y": 6,
@@ -1156,7 +1006,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Per-cluster (container) rollup over the dashboard time range, ranked by issue score = missed + 0.5*delayed_over_tolerance + 0.1*any_delay. Rows depend on the View toggle: Problematic only shows clusters with score > 0; All shows top 50 regardless of score. Click a Container cell to filter the rest of the dashboard to that cluster. Success % = Served / (Served + Missed). Delayed = count of canonical attestations included 2+ slots later than optimal (spec distance ≥ 3, computed from the canonical-distance histogram as count − bucket{le=1.0}); Delayed >tol uses the stricter threshold (spec distance > 3). The three rate columns are each count / (Served + Missed).",
+      "description": "Per-cluster (container) rollup over the dashboard time range, ranked by issue score = missed + 0.5*delayed_over_tolerance + 0.1*any_delay. Rows depend on the View toggle: Problematic only shows clusters with score > 0; All shows top 50 regardless of score. Click a Container cell to filter the rest of the dashboard to that cluster. Success % = Served / (Served + Missed). Delayed = count of canonical attestations included 2+ slots later than optimal (spec distance \u2265 3, computed from the canonical-distance histogram as count \u2212 bucket{le=1.0}); Delayed >tol uses the stricter threshold (spec distance > 3). The three rate columns are each count / (Served + Missed).",
       "gridPos": {
         "x": 0,
         "y": 18,
@@ -2380,7 +2230,7 @@
               "editorMode": "code",
               "expr": "sum by (le) (increase(ETH2_canonicalAttestationDistances_bucket{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range]))",
               "format": "heatmap",
-              "legendFormat": "≤ {{le}}",
+              "legendFormat": "\u2264 {{le}}",
               "refId": "A",
               "instant": true,
               "range": false
@@ -2455,7 +2305,7 @@
               "editorMode": "code",
               "expr": "sum by (le) (increase(ETH2_rawAttestationDistances_bucket{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range]))",
               "format": "heatmap",
-              "legendFormat": "≤ {{le}}",
+              "legendFormat": "\u2264 {{le}}",
               "refId": "A",
               "instant": true,
               "range": false
