@@ -52,7 +52,9 @@ internal/
     routines.go        -- Epoch/Slot conversion helpers
   monitoring/
     doc.go                                   -- Package-level overview (entry points + flow)
-    monitoring.go                            -- Orchestrator loop + SubscribeToEpochs + LoadKeys/LoadMEVRelays
+    monitoring.go                            -- Orchestrator loop + SubscribeToEpochs (wrapped in subscribeWithRetry) + LoadKeys/LoadMEVRelays
+    supervisor.go                            -- ctx-aware restart loop (`Supervise`; backs off using `ExptBackoff` from `mev.go`); wraps the orchestrator pair from cli/root.go so an unexpected goroutine exit no longer zombifies the process
+    supervisor_test.go                       -- Supervise lifecycle tests (ctx cancellation, restart-on-unexpected-return, backoff draining)
     epoch_context.go                         -- Per-epoch state fetch: EpochContext + BuildEpochContext + ResolveValidatorKeys + ListProposerDuties / ListEpochBlocks + SlotsWithBlocks
     attestations.go                          -- Attestation-issue detection: processAttestations + BuildCommitteeLookup + PruneSeenAttestations + FinalizeMissedAttestations + CommitteeInfo
     proposals.go                             -- Proposal-issue detection: isBlockEmpty + CheckProposal + FinalizeMissedProposals
@@ -212,7 +214,7 @@ Wire-format fixtures live under `internal/beaconchain/testdata/beacon/<chain>/` 
 | `_shared` | go-eth2-client startup probes — invariant across scenarios for a given chain | (auto-registered by `fixtureServer`) |
 | `happy_path` | canonical block + on-time attestations at a stable test epoch; also captures `events_head.sse` (head transcript tee'd during the head-stream wait) | `TotalCanonicalProposals` |
 | `missed_proposal` | head-stream slot gap captured as a real 404 envelope | `TotalMissedProposals` + `LastMissedProposal*` |
-| `empty_block` | first head whose block has no EL transactions / blobs / Pectra exec requests | `TotalProposedEmptyBlocks` + `LastProposedEmptyBlockSlot` |
+| `empty_block` | first head whose block has no EL transactions / blobs / Pectra exec requests. Captured opportunistically — Hoodi often goes 10+ min with every block carrying EL value, so the bundle may be absent on a fresh clone; `scenario_empty_block_test.go` `t.Skip`s when `EmptyBlockSlot==0`. | `TotalProposedEmptyBlocks` + `LastProposedEmptyBlockSlot` |
 | `delayed_attestation` | first head whose block carries an attestation with raw distance > 3 | `TotalDelayedOverTolerance` + `RawAttestationDistances` (>3 bucket) |
 | `cross_epoch_attestation` | first head whose block carries an attestation from a strictly earlier epoch; bundle also includes `block_prev.json` for the prev-epoch canonical block | `CrossEpochAttestations` |
 | `mev` | one page of `proposer_payload_delivered` from each public mainnet relay (Flashbots, ultrasound) | MEV side; written under `internal/monitoring/testdata/mev/` |
@@ -270,8 +272,10 @@ Most monitoring/beaconchain tests are now fixture-backed integration tests (see 
 
 ## Architecture
 
-The monitor runs two goroutines communicating via an epoch channel:
-1. **SubscribeToEpochs** -- Listens to beacon head SSE events, detects epoch boundaries, sends epoch numbers
+The monitor runs under a `monitoring.Supervise(ctx, runOnce, backoff)` restart loop (`internal/cli/root.go:137`). `Supervise` re-runs `runOnce` whenever it returns while ctx is still live, sleeping the next value from an `ExptBackoff` between attempts; only ctx cancellation breaks the loop. This was added to fix the "stale `/metrics` + no new epochs" zombie state where an unexpected inner goroutine return cascaded through the shared ctx and left the process serving stale metrics with no epoch progress (see `internal/monitoring/supervisor.go` header).
+
+Inside one `runOnce` iteration, two goroutines communicate via an epoch channel:
+1. **SubscribeToEpochs** -- Listens to beacon head SSE events, detects epoch boundaries, sends epoch numbers. The SSE call itself is wrapped by `subscribeWithRetry` (`internal/monitoring/monitoring.go:180`) with its own `ExptBackoff`, so a single dropped connection retries in place rather than propagating out to `Supervise`.
 2. **MonitorAttestationsAndProposals** -- Slim orchestrator. Per epoch: `PruneSeenAttestations` → `BuildEpochContext` (single call that fetches validator keys, attester/proposer duties, committee lengths, blocks, and MEV bids) → seed `unfulfilledAttesterDuties` for current epoch → `processAttestations` → `FinalizeMissedAttestations` (E-1 cutoff) → walk blocks calling `CheckProposal` per slot → `FinalizeMissedProposals` → `SaveCache`. Each per-concern delegate owns one issue class (attestation vs proposal vs lifecycle) so tests can drive them in isolation.
 
 Metrics are encapsulated in `MonitorMetrics` struct (`internal/monitoring/metrics.go`), created via `NewMonitorMetrics(reg)` which accepts a `prometheus.Registerer` — production uses `DefaultRegisterer`, tests use isolated registries.
