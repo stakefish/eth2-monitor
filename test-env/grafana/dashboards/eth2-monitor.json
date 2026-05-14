@@ -46,8 +46,8 @@
       "description": "Most recently processed epoch (the just-ended one from the SSE head stream). One epoch \u2248 6.4 minutes, so this tile should tick up about every 6 minutes. If it stops climbing, the monitor or beacon endpoint is stuck.",
       "gridPos": {
         "x": 0,
-        "y": 2,
-        "w": 4,
+        "y": 6,
+        "w": 8,
         "h": 4
       },
       "fieldConfig": {
@@ -100,80 +100,6 @@
       ]
     },
     {
-      "id": 5,
-      "title": "Delayed Rate",
-      "type": "stat",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "description": "Share of canonical attestations whose inclusion distance exceeds the spec-distance-3 tolerance, over the dashboard's selected time range. Tier-2 severity indicator.",
-      "gridPos": {
-        "x": 4,
-        "y": 2,
-        "w": 4,
-        "h": 4
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 0.005
-              },
-              {
-                "color": "red",
-                "value": 0.02
-              }
-            ]
-          },
-          "unit": "percentunit",
-          "decimals": 2,
-          "min": 0
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "graphMode": "area",
-        "colorMode": "value",
-        "justifyMode": "auto",
-        "textMode": "auto",
-        "orientation": "auto"
-      },
-      "pluginVersion": "12.2.1",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "sum(rate(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[15m])) / clamp_min(sum(rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[15m])), 1e-9)",
-          "legendFormat": "{{container}}",
-          "refId": "A",
-          "instant": false,
-          "range": true
-        }
-      ]
-    },
-    {
       "id": 3,
       "title": "Distance p99",
       "type": "stat",
@@ -184,8 +110,8 @@
       "description": "99th-percentile canonical inclusion distance in shifted slots (0 = optimal, included one slot after attesting). Per container, over the dashboard's selected time range. Tracks how far each cluster's worst-case inclusion is from optimal.",
       "gridPos": {
         "x": 8,
-        "y": 2,
-        "w": 4,
+        "y": 6,
+        "w": 8,
         "h": 4
       },
       "fieldConfig": {
@@ -257,9 +183,9 @@
       },
       "description": "Beacon API non-2xx response share over the dashboard's selected time range, excluding 4xx on /eth/v2/beacon/blocks/{block_id} (those 404s are the canonical missed-proposal signal the monitor relies on, not an infrastructure problem). Infrastructure health, not a validator metric.",
       "gridPos": {
-        "x": 12,
-        "y": 2,
-        "w": 4,
+        "x": 16,
+        "y": 6,
+        "w": 8,
         "h": 4
       },
       "fieldConfig": {
@@ -332,7 +258,7 @@
       "description": "Fleet-wide attestation success share over the dashboard's selected time range: sum(served) / (sum(served) + sum(missed)).",
       "gridPos": {
         "x": 0,
-        "y": 6,
+        "y": 2,
         "w": 6,
         "h": 4
       },
@@ -407,7 +333,7 @@
       "description": "Fleet-wide attestation miss share over the dashboard's selected time range: sum(missed) / (sum(served) + sum(missed)).",
       "gridPos": {
         "x": 6,
-        "y": 6,
+        "y": 2,
         "w": 6,
         "h": 4
       },
@@ -481,7 +407,7 @@
       "description": "Fleet-wide share of attestations included more than 3 spec-slots late (shifted distance > 2): sum(delayed_over_tol) / (sum(served) + sum(missed)).",
       "gridPos": {
         "x": 12,
-        "y": 6,
+        "y": 2,
         "w": 6,
         "h": 4
       },
@@ -555,7 +481,7 @@
       "description": "Fleet-wide share of attestations included 2+ slots later than optimal (spec distance \u2265 3): (sum(canonical_count) \u2212 sum(bucket{le=1.0})) / (sum(served) + sum(missed)).",
       "gridPos": {
         "x": 18,
-        "y": 6,
+        "y": 2,
         "w": 6,
         "h": 4
       },
