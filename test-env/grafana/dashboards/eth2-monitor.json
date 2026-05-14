@@ -1907,7 +1907,8 @@
         "tooltip": {
           "mode": "single",
           "sort": "none"
-        }
+        },
+        "xAxisLabel": "Distance (shifted slots, 0 = optimal)"
       },
       "pluginVersion": "12.2.1",
       "targets": [
@@ -1982,7 +1983,8 @@
         "tooltip": {
           "mode": "single",
           "sort": "none"
-        }
+        },
+        "xAxisLabel": "Distance (shifted slots, 0 = optimal)"
       },
       "pluginVersion": "12.2.1",
       "targets": [
