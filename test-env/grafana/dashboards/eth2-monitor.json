@@ -693,7 +693,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Per-cluster (container) rollup over the dashboard time range, ranked by issue score = missed + 0.5*delayed_over_tolerance + 0.1*any_delay. Rows depend on the View toggle: Problematic only shows clusters with score > 0; All shows top 50 regardless of score. Click a Container cell to filter the rest of the dashboard to that cluster. Success % = Served / (Served + Missed). Delayed = count of canonical attestations included 2+ slots later than optimal (spec distance \u2265 3, computed from the canonical-distance histogram as count \u2212 bucket{le=1.0}); Delayed >tol uses the stricter threshold (spec distance > 3). The three rate columns are each count / (Served + Missed).",
+      "description": "Per-cluster (container) rollup over the dashboard time range, ranked by issue score = missed + 0.5*delayed_over_tolerance + 0.1*any_delay. Only clusters with a non-zero issue score are shown (top 50 by score). Click a Container cell to filter the rest of the dashboard to that cluster. Success % = Served / (Served + Missed). Delayed = count of canonical attestations included 2+ slots later than optimal (spec distance \u2265 3, computed from the canonical-distance histogram as count \u2212 bucket{le=1.0}); Delayed >tol uses the stricter threshold (spec distance > 3). The three rate columns are each count / (Served + Missed).",
       "gridPos": {
         "x": 0,
         "y": 18,
@@ -1076,7 +1076,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "topk(50, sum by (container) (increase(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + 0.5 * sum by (container) (increase(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + 0.1 * (sum by (container) (increase(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range])) - sum by (container) (increase(ETH2_canonicalAttestationDistances_bucket{service=~\"$service\",container!=\"\",container=~\"$container\",le=\"1.0\"}[$__range])))) > $view_mode",
+          "expr": "topk(50, sum by (container) (increase(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + 0.5 * sum by (container) (increase(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + 0.1 * (sum by (container) (increase(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range])) - sum by (container) (increase(ETH2_canonicalAttestationDistances_bucket{service=~\"$service\",container!=\"\",container=~\"$container\",le=\"1.0\"}[$__range])))) > 0",
           "format": "table",
           "instant": true,
           "range": false,
@@ -1089,7 +1089,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "count by (container) (count by (validator_index, container) (ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"})) and on(container) (topk(50, sum by (container) (increase(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + 0.5 * sum by (container) (increase(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + 0.1 * (sum by (container) (increase(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range])) - sum by (container) (increase(ETH2_canonicalAttestationDistances_bucket{service=~\"$service\",container!=\"\",container=~\"$container\",le=\"1.0\"}[$__range])))) > $view_mode)",
+          "expr": "count by (container) (count by (validator_index, container) (ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"})) and on(container) (topk(50, sum by (container) (increase(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + 0.5 * sum by (container) (increase(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + 0.1 * (sum by (container) (increase(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range])) - sum by (container) (increase(ETH2_canonicalAttestationDistances_bucket{service=~\"$service\",container!=\"\",container=~\"$container\",le=\"1.0\"}[$__range])))) > 0)",
           "format": "table",
           "instant": true,
           "range": false,
@@ -1102,7 +1102,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (container) (increase(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) and on(container) (topk(50, sum by (container) (increase(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + 0.5 * sum by (container) (increase(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + 0.1 * (sum by (container) (increase(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range])) - sum by (container) (increase(ETH2_canonicalAttestationDistances_bucket{service=~\"$service\",container!=\"\",container=~\"$container\",le=\"1.0\"}[$__range])))) > $view_mode)",
+          "expr": "sum by (container) (increase(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) and on(container) (topk(50, sum by (container) (increase(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + 0.5 * sum by (container) (increase(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + 0.1 * (sum by (container) (increase(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range])) - sum by (container) (increase(ETH2_canonicalAttestationDistances_bucket{service=~\"$service\",container!=\"\",container=~\"$container\",le=\"1.0\"}[$__range])))) > 0)",
           "format": "table",
           "instant": true,
           "range": false,
@@ -1115,7 +1115,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (container) (increase(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) and on(container) (topk(50, sum by (container) (increase(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + 0.5 * sum by (container) (increase(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + 0.1 * (sum by (container) (increase(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range])) - sum by (container) (increase(ETH2_canonicalAttestationDistances_bucket{service=~\"$service\",container!=\"\",container=~\"$container\",le=\"1.0\"}[$__range])))) > $view_mode)",
+          "expr": "sum by (container) (increase(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) and on(container) (topk(50, sum by (container) (increase(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + 0.5 * sum by (container) (increase(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + 0.1 * (sum by (container) (increase(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range])) - sum by (container) (increase(ETH2_canonicalAttestationDistances_bucket{service=~\"$service\",container!=\"\",container=~\"$container\",le=\"1.0\"}[$__range])))) > 0)",
           "format": "table",
           "instant": true,
           "range": false,
@@ -1128,7 +1128,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (container) (increase(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) and on(container) (topk(50, sum by (container) (increase(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + 0.5 * sum by (container) (increase(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + 0.1 * (sum by (container) (increase(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range])) - sum by (container) (increase(ETH2_canonicalAttestationDistances_bucket{service=~\"$service\",container!=\"\",container=~\"$container\",le=\"1.0\"}[$__range])))) > $view_mode)",
+          "expr": "sum by (container) (increase(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) and on(container) (topk(50, sum by (container) (increase(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + 0.5 * sum by (container) (increase(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + 0.1 * (sum by (container) (increase(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range])) - sum by (container) (increase(ETH2_canonicalAttestationDistances_bucket{service=~\"$service\",container!=\"\",container=~\"$container\",le=\"1.0\"}[$__range])))) > 0)",
           "format": "table",
           "instant": true,
           "range": false,
@@ -1141,7 +1141,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(sum by (container) (increase(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range])) - sum by (container) (increase(ETH2_canonicalAttestationDistances_bucket{service=~\"$service\",container!=\"\",container=~\"$container\",le=\"1.0\"}[$__range]))) and on(container) (topk(50, sum by (container) (increase(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + 0.5 * sum by (container) (increase(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + 0.1 * (sum by (container) (increase(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range])) - sum by (container) (increase(ETH2_canonicalAttestationDistances_bucket{service=~\"$service\",container!=\"\",container=~\"$container\",le=\"1.0\"}[$__range])))) > $view_mode)",
+          "expr": "(sum by (container) (increase(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range])) - sum by (container) (increase(ETH2_canonicalAttestationDistances_bucket{service=~\"$service\",container!=\"\",container=~\"$container\",le=\"1.0\"}[$__range]))) and on(container) (topk(50, sum by (container) (increase(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + 0.5 * sum by (container) (increase(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + 0.1 * (sum by (container) (increase(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range])) - sum by (container) (increase(ETH2_canonicalAttestationDistances_bucket{service=~\"$service\",container!=\"\",container=~\"$container\",le=\"1.0\"}[$__range])))) > 0)",
           "format": "table",
           "instant": true,
           "range": false,
@@ -1299,7 +1299,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Per-validator snapshot over the dashboard time range, ranked by issue score = missed + 0.5*delayed_over_tolerance. Rows depend on the View toggle: Problematic only shows validators with score > 0; All shows top-$top regardless of score. Click an Index to pin this validator in the drilldown row below; click a Pubkey to open beaconcha.in.",
+      "description": "Per-validator snapshot over the dashboard time range, ranked by issue score = missed + 0.5*delayed_over_tolerance. Only validators with a non-zero issue score are shown (top-$top by score). Click an Index to filter the dashboard to this validator; click a Pubkey to open beaconcha.in.",
       "gridPos": {
         "x": 0,
         "y": 36,
@@ -1529,7 +1529,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "topk($top, sum by (validator_index, pubkey, container) (increase(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range]) + 0.5 * increase(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range]))) > $view_mode",
+          "expr": "topk($top, sum by (validator_index, pubkey, container) (increase(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range]) + 0.5 * increase(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range]))) > 0",
           "format": "table",
           "instant": true,
           "range": false,
@@ -1542,7 +1542,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (validator_index, pubkey, container) (increase(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) and on(validator_index, pubkey, container) (topk($top, sum by (validator_index, pubkey, container) (increase(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range]) + 0.5 * increase(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range]))) > $view_mode)",
+          "expr": "sum by (validator_index, pubkey, container) (increase(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) and on(validator_index, pubkey, container) (topk($top, sum by (validator_index, pubkey, container) (increase(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range]) + 0.5 * increase(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range]))) > 0)",
           "format": "table",
           "instant": true,
           "range": false,
@@ -1555,7 +1555,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (validator_index, pubkey, container) (increase(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) and on(validator_index, pubkey, container) (topk($top, sum by (validator_index, pubkey, container) (increase(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range]) + 0.5 * increase(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range]))) > $view_mode)",
+          "expr": "sum by (validator_index, pubkey, container) (increase(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) and on(validator_index, pubkey, container) (topk($top, sum by (validator_index, pubkey, container) (increase(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range]) + 0.5 * increase(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range]))) > 0)",
           "format": "table",
           "instant": true,
           "range": false,
@@ -1568,7 +1568,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (validator_index, pubkey, container) (increase(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) and on(validator_index, pubkey, container) (topk($top, sum by (validator_index, pubkey, container) (increase(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range]) + 0.5 * increase(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range]))) > $view_mode)",
+          "expr": "sum by (validator_index, pubkey, container) (increase(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) and on(validator_index, pubkey, container) (topk($top, sum by (validator_index, pubkey, container) (increase(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range]) + 0.5 * increase(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range]))) > 0)",
           "format": "table",
           "instant": true,
           "range": false,
@@ -3251,34 +3251,6 @@
           }
         ],
         "query": "10,25,50,100,250",
-        "queryValue": "",
-        "skipUrlSync": false,
-        "type": "custom"
-      },
-      {
-        "current": {
-          "text": "Problematic only",
-          "value": "0"
-        },
-        "description": "Problematic only: ranking panels (cluster table, validator table, per-validator timeseries) show only entities with missed, delayed-over-tolerance, or any inclusion-delay attestations. All: show every entity (still topk-bounded).",
-        "hide": 0,
-        "includeAll": false,
-        "label": "View",
-        "multi": false,
-        "name": "view_mode",
-        "options": [
-          {
-            "selected": true,
-            "text": "Problematic only",
-            "value": "0"
-          },
-          {
-            "selected": false,
-            "text": "All",
-            "value": "-1"
-          }
-        ],
-        "query": "Problematic only : 0, All : -1",
         "queryValue": "",
         "skipUrlSync": false,
         "type": "custom"
