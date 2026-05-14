@@ -751,13 +751,13 @@
     },
     {
       "id": 12,
-      "title": "Attester effectiveness \u2014 7d rolling",
+      "title": "Attester effectiveness",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Attestant-recommended 7-day rolling trend for SLO-grade assessment of attester effectiveness. Effectiveness = earliest_inclusion / actual_inclusion, multiplied by availability. The 7d window is fixed (not tied to the dashboard time range) per Attestant's guidance that single-attestation or short-window values are too noisy to act on. Threshold step-lines at the BeaconScore 99.5% and 98% bands.",
+      "description": "Realtime attester effectiveness. Effectiveness = earliest_inclusion / actual_inclusion, multiplied by availability. Rate is auto-sized via $__rate_interval so the line tracks recent fleet behaviour rather than smoothing over multiple days. Threshold step-lines at the BeaconScore 99.5% and 98% bands. Short ranges or low-activity intervals can be noisy — pick a wider time range from the picker if the line jitters.",
       "gridPos": {
         "x": 12,
         "y": 6,
@@ -831,7 +831,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(1 - sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[7d])) / clamp_min(sum(rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[7d])) + sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[7d])), 1e-9)) * (sum(rate(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[7d])) / clamp_min(sum(rate(ETH2_canonicalAttestationDistances_sum{service=~\"$service\",container!=\"\",container=~\"$container\"}[7d])) + sum(rate(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[7d])), 1e-9))",
+          "expr": "(1 - sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__rate_interval])) / clamp_min(sum(rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__rate_interval])) + sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__rate_interval])), 1e-9)) * (sum(rate(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__rate_interval])) / clamp_min(sum(rate(ETH2_canonicalAttestationDistances_sum{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__rate_interval])) + sum(rate(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__rate_interval])), 1e-9))",
           "legendFormat": "Effectiveness (7d)",
           "refId": "A",
           "range": true
