@@ -893,7 +893,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Per-cluster (container) rollup over the dashboard time range, ranked by issue score = missed + 0.5*delayed_over_tolerance + 0.1*any_delay. Rows depend on the View toggle: Problematic only shows clusters with score > 0; All shows top 50 regardless of score. Click a Container cell to filter the rest of the dashboard to that cluster. Success % = Served / (Served + Missed).",
+      "description": "Per-cluster (container) rollup over the dashboard time range, ranked by issue score = missed + 0.5*delayed_over_tolerance + 0.1*any_delay. Rows depend on the View toggle: Problematic only shows clusters with score > 0; All shows top 50 regardless of score. Click a Container cell to filter the rest of the dashboard to that cluster. Success % = Served / (Served + Missed). Delayed = count of canonical attestations included 2+ slots later than optimal (spec distance ≥ 3, computed from the canonical-distance histogram as count − bucket{le=1.0}); Delayed >tol uses the stricter threshold (spec distance > 3). The three rate columns are each count / (Served + Missed).",
       "gridPos": {
         "x": 0,
         "y": 14,
@@ -1098,6 +1098,174 @@
                 "value": 0
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Missed rate"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 0.01
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.05
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Delayed"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 1
+                    },
+                    {
+                      "color": "red",
+                      "value": 10
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Delayed rate"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 0.01
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.05
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Delayed >tol rate"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 0.01
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.05
+                    }
+                  ]
+                }
+              }
+            ]
           }
         ]
       },
@@ -1166,6 +1334,19 @@
           "range": false,
           "legendFormat": "__auto",
           "refId": "E"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "(sum by (container) (increase(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range])) - sum by (container) (increase(ETH2_canonicalAttestationDistances_bucket{service=~\"$service\",container!=\"\",container=~\"$container\",le=\"1.0\"}[$__range]))) and on(container) (topk(50, sum by (container) (increase(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + 0.5 * sum by (container) (increase(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + 0.1 * (sum by (container) (increase(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range])) - sum by (container) (increase(ETH2_canonicalAttestationDistances_bucket{service=~\"$service\",container!=\"\",container=~\"$container\",le=\"1.0\"}[$__range])))) > $view_mode)",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "__auto",
+          "refId": "F"
         }
       ],
       "transformations": [
@@ -1200,6 +1381,45 @@
           }
         },
         {
+          "id": "calculateField",
+          "options": {
+            "alias": "Missed rate",
+            "binary": {
+              "left": "Value #C",
+              "operator": "/",
+              "right": "Total"
+            },
+            "mode": "binary",
+            "replaceFields": false
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "Delayed rate",
+            "binary": {
+              "left": "Value #F",
+              "operator": "/",
+              "right": "Total"
+            },
+            "mode": "binary",
+            "replaceFields": false
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "Delayed >tol rate",
+            "binary": {
+              "left": "Value #D",
+              "operator": "/",
+              "right": "Total"
+            },
+            "mode": "binary",
+            "replaceFields": false
+          }
+        },
+        {
           "id": "organize",
           "options": {
             "excludeByName": {
@@ -1209,6 +1429,7 @@
               "Time 3": true,
               "Time 4": true,
               "Time 5": true,
+              "Time 6": true,
               "__name__": true,
               "service": true,
               "job": true,
@@ -1219,17 +1440,22 @@
             "indexByName": {
               "container": 0,
               "Value #B": 1,
-              "Value #C": 2,
-              "Success %": 3,
-              "Value #D": 4,
-              "Value #E": 5
+              "Success %": 2,
+              "Value #C": 3,
+              "Missed rate": 4,
+              "Value #D": 5,
+              "Delayed >tol rate": 6,
+              "Value #F": 7,
+              "Delayed rate": 8,
+              "Value #E": 9
             },
             "renameByName": {
               "container": "Container",
               "Value #B": "Validators",
               "Value #C": "Missed",
               "Value #D": "Delayed >tol",
-              "Value #E": "Served"
+              "Value #E": "Served",
+              "Value #F": "Delayed"
             }
           }
         },
