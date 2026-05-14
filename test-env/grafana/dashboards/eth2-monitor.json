@@ -1627,8 +1627,8 @@
               "validator_index": 0,
               "container": 1,
               "pubkey": 2,
-              "Value #B": 3,
-              "Success %": 4,
+              "Success %": 3,
+              "Value #B": 4,
               "Value #D": 5,
               "Value #C": 6
             },
