@@ -1302,7 +1302,7 @@
       "description": "Per-validator snapshot over the dashboard time range, ranked by issue score = missed + 0.5*delayed_over_tolerance. Only validators with a non-zero issue score are shown (top-$top by score). Click an Index to filter the dashboard to this validator; click a Pubkey to open beaconcha.in.",
       "gridPos": {
         "x": 0,
-        "y": 40,
+        "y": 48,
         "w": 24,
         "h": 14
       },
@@ -3367,7 +3367,7 @@
       "description": "Per-validator served-attestation count, cumulative since each validator first registered with the monitor. Stacked. Respects the dashboard filters (service / cluster / validator). The shape of the line shows how aggressively each validator is accumulating attestations across the dashboard time range.",
       "gridPos": {
         "x": 0,
-        "y": 54,
+        "y": 40,
         "w": 8,
         "h": 8
       },
@@ -3408,7 +3408,7 @@
           ],
           "displayMode": "table",
           "placement": "bottom",
-          "showLegend": true
+          "showLegend": false
         },
         "tooltip": {
           "mode": "multi",
@@ -3441,7 +3441,7 @@
       "description": "Per-validator share of attestations missed over a 15-minute trailing window. Respects the dashboard filters (service / cluster / validator).",
       "gridPos": {
         "x": 8,
-        "y": 54,
+        "y": 40,
         "w": 8,
         "h": 8
       },
@@ -3478,7 +3478,7 @@
           ],
           "displayMode": "table",
           "placement": "bottom",
-          "showLegend": true
+          "showLegend": false
         },
         "tooltip": {
           "mode": "multi",
@@ -3511,7 +3511,7 @@
       "description": "Per-validator share of attestations included more than 3 spec-slots late over a 15-minute trailing window. Respects the dashboard filters (service / cluster / validator).",
       "gridPos": {
         "x": 16,
-        "y": 54,
+        "y": 40,
         "w": 8,
         "h": 8
       },
@@ -3548,7 +3548,7 @@
           ],
           "displayMode": "table",
           "placement": "bottom",
-          "showLegend": true
+          "showLegend": false
         },
         "tooltip": {
           "mode": "multi",
