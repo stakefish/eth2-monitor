@@ -1974,13 +1974,13 @@
     },
     {
       "id": 601,
-      "title": "% missed (per cluster, 1m)",
+      "title": "% missed (per cluster, 15m)",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Per-cluster attestation miss rate over the last 1 minute. One line per scrape container. Severity bands: <0.5% green, 0.5\u20132% yellow, >2% red.",
+      "description": "Per-cluster attestation miss rate over the last 15 minutes. One line per scrape container. Severity bands: <0.5% green, 0.5\u20132% yellow, >2% red.",
       "gridPos": {
         "x": 0,
         "y": 26,
@@ -2054,7 +2054,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (container) (rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\"}[1m])) / clamp_min(sum by (container) (rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\"}[1m]) + rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\"}[1m])), 1e-9)",
+          "expr": "sum by (container) (rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\"}[15m])) / clamp_min(sum by (container) (rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\"}[15m]) + rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\"}[15m])), 1e-9)",
           "legendFormat": "{{container}}",
           "refId": "A",
           "range": true
@@ -2063,13 +2063,13 @@
     },
     {
       "id": 602,
-      "title": "% delayed-over-tolerance (per cluster, 1m)",
+      "title": "% delayed-over-tolerance (per cluster, 15m)",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Per-cluster share of attestations delayed beyond the spec-distance tolerance over the last 1 minute. One line per scrape container. Severity bands: <0.5% green, 0.5\u20132% yellow, >2% red.",
+      "description": "Per-cluster share of attestations delayed beyond the spec-distance tolerance over the last 15 minutes. One line per scrape container. Severity bands: <0.5% green, 0.5\u20132% yellow, >2% red.",
       "gridPos": {
         "x": 12,
         "y": 26,
@@ -2143,7 +2143,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (container) (rate(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\"}[1m])) / clamp_min(sum by (container) (rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\"}[1m]) + rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\"}[1m])), 1e-9)",
+          "expr": "sum by (container) (rate(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\"}[15m])) / clamp_min(sum by (container) (rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\"}[15m]) + rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\"}[15m])), 1e-9)",
           "legendFormat": "{{container}}",
           "refId": "A",
           "range": true
@@ -3168,7 +3168,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (endpoint, status_class) (rate(ETH2_beaconAPIRequestsTotal{service=~\"$service\",container!=\"\",container=~\"$container\",status_class=~\"4xx|5xx|error\"}[5m]))",
+          "expr": "sum by (endpoint, status_class) (rate(ETH2_beaconAPIRequestsTotal{service=~\"$service\",container!=\"\",container=~\"$container\",status_class=~\"4xx|5xx|error\"}[15m]))",
           "legendFormat": "{{endpoint}} {{status_class}}",
           "refId": "A",
           "range": true
@@ -3234,7 +3234,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.50, sum(rate(ETH2_beaconAPIRequestDurationSeconds_bucket{service=~\"$service\",container!=\"\",container=~\"$container\"}[10m])) by (endpoint, le))",
+          "expr": "histogram_quantile(0.50, sum(rate(ETH2_beaconAPIRequestDurationSeconds_bucket{service=~\"$service\",container!=\"\",container=~\"$container\"}[15m])) by (endpoint, le))",
           "legendFormat": "{{endpoint}}",
           "refId": "A",
           "range": true
@@ -3300,7 +3300,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.99, sum(rate(ETH2_beaconAPIRequestDurationSeconds_bucket{service=~\"$service\",container!=\"\",container=~\"$container\"}[10m])) by (endpoint, le))",
+          "expr": "histogram_quantile(0.99, sum(rate(ETH2_beaconAPIRequestDurationSeconds_bucket{service=~\"$service\",container!=\"\",container=~\"$container\"}[15m])) by (endpoint, le))",
           "legendFormat": "{{endpoint}}",
           "refId": "A",
           "range": true
