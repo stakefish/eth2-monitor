@@ -3358,13 +3358,13 @@
     },
     {
       "id": 700,
-      "title": "Served attestations (per validator, stacked, 15m)",
+      "title": "Served attestations (per validator, stacked, accumulated)",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Per-validator served-attestation rate (15m), stacked. Respects the dashboard filters (service / cluster / validator). After clicking a validator in the table above, this narrows to a single line showing that validator's throughput over time.",
+      "description": "Per-validator served-attestation count, cumulative since each validator first registered with the monitor. Stacked. Respects the dashboard filters (service / cluster / validator). The shape of the line shows how aggressively each validator is accumulating attestations across the dashboard time range.",
       "gridPos": {
         "x": 0,
         "y": 54,
@@ -3393,7 +3393,7 @@
             }
           },
           "mappings": [],
-          "unit": "ops",
+          "unit": "short",
           "decimals": 2,
           "min": 0
         },
@@ -3423,7 +3423,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (validator_index, pubkey, container) (rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\",validator_index=~\"$validator_index\"}[15m]))",
+          "expr": "sum by (validator_index, pubkey, container) (ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\",validator_index=~\"$validator_index\"})",
           "legendFormat": "{{validator_index}} {{container}}",
           "refId": "A",
           "range": true
