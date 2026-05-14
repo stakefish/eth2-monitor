@@ -1859,7 +1859,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Snapshot distribution of canonical inclusion distances over the dashboard time range. X = shifted slots (0 = optimal, included at attestedSlot+1). Y = sample count. Histogram panel rendering of the de-cumulated bucket frame; each bar = count of attestations with that shifted distance.",
+      "description": "Snapshot distribution of canonical inclusion distances over the dashboard time range. X = shifted slots (0 = optimal, included at attestedSlot+1). Y = share of attestations. Histogram panel rendering of the de-cumulated bucket frame; each bar = share of attestations with that shifted distance.",
       "gridPos": {
         "x": 0,
         "y": 55,
@@ -1890,7 +1890,7 @@
             }
           },
           "mappings": [],
-          "unit": "short",
+          "unit": "percentunit",
           "min": 0
         },
         "overrides": []
@@ -1917,7 +1917,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (le) (increase(ETH2_canonicalAttestationDistances_bucket{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range]))",
+          "expr": "sum by (le) (increase(ETH2_canonicalAttestationDistances_bucket{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range])) / scalar(sum(increase(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range])))",
           "format": "heatmap",
           "legendFormat": "\u2264 {{le}}",
           "refId": "A",
@@ -1934,7 +1934,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Snapshot distribution of raw inclusion distances over the dashboard time range (before missed-slot adjustment). X = shifted slots (0 = optimal, included at attestedSlot+1). Y = sample count. Histogram panel rendering of the de-cumulated bucket frame; each bar = count of attestations with that shifted distance.",
+      "description": "Snapshot distribution of raw inclusion distances over the dashboard time range (before missed-slot adjustment). X = shifted slots (0 = optimal, included at attestedSlot+1). Y = share of attestations. Histogram panel rendering of the de-cumulated bucket frame; each bar = share of attestations with that shifted distance.",
       "gridPos": {
         "x": 12,
         "y": 55,
@@ -1965,7 +1965,7 @@
             }
           },
           "mappings": [],
-          "unit": "short",
+          "unit": "percentunit",
           "min": 0
         },
         "overrides": []
@@ -1992,7 +1992,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (le) (increase(ETH2_rawAttestationDistances_bucket{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range]))",
+          "expr": "sum by (le) (increase(ETH2_rawAttestationDistances_bucket{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range])) / scalar(sum(increase(ETH2_rawAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range])))",
           "format": "heatmap",
           "legendFormat": "\u2264 {{le}}",
           "refId": "A",
