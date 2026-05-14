@@ -629,7 +629,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Fleet-wide attestation deficit over time. 0% = optimal; spikes indicate trouble. Tier 1 (red) = missed, Tier 2 (orange) = delayed beyond tolerance, Tier 3 (yellow) = distance loss (Attestant 1 \u2212 1/avg_distance). Distance loss reads on the right y-axis since its scale is an order of magnitude wider than the Tier 1/2 lines.",
+      "description": "Fleet-wide attestation deficit over time. 0% = optimal; spikes indicate trouble. Tier 1 (red) = missed, Tier 2 (orange) = delayed beyond tolerance.",
       "gridPos": {
         "x": 0,
         "y": 6,
@@ -704,29 +704,6 @@
                 }
               }
             ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Distance loss"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "yellow"
-                }
-              },
-              {
-                "id": "custom.axisPlacement",
-                "value": "right"
-              },
-              {
-                "id": "custom.axisLabel",
-                "value": "Distance loss"
-              }
-            ]
           }
         ]
       },
@@ -768,17 +745,6 @@
           "expr": "sum(rate(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__rate_interval])) / clamp_min(sum(rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__rate_interval])) + sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__rate_interval])), 1e-9)",
           "legendFormat": "Delayed >tol",
           "refId": "B",
-          "range": true
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "sum(rate(ETH2_canonicalAttestationDistances_sum{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__rate_interval])) / clamp_min(sum(rate(ETH2_canonicalAttestationDistances_sum{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__rate_interval])) + sum(rate(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__rate_interval])), 1e-9)",
-          "legendFormat": "Distance loss",
-          "refId": "C",
           "range": true
         }
       ]
