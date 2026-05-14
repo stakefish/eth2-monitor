@@ -100,91 +100,16 @@
       ]
     },
     {
-      "id": 2,
-      "title": "Attester Eff.",
+      "id": 6,
+      "title": "Proposer Success % (24h)",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Attestant effectiveness \u00d7 availability over the dashboard's selected time range. Effectiveness = earliest_inclusion / actual_inclusion, using the missed-slot-adjusted distance histogram (so a missed proposer slot doesn't penalise the validator). Short ranges are noisy \u2014 see the 7d trend panel beside the deficit chart for a stable SLO-grade reading. BeaconScore / RAVER bands: \u226599.5% exceptional, \u226599% target, <98% concerning.",
+      "description": "Share of proposer duties where the validator actually produced a block (empty or non-empty), over the last 24h. Reads 'No data' when fewer than 5 proposer duties fell in the window \u2014 proposer duties are rare, so a 1-of-2 miss on a sparse fleet would otherwise false-red the tile. Window is fixed at 24h because of this rarity.",
       "gridPos": {
         "x": 4,
-        "y": 2,
-        "w": 4,
-        "h": 4
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 0.98
-              },
-              {
-                "color": "green",
-                "value": 0.995
-              }
-            ]
-          },
-          "unit": "percentunit",
-          "decimals": 2,
-          "min": 0.9,
-          "max": 1
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "graphMode": "area",
-        "colorMode": "value",
-        "justifyMode": "auto",
-        "textMode": "auto",
-        "orientation": "auto"
-      },
-      "pluginVersion": "12.2.1",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "(1 - sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) / clamp_min(sum(rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])) + sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[$__range])), 1e-9)) * (sum(rate(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range])) / clamp_min(sum(rate(ETH2_canonicalAttestationDistances_sum{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range])) + sum(rate(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range])), 1e-9))",
-          "legendFormat": "{{container}}",
-          "refId": "A",
-          "instant": true,
-          "range": false
-        }
-      ]
-    },
-    {
-      "id": 6,
-      "title": "Proposer Eff. (24h)",
-      "type": "stat",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "description": "RAVER-style proposer effectiveness over the last 24h. (non_empty + 0.25 \u00d7 empty) / (non_empty + empty + missed). Empty proposals score 25% credit; missed score 0. Reads 'No data' when fewer than 5 proposer duties fell in the window \u2014 a 1-of-2 miss on a sparse fleet would otherwise false-red the tile. Window is fixed at 24h (not tied to the dashboard time range) because proposer duties are rare; shorter ranges would read 'No data' more often than not.",
-      "gridPos": {
-        "x": 8,
         "y": 2,
         "w": 4,
         "h": 4
@@ -241,7 +166,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "((sum(increase(ETH2_totalServedProposals{service=~\"$service\",container!=\"\",container=~\"$container\"}[24h])) - 0.75 * sum(increase(ETH2_totalProposedEmptyBlocks{service=~\"$service\",container!=\"\",container=~\"$container\"}[24h]))) / clamp_min(sum(increase(ETH2_totalServedProposals{service=~\"$service\",container!=\"\",container=~\"$container\"}[24h])) + sum(increase(ETH2_totalMissedProposals{service=~\"$service\",container!=\"\",container=~\"$container\"}[24h])), 1)) and (sum(increase(ETH2_totalServedProposals{service=~\"$service\",container!=\"\",container=~\"$container\"}[24h])) + sum(increase(ETH2_totalMissedProposals{service=~\"$service\",container!=\"\",container=~\"$container\"}[24h]))) >= 5",
+          "expr": "(sum(increase(ETH2_totalServedProposals{service=~\"$service\",container!=\"\",container=~\"$container\"}[24h])) / clamp_min(sum(increase(ETH2_totalServedProposals{service=~\"$service\",container!=\"\",container=~\"$container\"}[24h])) + sum(increase(ETH2_totalMissedProposals{service=~\"$service\",container!=\"\",container=~\"$container\"}[24h])), 1)) and (sum(increase(ETH2_totalServedProposals{service=~\"$service\",container!=\"\",container=~\"$container\"}[24h])) + sum(increase(ETH2_totalMissedProposals{service=~\"$service\",container!=\"\",container=~\"$container\"}[24h]))) >= 5",
           "legendFormat": "{{container}}",
           "refId": "A",
           "instant": true,
@@ -259,7 +184,7 @@
       },
       "description": "Share of canonical attestations whose inclusion distance exceeds the spec-distance-3 tolerance, over the dashboard's selected time range. Tier-2 severity indicator.",
       "gridPos": {
-        "x": 12,
+        "x": 8,
         "y": 2,
         "w": 4,
         "h": 4
@@ -331,9 +256,9 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "99th-percentile canonical inclusion distance in shifted slots (0 = spec-distance 1 = optimal). Per container, over the dashboard's selected time range. Tier-3 indicator (Attestant model).",
+      "description": "99th-percentile canonical inclusion distance in shifted slots (0 = optimal, included one slot after attesting). Per container, over the dashboard's selected time range. Tracks how far each cluster's worst-case inclusion is from optimal.",
       "gridPos": {
-        "x": 16,
+        "x": 12,
         "y": 2,
         "w": 4,
         "h": 4
@@ -407,7 +332,7 @@
       },
       "description": "Beacon API non-2xx response share over the dashboard's selected time range, excluding 4xx on /eth/v2/beacon/blocks/{block_id} (those 404s are the canonical missed-proposal signal the monitor relies on, not an infrastructure problem). Infrastructure health, not a validator metric.",
       "gridPos": {
-        "x": 20,
+        "x": 16,
         "y": 2,
         "w": 4,
         "h": 4
@@ -780,7 +705,7 @@
       "gridPos": {
         "x": 0,
         "y": 10,
-        "w": 12,
+        "w": 24,
         "h": 7
       },
       "fieldConfig": {
@@ -892,95 +817,6 @@
           "expr": "sum(rate(ETH2_totalDelayedAttestationsOverTolerance{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[15m])) / clamp_min(sum(rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[15m])) + sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[15m])), 1e-9)",
           "legendFormat": "Delayed >tol",
           "refId": "B",
-          "range": true
-        }
-      ]
-    },
-    {
-      "id": 12,
-      "title": "Attester effectiveness",
-      "type": "timeseries",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "description": "Near-realtime attester effectiveness over a 15-minute rolling window. Effectiveness = earliest_inclusion / actual_inclusion, multiplied by availability. The 15m window is pinned (not $__rate_interval) because the underlying counters only step at epoch boundaries (~6.4 min), so any rate window narrower than ~13 min would oscillate between 100% (no-data plateau) and NaN gaps. 15m always spans at least 2 epoch boundaries and tracks recent fleet behaviour cleanly. Threshold step-lines at the BeaconScore 99.5% and 98% bands.",
-      "gridPos": {
-        "x": 12,
-        "y": 10,
-        "w": 12,
-        "h": 7
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "green"
-          },
-          "custom": {
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "lineInterpolation": "linear",
-            "lineWidth": 2,
-            "pointSize": 5,
-            "showPoints": "auto",
-            "spanNulls": false,
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "unit": "percentunit",
-          "min": 0.9,
-          "max": 1,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 0.98
-              },
-              {
-                "color": "green",
-                "value": 0.995
-              }
-            ]
-          },
-          "decimals": 4
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "calcs": [
-            "mean",
-            "lastNotNull",
-            "min"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "pluginVersion": "12.2.1",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "(1 - sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[15m])) / clamp_min(sum(rate(ETH2_totalServedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[15m])) + sum(rate(ETH2_totalMissedAttestations{service=~\"$service\",container!=\"\",container=~\"$container\",validator_index!=\"\"}[15m])), 1e-9)) * (sum(rate(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[15m])) / clamp_min(sum(rate(ETH2_canonicalAttestationDistances_sum{service=~\"$service\",container!=\"\",container=~\"$container\"}[15m])) + sum(rate(ETH2_canonicalAttestationDistances_count{service=~\"$service\",container!=\"\",container=~\"$container\"}[15m])), 1e-9))",
-          "legendFormat": "Effectiveness (15m)",
-          "refId": "A",
           "range": true
         }
       ]
@@ -1611,7 +1447,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Per-validator effectiveness snapshot over the dashboard time range, ranked by issue score = missed + 0.5*delayed_over_tolerance. Rows depend on the View toggle: Problematic only shows validators with score > 0; All shows top-$top regardless of score. Click an Index to pin this validator in the drilldown row below; click a Pubkey to open beaconcha.in.",
+      "description": "Per-validator snapshot over the dashboard time range, ranked by issue score = missed + 0.5*delayed_over_tolerance. Rows depend on the View toggle: Problematic only shows validators with score > 0; All shows top-$top regardless of score. Click an Index to pin this validator in the drilldown row below; click a Pubkey to open beaconcha.in.",
       "gridPos": {
         "x": 0,
         "y": 36,
@@ -2387,7 +2223,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Attestations that were included in a later epoch than the one they attested to. A sustained non-zero rate suggests stale validator-client chain state (Attestant cause #1: generation delays).",
+      "description": "Attestations that were included in a later epoch than the one they attested to. A sustained non-zero rate usually means stale validator-client chain state — the validator missed the slot transition before signing.",
       "gridPos": {
         "x": 12,
         "y": 59,
