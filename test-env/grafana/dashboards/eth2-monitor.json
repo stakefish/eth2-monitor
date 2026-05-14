@@ -613,7 +613,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(sum(rate(ETH2_beaconAPIRequestsTotal{service=~\"$service\",container!=\"\",container=~\"$container\",status_class=~\"5xx|error\"}[$__range])) + sum(rate(ETH2_beaconAPIRequestsTotal{service=~\"$service\",container!=\"\",container=~\"$container\",status_class=\"4xx\",endpoint!=\"/eth/v2/beacon/blocks/{block_id}\"}[$__range]))) / clamp_min(sum(rate(ETH2_beaconAPIRequestsTotal{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range])), 1e-9)",
+          "expr": "((sum(rate(ETH2_beaconAPIRequestsTotal{service=~\"$service\",container!=\"\",container=~\"$container\",status_class=~\"5xx|error\"}[$__range])) or vector(0)) + (sum(rate(ETH2_beaconAPIRequestsTotal{service=~\"$service\",container!=\"\",container=~\"$container\",status_class=\"4xx\",endpoint!=\"/eth/v2/beacon/blocks/{block_id}\"}[$__range])) or vector(0))) / clamp_min(sum(rate(ETH2_beaconAPIRequestsTotal{service=~\"$service\",container!=\"\",container=~\"$container\"}[$__range])), 1e-9)",
           "legendFormat": "{{container}}",
           "refId": "A",
           "instant": true,
