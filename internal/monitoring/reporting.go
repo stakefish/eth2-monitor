@@ -1,0 +1,89 @@
+package monitoring
+
+import (
+	"bytes"
+	"encoding/json"
+	"github.com/stakefish/eth2-monitor/internal/opts"
+	"fmt"
+	"net/http"
+	"time"
+
+	"github.com/rs/zerolog/log"
+)
+
+// slackClient is the http.Client used for Slack webhook POSTs. It has an
+// explicit Timeout so a hung Slack endpoint can never stall the per-epoch
+// reporting path (Report/Info are called inline from the orchestrator).
+//
+// Exposed at package scope so tests can override it for fake servers.
+var slackClient = &http.Client{Timeout: 5 * time.Second}
+
+// Report formats the message via fmt.Sprintf, logs it at WARN, and
+// delivers it to the configured Slack webhook (if any). Use for
+// alert-worthy events (missed attestations/proposals, empty blocks).
+//
+// Synchronous Slack POST with a 5s client timeout. Many calls in
+// quick succession serialise — see slackClient and the
+// FinalizeMissedProposals/FinalizeMissedAttestations doc comments
+// for the stall-during-mass-incident trade-off.
+func Report(format string, args ...interface{}) {
+	message := fmt.Sprintf(format, args...)
+
+	log.Warn().Msg(message)
+
+	reportToSlack(message)
+}
+
+// Info is like Report but logs at INFO. Used for successful operations
+// when opts.Monitor.PrintSuccessful is enabled. Same Slack delivery
+// semantics as Report.
+func Info(format string, args ...interface{}) {
+	message := fmt.Sprintf(format, args...)
+
+	log.Info().Msg(message)
+
+	reportToSlack(message)
+}
+
+// reportToSlack POSTs the message to the configured Slack webhook.
+// No-op if opts.SlackURL is empty. Bounded by slackClient.Timeout (5s).
+// Logs at WARN on transport failure, json.Marshal failure, or non-2xx
+// status — the synchronous log call in Report/Info is the canonical
+// record, so a dropped Slack call is never silent.
+func reportToSlack(message string) {
+	if opts.SlackURL == "" {
+		return
+	}
+
+	var body struct {
+		Text     string  `json:"text"`
+		Username *string `json:"username"`
+	}
+	body.Text = message
+	if opts.SlackUsername != "" {
+		body.Username = &opts.SlackUsername
+	}
+
+	buf, err := json.Marshal(body)
+	if err != nil {
+		log.Warn().Err(err).Str("message", message).Msg("json.Marshal failed while reporting; skip")
+		return
+	}
+
+	resp, err := slackClient.Post(opts.SlackURL, "application/json", bytes.NewBuffer(buf))
+	if err != nil {
+		// http.Post returns (nil, err) on transport-level failures, so we
+		// can't defer Close on the response. Bail before that.
+		log.Warn().Err(err).Str("message", message).Msg("http.Post failed while reporting; skip")
+		return
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	// Slack returns 2xx with "ok" on success, 4xx on bad payload / expired
+	// webhook, 429 on rate-limit. The transport-level POST succeeded but
+	// Slack may still have rejected it — surface that so operators can
+	// tell "Report wasn't called" from "Report was called but Slack said no".
+	if resp.StatusCode/100 != 2 {
+		log.Warn().Int("status", resp.StatusCode).Str("message", message).Msg("Slack rejected report")
+	}
+}

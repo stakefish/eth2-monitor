@@ -1,0 +1,18 @@
+{
+  "scenario": "cross_epoch_attestation",
+  "finalized_epoch": 94887,
+  "test_epoch": 94889,
+  "canonical_slot": 3036475,
+  "prev_epoch": 94888,
+  "prev_canonical_slot": 3036416,
+  "captured_slots": [
+    3036470,
+    3036471,
+    3036472,
+    3036473,
+    3036474,
+    3036475
+  ],
+  "captured_at": "2026-05-13T05:45:05.796661Z",
+  "generator_version": "3"
+}

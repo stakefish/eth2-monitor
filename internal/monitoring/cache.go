@@ -1,0 +1,223 @@
+package monitoring
+
+import (
+	"encoding/json"
+	"io"
+	"os"
+	"path/filepath"
+	"time"
+
+	"github.com/attestantio/go-eth2-client/spec/phase0"
+	"github.com/rs/zerolog/log"
+)
+
+// CachedIndex is one validator's resolved index plus the time of resolution.
+// At is used by ResolveValidatorKeys to enforce a 30-minute TTL — entries
+// older than that get re-fetched from the beacon API so validator-state
+// changes (exit, key rotation) eventually surface.
+//
+// Index == VALIDATOR_INDEX_INVALID is a sentinel for "beacon reported no
+// index for this pubkey"; cached for the TTL window so we don't re-query
+// every iteration.
+type CachedIndex struct {
+	Index phase0.ValidatorIndex
+	At    time.Time
+}
+
+// LocalCache is the on-disk state persisted between runs.
+//
+// Validators maps lowercase no-0x-prefix pubkeys to resolved indices.
+// LoadCache always returns a non-nil Validators map even on error paths.
+//
+// LastEpoch is the highest epoch the monitor has finished processing.
+// On restart it's loaded and used to skip already-processed epochs so
+// cumulative metric counters don't spike from re-processing.
+type LocalCache struct {
+	Validators map[string]CachedIndex
+	LastEpoch  phase0.Epoch
+}
+
+// cacheFilePath is the on-disk location of the persisted validator-index
+// cache. Initialised once at package load to a stable path under
+// $TMPDIR; tests override it via withTempCachePath. Reassigning to an
+// empty string would make SaveCache's tmpfile-creation step fail
+// silently — callers should set a valid absolute path or leave it
+// alone.
+var cacheFilePath = filepath.Join(os.TempDir(), "stakefish-eth2-monitor-cache.json")
+
+// LoadCache reads the persisted cache from cacheFilePath and returns it.
+// Always returns a non-nil *LocalCache with a non-nil Validators map —
+// callers can read and write without nil-checks.
+//
+// Degraded paths (file missing, ReadAll error, json.Unmarshal error,
+// JSON-null Validators) all return a fresh empty cache. Each degraded
+// path logs at Debug or Error so operators can diagnose persistent
+// corruption.
+//
+// Read is capped at 64 MiB to prevent allocator exhaustion on a hostile
+// or corrupted cache file.
+func LoadCache() *LocalCache {
+	cache := &LocalCache{
+		Validators: make(map[string]CachedIndex),
+	}
+
+	log.Trace().Str("path", cacheFilePath).Msg("loading validator index cache")
+
+	fd, err := os.Open(cacheFilePath)
+	if err != nil {
+		// First-run ENOENT is expected — keep at Debug. Any other open
+		// failure (permission denied, EIO, etc.) is operationally
+		// surprising and warrants a higher log level.
+		if os.IsNotExist(err) {
+			log.Debug().Err(err).Msg("LoadCache: cache file missing; first run or post-cleanup")
+		} else {
+			log.Warn().Err(err).Msg("LoadCache: os.Open failed; using empty cache")
+		}
+		return cache
+	}
+	defer func() { _ = fd.Close() }()
+
+	// Cap the read so a corrupted cache file or hostile filesystem
+	// (someone symlinking cacheFilePath to /dev/zero) can't exhaust the
+	// allocator. 64 MiB covers ~640k validators at ~100 bytes/entry —
+	// orders of magnitude past realistic deployments.
+	const maxCacheBytes = 64 << 20
+	rawCache, err := io.ReadAll(io.LimitReader(fd, maxCacheBytes))
+	if err != nil {
+		// ReadAll on a regular file shouldn't fail under normal operation
+		// (the file existed when we opened it). A failure here suggests
+		// disk/inode trouble; surface above Info so operators see it.
+		log.Warn().Err(err).Msg("LoadCache: io.ReadAll failed; using empty cache")
+		return cache
+	}
+	err = json.Unmarshal(rawCache, cache)
+	if err != nil {
+		// json.Unmarshal may have partially populated cache before failing
+		// (e.g. valid entries up to a torn-write boundary, then garbage).
+		// Returning that partial state would let a subsequent SaveCache
+		// persist the half-decoded data, locking in the corruption. Reset
+		// to a clean LocalCache so the caller (and the log) agree.
+		log.Error().Err(err).Msg("LoadCache: json.Unmarshal failed; returning empty cache")
+		return &LocalCache{
+			Validators: make(map[string]CachedIndex),
+		}
+	}
+
+	// JSON `null` overrides the pre-initialised empty map with nil. Re-init
+	// so SaveCache's merge loop doesn't panic on the first write. Trigger
+	// path: an external edit or older-format cache file containing
+	// `"Validators": null`.
+	if cache.Validators == nil {
+		cache.Validators = make(map[string]CachedIndex)
+	}
+
+	return cache
+}
+
+// SaveCache merges newCache into the on-disk cache and writes the result
+// atomically (write tmpfile → sync → close → rename → dir-fsync). On any
+// error path the tmpfile is cleaned up; the on-disk cache file is never
+// left in a partially-written state.
+//
+// Merge semantics:
+//   - Validators: every entry from newCache overwrites the on-disk entry
+//     for that pubkey. Missing keys are preserved.
+//   - LastEpoch: forward-only — only advances if newCache.LastEpoch is
+//     strictly greater than the on-disk value.
+//
+// SaveCache(nil) is a silent no-op. Single-goroutine usage assumed;
+// concurrent calls race on the read-modify-write cycle.
+func SaveCache(newCache *LocalCache) {
+	if newCache == nil {
+		// Public API — a future caller passing nil would otherwise
+		// nil-deref on the merge loop below. Silently no-op; nothing
+		// to merge.
+		return
+	}
+	// Merge with the current cache.
+	cache := LoadCache()
+	for pubkey, validator := range newCache.Validators {
+		cache.Validators[pubkey] = validator
+	}
+	// LastEpoch advances forward only — concurrent writers can't roll it back.
+	if newCache.LastEpoch > cache.LastEpoch {
+		cache.LastEpoch = newCache.LastEpoch
+	}
+
+	rawCache, err := json.MarshalIndent(cache, "", "  ")
+	if err != nil {
+		// Upgraded from Debug — MarshalIndent of our struct can essentially
+		// never fail (no circular refs, all simple types), but if it
+		// somehow does the save is completely lost and operators need to
+		// see it at default log level.
+		log.Error().Err(err).Msg("SaveCache: json.MarshalIndent failed; skip")
+		return
+	}
+
+	// Create the tmpfile in the SAME directory as cacheFilePath so the
+	// subsequent os.Rename is guaranteed to be on one filesystem (Rename
+	// returns EXDEV otherwise). Today both default to $TMPDIR, but a
+	// future caller overriding cacheFilePath (or a setup where /tmp is a
+	// tmpfs but the cache lives elsewhere) would otherwise silently fail
+	// every save.
+	tmpfile, err := os.CreateTemp(filepath.Dir(cacheFilePath), "stakefish-eth2-monitor-cache.*.json")
+	if err != nil {
+		log.Warn().Err(err).Msg("SaveCache: os.CreateTemp failed; skip")
+		return
+	}
+	tmpPath := tmpfile.Name()
+	renamed := false
+	// Only clean up the tmpfile if Rename never succeeded. After a successful
+	// Rename, tmpPath is a stale name that another process could have reused
+	// (tmpfile suffixes are random so the window is tiny, but the TOCTOU is
+	// avoidable). The flag makes the cleanup precise.
+	defer func() {
+		if !renamed {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	if _, err := tmpfile.Write(rawCache); err != nil {
+		_ = tmpfile.Close()
+		log.Warn().Err(err).Msg("SaveCache: tmpfile.Write failed; skip")
+		return
+	}
+	// Sync + Close before Rename so the rename swaps in a file whose
+	// contents are guaranteed on disk. Without Sync a crash between
+	// Write and Rename can leave torn JSON, which LoadCache logs as a
+	// json.Unmarshal error and silently returns an empty cache — forcing
+	// every validator index to be re-resolved on the next restart.
+	if err := tmpfile.Sync(); err != nil {
+		_ = tmpfile.Close()
+		log.Warn().Err(err).Msg("SaveCache: tmpfile.Sync failed; skip")
+		return
+	}
+	if err := tmpfile.Close(); err != nil {
+		log.Warn().Err(err).Msg("SaveCache: tmpfile.Close failed; skip")
+		return
+	}
+	if err := os.Rename(tmpPath, cacheFilePath); err != nil {
+		log.Error().Err(err).Msg("SaveCache: os.Rename failed; skip")
+		return
+	}
+	renamed = true
+
+	// fsync the parent directory so the new directory entry survives a
+	// crash. Without this, ext4/xfs journals may delay metadata commit
+	// beyond Rename's syscall return; a crash in that window can leave
+	// cacheFilePath pointing at the old inode (or no entry) despite the
+	// file content being durable. Best-effort: ENOTDIR / EPERM on exotic
+	// filesystems is logged but doesn't block forward progress.
+	if dir, err := os.Open(filepath.Dir(cacheFilePath)); err == nil {
+		if syncErr := dir.Sync(); syncErr != nil {
+			// Some filesystems (e.g. older tmpfs configurations, certain
+			// fuse mounts) reject dir-fsync. Surface at Debug — the file
+			// itself was already fsynced, so this only affects rename
+			// durability across crash, not the file content.
+			log.Debug().Err(syncErr).Msg("SaveCache: dir.Sync failed; rename may not be crash-durable")
+		}
+		_ = dir.Close()
+	} else {
+		log.Debug().Err(err).Msg("SaveCache: open(parent) for dir-fsync failed; rename may not be crash-durable")
+	}
+}

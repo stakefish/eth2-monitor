@@ -150,3 +150,12 @@ eth2-monitor
 test-env/data/
 test-env/mev-relays.json
 test-env/.env
+
+.idea
+.serena
+.env
+
+# accidental `go build ./tools/fixturegen` from the repo root drops the
+# binary here; the tool is meant to be run via `go run ./tools/fixturegen`
+# or `make refresh-fixtures`, never built into the source tree.
+/fixturegen

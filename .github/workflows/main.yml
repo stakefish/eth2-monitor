@@ -32,13 +32,24 @@ jobs:
   #     run: |
   #       go get -u github.com/client9/misspell/cmd/misspell
   #       $(go env GOPATH)/bin/misspell -locale US *.md $(find . -name '*.go')
+  test:
+    name: Run tests
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: actions/setup-go@v3
+      with:
+        go-version: 1.25.x
+    - name: go test
+      run: go test ./...
   build:
     name: Build the executable
     runs-on: ubuntu-latest
+    needs: [test]
     steps:
     - uses: actions/setup-go@v3
       with:
-        go-version: 1.23.x
+        go-version: 1.25.x
     - uses: actions/checkout@v3
     - name: Build
       run: |
@@ -49,7 +60,7 @@ jobs:
         }
 
         mkdir -p build
-        for arch in arm64 arm64; do
+        for arch in amd64 arm64; do
           for os in linux darwin freebsd windows; do
             build "$arch" "$os"
           done
