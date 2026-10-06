@@ -37,8 +37,9 @@ const (
 // orchestrator (MonitorAttestationsAndProposals) against a derived
 // child context and blocks until both goroutines exit, then returns.
 //
-// The function always returns nil; the supervisor caller treats
-// "returned" as "iteration ended — restart unless parent ctx is done".
+// Returns ErrReplayComplete only when the explicit replay producer emits all
+// requested epochs and the orchestrator drains them normally. Other exits return
+// nil so the supervisor can restart interrupted work unless the parent is done.
 // Errors propagated via Must() panic the process intentionally; the
 // supervisor only handles graceful unexpected exits.
 //
@@ -58,10 +59,20 @@ func RunMonitorPair(ctx context.Context, beacon *beaconchain.BeaconChain, plainP
 	epochsChan := make(chan phase0.Epoch)
 
 	wg.Add(2)
-	go SubscribeToEpochs(runCtx, beacon, &wg, epochsChan, m)
-	go MonitorAttestationsAndProposals(runCtx, runCancel, beacon, plainPubkeys, mevRelays, &wg, epochsChan, m)
+	var producerComplete, consumerComplete bool
+	go func() {
+		defer wg.Done()
+		producerComplete = subscribeToEpochs(runCtx, beacon, epochsChan, m)
+	}()
+	go func() {
+		defer wg.Done()
+		consumerComplete = monitorAttestationsAndProposals(runCtx, runCancel, beacon, plainPubkeys, mevRelays, epochsChan, m)
+	}()
 
 	wg.Wait()
+	if producerComplete && consumerComplete && ctx.Err() == nil {
+		return ErrReplayComplete
+	}
 	return nil
 }
 
@@ -93,6 +104,11 @@ func RunMonitorPair(ctx context.Context, beacon *beaconchain.BeaconChain, plainP
 // SSE frame can't nil-deref the handler.
 func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg *sync.WaitGroup, epochsChan chan phase0.Epoch, m *MonitorMetrics) {
 	defer wg.Done()
+	subscribeToEpochs(ctx, beacon, epochsChan, m)
+}
+
+// subscribeToEpochs reports whether an explicit replay emitted every epoch.
+func subscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, epochsChan chan phase0.Epoch, m *MonitorMetrics) bool {
 	// Closing the channel on exit is critical: MonitorAttestationsAndProposals
 	// blocks on `for range epochsChan` and only unblocks when the channel is
 	// closed. Without this defer, an SSE-path Must(err) panic (or any normal
@@ -110,7 +126,7 @@ func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg 
 		// signals shutdown before we finished bootstrapping. Exit cleanly
 		// rather than panic so defers run as normal-exit semantics.
 		log.Info().Err(err).Msg("SubscribeToEpochs stopping during Finality bootstrap (ctx cancel)")
-		return
+		return false
 	}
 	Must(err)
 	// Defensive: even with err == nil, a misbehaving client could return
@@ -126,18 +142,18 @@ func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg 
 	if len(opts.Monitor.ReplayEpoch) > 0 {
 		for _, epoch := range opts.Monitor.ReplayEpoch {
 			if !sendEpoch(ctx, epochsChan, phase0.Epoch(epoch)) {
-				return
+				return false
 			}
 		}
-		return
+		return true
 	}
 	if opts.Monitor.SinceEpoch != ^uint64(0) {
 		for epoch := opts.Monitor.SinceEpoch; phase0.Epoch(epoch) < lastEpoch; epoch++ {
 			if !sendEpoch(ctx, epochsChan, phase0.Epoch(epoch)) {
-				return
+				return false
 			}
 		}
-		return
+		return false
 	}
 
 	eventsHandlerFunc := func(event *v1.Event) {
@@ -181,6 +197,7 @@ func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg 
 		Must(err)
 	}
 	log.Info().Err(ctx.Err()).Msg("SubscribeToEpochs stopping on ctx cancel")
+	return false
 }
 
 // subscribeWithRetry wraps runSSESubscription in a ctx-bounded retry
@@ -438,6 +455,12 @@ func LoadMEVRelays(mevRelaysFilePath string) ([]string, error) {
 // Both maps are single-goroutine; never shared.
 func MonitorAttestationsAndProposals(ctx context.Context, cancel context.CancelFunc, beacon *beaconchain.BeaconChain, plainKeys []string, mevRelays []string, wg *sync.WaitGroup, epochsChan chan phase0.Epoch, m *MonitorMetrics) {
 	defer wg.Done()
+	monitorAttestationsAndProposals(ctx, cancel, beacon, plainKeys, mevRelays, epochsChan, m)
+}
+
+// monitorAttestationsAndProposals reports a normal channel drain, rather than
+// an interrupted epoch or cancellation. Lifecycle cleanup is shared by both callers.
+func monitorAttestationsAndProposals(ctx context.Context, cancel context.CancelFunc, beacon *beaconchain.BeaconChain, plainKeys []string, mevRelays []string, epochsChan chan phase0.Epoch, m *MonitorMetrics) bool {
 	// Cancel the shared ctx on any exit (normal return OR Must(err) panic).
 	// Without this, the SSE goroutine in SubscribeToEpochs keeps trying to
 	// emit epochs into a channel that has no reader — its sendEpoch select
@@ -459,7 +482,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, cancel context.CancelF
 		// from "one full iteration" to "next loop entry".
 		if err := ctx.Err(); err != nil {
 			log.Info().Err(err).Msg("orchestrator stopping on ctx cancel")
-			return
+			return false
 		}
 
 		log.Debug().Uint64("epoch", uint64(epoch)).Msg("new epoch")
@@ -487,7 +510,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, cancel context.CancelF
 			// semantics rather than crashing the process and forcing a
 			// Docker restart.
 			log.Info().Err(err).Uint64("epoch", uint64(epoch)).Msg("orchestrator stopping on ctx cancel")
-			return
+			return false
 		}
 		Must(err)
 		if ec == nil {
@@ -552,4 +575,5 @@ func MonitorAttestationsAndProposals(ctx context.Context, cancel context.CancelF
 		// epochs and avoid spiking cumulative metric counters.
 		SaveCache(&LocalCache{LastEpoch: epoch})
 	}
+	return ctx.Err() == nil
 }
