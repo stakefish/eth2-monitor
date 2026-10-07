@@ -90,7 +90,7 @@ inquire given MEV relays after every epoch and, for every tracked proposal in th
 delivered the payload that ended up on chain:
 
 * no relay delivered a payload for the slot and the execution `extra_data` is an EL client default (geth, Nethermind,
-  besu, reth, erigon, nimbus) or empty: the block was built locally (**vanilla**). `totalVanillaBlocks` is
+  besu, reth, erigon, nimbus, ethrex) or empty: the block was built locally (**vanilla**). `totalVanillaBlocks` is
   incremented, the `lastVanillaBlock*` gauges are set, and a Slack report is sent carrying the block's graffiti,
   `extra_data` and fee recipient, plus the fee recipient the validator registered with the relays
   (`/relay/v1/data/validator_registration`, looked up only for these blocks). The report flags two misconfigurations:
@@ -98,6 +98,10 @@ delivered the payload that ended up on chain:
   recipient that differs from the registered one (local EL fee recipient wrong). For SSV validators the graffiti names
   the leader operator's node. A vanilla block is reported even when a relay failed that epoch; the report then says
   the sweep was incomplete.
+  Client-default `extra_data` is a strong but not absolute signal: relayscan.io shows roughly 0.01 % of
+  relay-delivered blocks (4 of ~46 000 in the week to 2026-10-07, all zero-profit self-submissions) with empty or
+  stock-client `extra_data`. Those are classified by the relay trace, so one can only reach this report if its relay
+  is missing from the list or its data API failed for that slot.
 * no relay delivered a payload but `extra_data` carries a builder tag: a builder made the block. If every relay
   answered, `totalRelayAbsentBuilderBlocks` is incremented and a Slack report says the relay is missing from the list
   (or the proposer dealt with the builder directly). If a relay failed, the failed relay most likely delivered it; only

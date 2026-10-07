@@ -395,6 +395,7 @@ func TestIsClientDefaultExtraData(t *testing.T) {
 		{[]byte("reth/v2.4.1/linux"), true},
 		{[]byte("erigon-3.5.2-8a829d21"), true},
 		{gethRLP, true},
+		{[]byte("ethrex 24.0.0"), true},
 		{[]byte("Titan (titanbuilder.xyz)"), false},
 		{[]byte("BuilderNet"), false},
 		{[]byte("✨ Quasar (quasar.win) ✨"), false},

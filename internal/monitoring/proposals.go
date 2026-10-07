@@ -222,12 +222,12 @@ func CheckProposal(
 
 // clientExtraDataTags are substrings (lower-case) that execution clients
 // write into extra_data by default: geth's RLP list contains "geth",
-// Nethermind/besu/reth/erigon/nimbus write a version string. Builders
+// Nethermind/besu/reth/erigon/nimbus/ethrex write a version string. Builders
 // replace extra_data with their own branding, so any of these tags (or an
 // empty field) marks a locally built payload. Observed on 636 mainnet
 // blocks in October 2026 with zero overlap between the two populations.
 var clientExtraDataTags = [][]byte{
-	[]byte("geth"), []byte("nethermind"), []byte("besu"), []byte("reth"), []byte("erigon"), []byte("nimbus"),
+	[]byte("geth"), []byte("nethermind"), []byte("besu"), []byte("reth"), []byte("erigon"), []byte("nimbus"), []byte("ethrex"),
 }
 
 // isClientDefaultExtraData reports whether extra_data looks like an EL
