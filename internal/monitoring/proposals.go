@@ -9,6 +9,7 @@ import (
 
 	"github.com/stakefish/eth2-monitor/internal/opts"
 
+	"github.com/attestantio/go-eth2-client/spec/deneb"
 	"github.com/attestantio/go-eth2-client/spec/electra"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/rs/zerolog/log"
@@ -92,6 +93,9 @@ func isBlockEmpty(body *electra.BeaconBlockBody) bool {
 //     LastVanillaBlock* gauges, Slack Report (a relay says it delivered
 //     a payload but the chain carries a different one)
 //
+// The MEV outcomes are decided by classifyProposal; this function only
+// records metrics and reports.
+//
 // Vanilla reports carry the block's graffiti, execution extra_data and
 // fee recipient so an operator can confirm the classification at a
 // glance (builders stamp extra_data and use their own coinbase; local
@@ -143,77 +147,45 @@ func CheckProposal(
 	}
 
 	if mev.Enabled {
-		if block.Message.Body.ExecutionPayload == nil {
-			// Without an execution payload there's nothing to compare against
-			// the relay-delivered hash. Treat the slot as "no bid trace
-			// usable" rather than crashing — the operator still gets a
-			// metric bump and a log line.
+		payload := block.Message.Body.ExecutionPayload
+		trace := mev.trace(slot)
+		who := fmt.Sprintf("Validator %v (%v)", expectedValidator, pubkeyOrUnknown(pubkeys, expectedValidator))
+		where := fmt.Sprintf("slot %v (epoch %v)", slot, epoch)
+		evidence := evidenceOf(block.Message.Body)
+		switch classifyProposal(payload, trace, mev.RelaysComplete) {
+		case verdictMEV:
+			if opts.Monitor.PrintSuccessful {
+				Info("✅ 🧾 %s proposed optimal MEV execution block %v at slot %v, epoch %v", who, trace.BlockHash, slot, epoch)
+			}
+		case verdictHashMismatch:
+			m.vanillaBlock(slot, expectedValidator)
+			Report("⚠️ 🧱 %s proposed a vanilla block at %s: chain block %s differs from relay-delivered %s. %s",
+				who, where, payload.BlockHash.String(), trace.BlockHash, evidence)
+		case verdictVanilla:
+			m.vanillaBlock(slot, expectedValidator)
+			sweep := "no relay delivered a payload"
+			if !mev.RelaysComplete {
+				sweep = "no answering relay delivered a payload (relay sweep incomplete)"
+			}
+			Report("⚠️ 🧱 %s proposed a vanilla block at %s: %s. %s %s",
+				who, where, sweep, evidence, registrationNote(mev.Registrations[expectedValidator], evidence.feeRecipient))
+		case verdictRelayAbsentBuilder:
+			m.TotalRelayAbsentBuilderBlocks.Inc()
+			Report("⚠️ 🏗️ %s proposed a block at %s that looks builder-built but no configured relay delivered it: relay missing from --mev-relays or a direct builder deal. %s",
+				who, where, evidence)
+		case verdictUnclassified:
+			// No payload to compare, or a builder-tagged block while a relay
+			// failed this epoch (the failed relay most likely delivered it).
 			m.TotalMissingBidTraces.Inc()
 			log.Error().
 				Uint64("slot", uint64(slot)).
 				Uint64("epoch", uint64(epoch)).
 				Uint64("validator", uint64(expectedValidator)).
 				Str("pubkey", pubkeyOrUnknown(pubkeys, expectedValidator)).
-				Msg("proposed block has nil ExecutionPayload; cannot compare to bid trace")
-			return true
-		}
-		executionBlockHash := block.Message.Body.ExecutionPayload.BlockHash
-		graffiti, extraData, feeRecipient := proposalEvidence(block.Message.Body)
-		trace, ok := mev.BestBids[slot]
-		if !ok {
-			if !isClientDefaultExtraData(block.Message.Body.ExecutionPayload.ExtraData) {
-				// Builders stamp extra_data; a locally built block carries
-				// the EL client's default. A tag here with no delivering
-				// relay is not a vanilla block: either the relay is not in
-				// our list (or the builder dealt with the proposer
-				// directly), or — when a relay failed this epoch — the
-				// failed relay most likely delivered it.
-				if !mev.RelaysComplete {
-					m.TotalMissingBidTraces.Inc()
-					log.Error().
-						Uint64("slot", uint64(slot)).
-						Uint64("epoch", uint64(epoch)).
-						Uint64("validator", uint64(expectedValidator)).
-						Str("pubkey", pubkeyOrUnknown(pubkeys, expectedValidator)).
-						Str("extraData", extraData).
-						Msg("builder-tagged block without a bid trace while the relay sweep was incomplete; cannot classify")
-					return true
-				}
-				m.TotalRelayAbsentBuilderBlocks.Inc()
-				Report("⚠️ 🏗️ Validator %v (%v) proposed a block at slot %v (epoch %v) that looks builder-built but no configured relay delivered it: relay missing from --mev-relays or a direct builder deal. graffiti=%q extra_data=%q fee_recipient=%s",
-					expectedValidator, pubkeyOrUnknown(pubkeys, expectedValidator), slot, epoch, graffiti, extraData, feeRecipient)
-				return true
-			}
-			// Client-default extra_data: built locally. The on-chain
-			// evidence decides, so a slow relay cannot hide the alert;
-			// the sweep state is reported for context.
-			m.TotalVanillaBlocks.Inc()
-			m.LastVanillaBlockSlot.Set(float64(slot))
-			m.LastVanillaBlockValidator.Set(float64(expectedValidator))
-			sweep := "no relay delivered a payload"
-			if !mev.RelaysComplete {
-				sweep = "no answering relay delivered a payload (relay sweep incomplete)"
-			}
-			Report("⚠️ 🧱 Validator %v (%v) proposed a vanilla block at slot %v (epoch %v): %s. graffiti=%q extra_data=%q fee_recipient=%s %s",
-				expectedValidator, pubkeyOrUnknown(pubkeys, expectedValidator), slot, epoch, sweep, graffiti, extraData, feeRecipient,
-				registrationNote(mev.Registrations[expectedValidator], feeRecipient))
-			return true
-		}
-		// Compare hashes case-insensitively. phase0.Hash32.String() emits
-		// lowercase 0x-prefixed hex, but trace.BlockHash from the relay
-		// JSON is not case-canonical per relay spec — a relay emitting
-		// uppercase or mixed-case hex would otherwise flag every
-		// MEV-built proposal as vanilla.
-		if !strings.EqualFold(executionBlockHash.String(), trace.BlockHash) {
-			m.TotalVanillaBlocks.Inc()
-			m.LastVanillaBlockSlot.Set(float64(slot))
-			m.LastVanillaBlockValidator.Set(float64(expectedValidator))
-			Report("⚠️ 🧱 Validator %v (%v) proposed a vanilla block at slot %v (epoch %v): chain block %s differs from relay-delivered %s. graffiti=%q extra_data=%q fee_recipient=%s",
-				expectedValidator, pubkeyOrUnknown(pubkeys, expectedValidator), slot, epoch, executionBlockHash.String(), trace.BlockHash, graffiti, extraData, feeRecipient)
-			return true
-		}
-		if opts.Monitor.PrintSuccessful {
-			Info("✅ 🧾 Validator %v (%v) proposed optimal MEV execution block %v at slot %v, epoch %v", expectedValidator, pubkeyOrUnknown(pubkeys, expectedValidator), trace.BlockHash, slot, epoch)
+				Bool("hasExecutionPayload", payload != nil).
+				Bool("relaysComplete", mev.RelaysComplete).
+				Str("extraData", evidence.extraData).
+				Msg("proposal cannot be classified: no bid trace and no on-chain evidence of a local build")
 		}
 	}
 
@@ -245,6 +217,44 @@ func isClientDefaultExtraData(extraData []byte) bool {
 	return false
 }
 
+// proposalVerdict is the outcome of comparing a tracked, canonical
+// proposal with what the relays delivered. See classifyProposal.
+type proposalVerdict int
+
+const (
+	verdictMEV                proposalVerdict = iota // a relay delivered the payload that is on chain
+	verdictHashMismatch                              // a relay delivered a payload but the chain carries another one: vanilla
+	verdictVanilla                                   // no relay delivered and extra_data is an EL client default or empty: built locally
+	verdictRelayAbsentBuilder                        // no relay delivered, extra_data carries a builder tag, every relay answered: relay missing from the list or a direct deal
+	verdictUnclassified                              // nothing to compare (no payload), or builder-tagged while a relay failed
+)
+
+// classifyProposal is CheckProposal's outcome table as a pure function.
+// trace is the best relay-delivered trace for the slot, nil when no
+// configured relay reported one (after the per-slot re-check), and
+// relaysComplete says whether every relay answered the epoch sweep. The
+// vanilla rule is decided on-chain alone so a slow relay cannot hide a
+// locally built block. BuildEpochContext picks registration candidates
+// with this same function, so the rule lives here and nowhere else.
+func classifyProposal(payload *deneb.ExecutionPayload, trace *BidTrace, relaysComplete bool) proposalVerdict {
+	switch {
+	case payload == nil:
+		return verdictUnclassified
+	case trace == nil && isClientDefaultExtraData(payload.ExtraData):
+		return verdictVanilla
+	case trace == nil && relaysComplete:
+		return verdictRelayAbsentBuilder
+	case trace == nil:
+		return verdictUnclassified
+	// phase0.Hash32.String() emits lower-case hex; relays are not
+	// case-canonical, so compare case-insensitively.
+	case !strings.EqualFold(payload.BlockHash.String(), trace.BlockHash):
+		return verdictHashMismatch
+	default:
+		return verdictMEV
+	}
+}
+
 // registrationNote renders the relay-side registration outcome for a
 // vanilla-block report. The two actionable cases name the misconfiguration.
 func registrationNote(reg Registration, blockFeeRecipient string) string {
@@ -252,26 +262,36 @@ func registrationNote(reg Registration, blockFeeRecipient string) string {
 	case reg.Status == RegistrationNotFound:
 		return "validator is NOT registered with any configured relay (mev-boost registration broken)"
 	case reg.Status == RegistrationRegistered && !reg.matches(blockFeeRecipient):
-		return fmt.Sprintf("fee_recipient differs from registered %s (local EL fee recipient misconfigured)", reg.FeeRecipient)
+		return fmt.Sprintf("fee_recipient differs from registered %s (local EL fee recipient misconfigured)", reg.newest())
 	case reg.Status == RegistrationRegistered:
-		return "registered_fee_recipient=" + reg.FeeRecipient
+		return "registered_fee_recipient=" + reg.newest()
 	default:
 		return "registration=unknown"
 	}
 }
 
-// proposalEvidence extracts the three block fields that tell a human (or
-// a later heuristic) whether a block was builder-made or locally built:
-// graffiti (SSV: the leader operator's node), execution extra_data (builder
-// tag vs EL client tag) and the payload fee recipient (builder coinbase vs
-// the proposer's own address). Callers format the strings with %q because
-// geth's extra_data is binary RLP. Caller guarantees a non-nil
-// ExecutionPayload.
-func proposalEvidence(body *electra.BeaconBlockBody) (graffiti, extraData, feeRecipient string) {
-	graffiti = string(bytes.TrimRight(body.Graffiti[:], "\x00"))
-	extraData = string(body.ExecutionPayload.ExtraData)
-	feeRecipient = body.ExecutionPayload.FeeRecipient.String()
-	return graffiti, extraData, feeRecipient
+// proposalEvidence is what tells a human (or a later heuristic) whether a
+// block was builder-made or built locally: graffiti (SSV: the leader
+// operator's node), execution extra_data (builder tag vs EL client tag)
+// and the payload fee recipient (builder coinbase vs the proposer's own
+// address).
+type proposalEvidence struct {
+	graffiti, extraData, feeRecipient string
+}
+
+func evidenceOf(body *electra.BeaconBlockBody) proposalEvidence {
+	ev := proposalEvidence{graffiti: string(bytes.TrimRight(body.Graffiti[:], "\x00"))}
+	if body.ExecutionPayload != nil {
+		ev.extraData = string(body.ExecutionPayload.ExtraData)
+		ev.feeRecipient = body.ExecutionPayload.FeeRecipient.String()
+	}
+	return ev
+}
+
+// String quotes graffiti and extra_data because geth's extra_data is
+// binary RLP.
+func (e proposalEvidence) String() string {
+	return fmt.Sprintf("graffiti=%q extra_data=%q fee_recipient=%s", e.graffiti, e.extraData, e.feeRecipient)
 }
 
 // FinalizeMissedProposals reports each remaining unfulfilled proposer duty as

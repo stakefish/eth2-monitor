@@ -79,6 +79,13 @@ func (m *MonitorMetrics) BeaconRequestMetrics() *beaconchain.RequestMetrics {
 // that newly enter the tracked set (cache TTL expiry, key rotation) get
 // pre-warmed too. Future contributors adding new per-validator metrics
 // should extend this list to keep the dashboard zero-data invariant.
+// vanillaBlock records a tracked proposal that was built locally.
+func (m *MonitorMetrics) vanillaBlock(slot phase0.Slot, validator phase0.ValidatorIndex) {
+	m.TotalVanillaBlocks.Inc()
+	m.LastVanillaBlockSlot.Set(float64(slot))
+	m.LastVanillaBlockValidator.Set(float64(validator))
+}
+
 func (m *MonitorMetrics) PrewarmValidators(pubkeysByIndex map[phase0.ValidatorIndex]string) {
 	for idx := range pubkeysByIndex {
 		idxLbl, pkLbl := validatorLabels(idx, pubkeysByIndex)

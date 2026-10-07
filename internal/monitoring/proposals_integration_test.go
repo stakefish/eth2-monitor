@@ -294,7 +294,7 @@ func relayAbsentCase(block *electra.SignedBeaconBlock, regs map[phase0.Validator
 func TestCheckProposal_RelayAbsent_RegisteredMatching_IsVanilla(t *testing.T) {
 	block := loadCapturedBlock(t)
 	regs := map[phase0.ValidatorIndex]Registration{block.Message.ProposerIndex: {
-		Status: RegistrationRegistered, FeeRecipient: block.Message.Body.ExecutionPayload.FeeRecipient.String(),
+		Status: RegistrationRegistered, FeeRecipients: []string{block.Message.Body.ExecutionPayload.FeeRecipient.String()},
 	}}
 	_, m := runCheckProposal(t, relayAbsentCase(block, regs))
 	counterIs(t, m.TotalVanillaBlocks, 1, "TotalVanillaBlocks")
@@ -310,7 +310,7 @@ func TestCheckProposal_RelayAbsent_BuilderTagged_IsNotVanilla(t *testing.T) {
 	block := loadCapturedBlock(t)
 	block.Message.Body.ExecutionPayload.ExtraData = []byte("Titan (titanbuilder.xyz)")
 	regs := map[phase0.ValidatorIndex]Registration{block.Message.ProposerIndex: {
-		Status: RegistrationRegistered, FeeRecipient: block.Message.Body.ExecutionPayload.FeeRecipient.String(),
+		Status: RegistrationRegistered, FeeRecipients: []string{block.Message.Body.ExecutionPayload.FeeRecipient.String()},
 	}}
 	_, m := runCheckProposal(t, relayAbsentCase(block, regs))
 	counterIs(t, m.TotalRelayAbsentBuilderBlocks, 1, "TotalRelayAbsentBuilderBlocks")
@@ -341,7 +341,7 @@ func TestCheckProposal_RelayAbsent_FeeRecipientMismatch_ReportsIt(t *testing.T) 
 	posted := captureSlack(t)
 	block := loadCapturedBlock(t)
 	regs := map[phase0.ValidatorIndex]Registration{block.Message.ProposerIndex: {
-		Status: RegistrationRegistered, FeeRecipient: "0x" + strings.Repeat("11", 20),
+		Status: RegistrationRegistered, FeeRecipients: []string{"0x" + strings.Repeat("11", 20)},
 	}}
 	_, m := runCheckProposal(t, relayAbsentCase(block, regs))
 	counterIs(t, m.TotalVanillaBlocks, 1, "TotalVanillaBlocks")
@@ -360,8 +360,7 @@ func TestCheckProposal_RelayAbsent_AnyRegisteredRecipientMatches(t *testing.T) {
 	blockFee := block.Message.Body.ExecutionPayload.FeeRecipient.String()
 	regs := map[phase0.ValidatorIndex]Registration{block.Message.ProposerIndex: {
 		Status:        RegistrationRegistered,
-		FeeRecipient:  "0x" + strings.Repeat("11", 20), // newest registration, stale elsewhere
-		FeeRecipients: []string{"0x" + strings.Repeat("11", 20), blockFee},
+		FeeRecipients: []string{"0x" + strings.Repeat("11", 20), blockFee}, // newest first; the block pays the older one
 	}}
 	_, m := runCheckProposal(t, relayAbsentCase(block, regs))
 	counterIs(t, m.TotalVanillaBlocks, 1, "TotalVanillaBlocks")
@@ -378,6 +377,39 @@ func TestCheckProposal_RelayAbsent_RegistrationUnknown_IsVanilla(t *testing.T) {
 	_, m := runCheckProposal(t, relayAbsentCase(block, regs))
 	counterIs(t, m.TotalVanillaBlocks, 1, "TotalVanillaBlocks")
 	counterIs(t, m.TotalRelayAbsentBuilderBlocks, 0, "TotalRelayAbsentBuilderBlocks")
+}
+
+// TestClassifyProposal pins CheckProposal's outcome table as a pure
+// function. BuildEpochContext picks registration candidates with the same
+// function, so the vanilla rule cannot drift between the two.
+func TestClassifyProposal(t *testing.T) {
+	block := loadCapturedBlock(t) // locally built hoodi block: erigon extra_data
+	local := block.Message.Body.ExecutionPayload
+	builder := *local
+	builder.ExtraData = []byte("Titan (titanbuilder.xyz)")
+	same := BidTrace{BlockHash: local.BlockHash.String()}
+	upper := BidTrace{BlockHash: strings.ToUpper(local.BlockHash.String())}
+	other := BidTrace{BlockHash: "0x" + strings.Repeat("ab", 32)}
+	for _, tc := range []struct {
+		name           string
+		payload        *deneb.ExecutionPayload
+		trace          *BidTrace
+		relaysComplete bool
+		want           proposalVerdict
+	}{
+		{"nil payload", nil, &same, true, verdictUnclassified},
+		{"trace, hash matches", local, &same, true, verdictMEV},
+		{"trace, hash matches case-insensitively", local, &upper, true, verdictMEV},
+		{"trace, hash differs", local, &other, true, verdictHashMismatch},
+		{"no trace, client default, relays complete", local, nil, true, verdictVanilla},
+		{"no trace, client default, relay failed", local, nil, false, verdictVanilla},
+		{"no trace, builder tag, relays complete", &builder, nil, true, verdictRelayAbsentBuilder},
+		{"no trace, builder tag, relay failed", &builder, nil, false, verdictUnclassified},
+	} {
+		if got := classifyProposal(tc.payload, tc.trace, tc.relaysComplete); got != tc.want {
+			t.Errorf("%s: classifyProposal = %v, want %v", tc.name, got, tc.want)
+		}
+	}
 }
 
 // TestIsClientDefaultExtraData pins the split observed on 636 mainnet

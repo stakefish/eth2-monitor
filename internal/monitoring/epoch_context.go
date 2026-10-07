@@ -57,9 +57,18 @@ type MEVContext struct {
 	// trace across relays.
 	BestBids map[phase0.Slot]BidTrace
 	// Registrations holds the relay-side mev-boost registration of each
-	// validator whose proposal had no bid (looked up lazily, only when
-	// RelaysComplete). A missing entry reads as RegistrationUnknown.
+	// validator whose proposal is a vanilla candidate (looked up lazily by
+	// resolveRelayAbsent). A missing entry reads as RegistrationUnknown.
 	Registrations map[phase0.ValidatorIndex]Registration
+}
+
+// trace returns the best relay-delivered trace for slot, nil when no
+// configured relay reported one.
+func (c MEVContext) trace(slot phase0.Slot) *BidTrace {
+	if t, ok := c.BestBids[slot]; ok {
+		return &t
+	}
+	return nil
 }
 
 // BuildEpochContext fetches all per-epoch state in the same order as the
@@ -192,30 +201,17 @@ func BuildEpochContext(
 		return nil, errors.Wrap(blocksErr, "ListEpochBlocks")
 	}
 
-	// Before any relay-absent verdict, re-ask every relay for each
-	// relay-absent tracked proposal by slot: the cursor-paged sweep can
-	// miss a delivery the relay wrote late (data APIs expose a payload
-	// 4-10 s after slot start, and this runs only seconds after the epoch
-	// ended) or across a page boundary. A trace found here routes the
-	// slot through the normal hash compare.
-	if mevEnabled {
-		if bestBids == nil {
-			bestBids = make(map[phase0.Slot]BidTrace)
-		}
-		Measure(func() {
-			confirmRelayAbsentProposals(ctx, 4*time.Second, mevRelays, proposerDuties, blocks, bestBids, validatorPubkeyFromIndex)
-		}, "ConfirmRelayAbsent(epoch=%v)", epoch)
-	}
-
-	// Registrations only matter for vanilla candidates (relay-absent,
-	// client-default extra_data). Rare path: one relay request per such
-	// proposal. Runs even when the sweep was incomplete, because those
-	// candidates are still reported as vanilla.
+	// Settle the relay-absent tracked proposals: re-ask every relay per
+	// slot (data APIs expose a payload 4-10 s after slot start and the
+	// cursor-paged sweep can skip a row), then fetch the mev-boost
+	// registration for the ones still classified vanilla. Runs even when
+	// the sweep was incomplete, because those candidates are still reported.
 	var registrations map[phase0.ValidatorIndex]Registration
 	if mevEnabled {
+		relayClient := relayClient{relays: mevRelays, timeout: 4 * time.Second}
 		Measure(func() {
-			registrations = lookupRelayAbsentRegistrations(ctx, 4*time.Second, mevRelays, proposerDuties, blocks, bestBids, validatorPubkeyFromIndex)
-		}, "LookupRegistrations(epoch=%v)", epoch)
+			registrations = relayClient.resolveRelayAbsent(ctx, proposerDuties, blocks, bestBids, validatorPubkeyFromIndex, relaysComplete)
+		}, "ResolveRelayAbsent(epoch=%v)", epoch)
 	}
 
 	return &EpochContext{
