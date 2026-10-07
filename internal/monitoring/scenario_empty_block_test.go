@@ -51,7 +51,7 @@ func TestScenarioEmptyBlock(t *testing.T) {
 	// (the block exists) — CheckProposal returns true and stacks the
 	// empty-block metric on top of the canonical-proposal metric.
 	pubkeys := map[phase0.ValidatorIndex]string{block.Message.ProposerIndex: "tracked"}
-	ok := CheckProposal(block, block.Message.Slot, block.Message.ProposerIndex, nil, false, pubkeys, phase0.Epoch(rig.meta.TestEpoch), rig.metrics)
+	ok := CheckProposal(block, block.Message.Slot, block.Message.ProposerIndex, MEVContext{}, pubkeys, phase0.Epoch(rig.meta.TestEpoch), rig.metrics)
 	if !ok {
 		t.Fatal("CheckProposal returned false for an empty (but canonically proposed) block — duty IS fulfilled even when empty")
 	}
