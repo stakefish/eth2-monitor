@@ -24,6 +24,7 @@ type MonitorMetrics struct {
 	TotalProposedEmptyBlocks      prometheus.Counter
 	TotalVanillaBlocks            prometheus.Counter
 	TotalMissingBidTraces         prometheus.Counter
+	TotalRelayAbsentBuilderBlocks prometheus.Counter
 	LastProposedEmptyBlockSlot    prometheus.Gauge
 	LastMissedProposalSlot        prometheus.Gauge
 	LastMissedProposalValidator   prometheus.Gauge
@@ -145,12 +146,17 @@ func NewMonitorMetrics(reg prometheus.Registerer) *MonitorMetrics {
 		TotalVanillaBlocks: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "ETH2",
 			Name:      "totalVanillaBlocks",
-			Help:      "Proposed blocks whose execution_block_hash did not match any tracked MEV relay bid (hash-mismatch case only; see totalMissingBidTraces for the no-bid case)",
+			Help:      "Tracked proposals built locally: every configured relay answered for the epoch, none delivered a payload for the slot and extra_data carries no builder tag; or a relay-delivered block hash differs from the chain (see totalMissingBidTraces and totalRelayAbsentBuilderBlocks for the other outcomes)",
 		}),
 		TotalMissingBidTraces: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "ETH2",
 			Name:      "totalMissingBidTraces",
-			Help:      "Proposed blocks for which no MEV bid trace was found across configured relays — could be a truly vanilla block (validator built locally) or a relay-side failure",
+			Help:      "Tracked proposals with no MEV bid trace while the relay sweep was incomplete (a relay failed or returned nothing for the epoch); cannot be classified as vanilla or MEV",
+		}),
+		TotalRelayAbsentBuilderBlocks: prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: "ETH2",
+			Name:      "totalRelayAbsentBuilderBlocks",
+			Help:      "Tracked proposals no configured relay delivered but whose execution extra_data carries a builder tag: a relay missing from --mev-relays or a direct builder deal, not a vanilla block",
 		}),
 		LastVanillaBlockSlot: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: "ETH2",
@@ -253,6 +259,7 @@ func NewMonitorMetrics(reg prometheus.Registerer) *MonitorMetrics {
 		m.TotalProposedEmptyBlocks,
 		m.TotalVanillaBlocks,
 		m.TotalMissingBidTraces,
+		m.TotalRelayAbsentBuilderBlocks,
 		m.LastVanillaBlockSlot,
 		m.LastVanillaBlockValidator,
 		m.TotalCanonicalAttestations,

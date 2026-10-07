@@ -17,6 +17,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -377,3 +379,99 @@ func TestProposerDutyMap_NilSliceReturnsEmptyMap(t *testing.T) {
 	}
 }
 
+// TestBuildEpochContext_RelaysComplete pins the relay-health flag that
+// CheckProposal uses to tell a vanilla block (no relay delivered a
+// payload) from an unclassifiable slot (a relay failed). Runs the real
+// BuildEpochContext against the happy_path beacon fixtures with fake
+// relays on the MEV side.
+func TestBuildEpochContext_RelaysComplete(t *testing.T) {
+	const scenario = "happy_path"
+	if !scenarioFixturesPresent(scenario) {
+		t.Skipf("scenario %q fixtures not captured — run `make refresh-scenario SCENARIO=%s`", scenario, scenario)
+	}
+	quietGoEth2Client(t)
+	quietScenarioLogging(t)
+	meta := loadBeaconMeta(t, scenario)
+	epoch := phase0.Epoch(meta.TestEpoch)
+	// BuildEpochContext also pulls attester duties for E-1 and E+1 (the
+	// cross-epoch inclusion window). The fixture only captured E, and the
+	// client rejects duties outside the requested epoch, so serve empty
+	// duty lists for the neighbours — enough to drive the proposal/relay
+	// side under test.
+	noDuties := func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"dependent_root":"0x` + strings.Repeat("00", 32) + `","execution_optimistic":false,"data":[]}`))
+	}
+	routes := append(scenarioRoutes(t, scenario, meta),
+		fixtureRoute{Path: fmt.Sprintf("/eth/v1/validator/duties/attester/%d", epoch-1), Handler: noDuties},
+		fixtureRoute{Path: fmt.Sprintf("/eth/v1/validator/duties/attester/%d", epoch+1), Handler: noDuties},
+	)
+	bc := newBeaconChainAgainst(t, fixtureServer(t, scenario, routes).URL)
+	keys := fixturePubkeys(t, scenario)
+	t.Setenv("TMPDIR", t.TempDir()) // isolate LoadCache/SaveCache
+
+	build := func(t *testing.T, relays []string) *EpochContext {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		ec, err := BuildEpochContext(ctx, bc, epoch, keys, relays)
+		if err != nil {
+			t.Fatalf("BuildEpochContext: %v", err)
+		}
+		if ec == nil {
+			t.Fatal("BuildEpochContext returned nil context — fixture validators not active in TestEpoch?")
+		}
+		return ec
+	}
+
+	t.Run("mev disabled", func(t *testing.T) {
+		ec := build(t, nil)
+		if ec.MEV.Enabled || ec.MEV.RelaysComplete {
+			t.Errorf("MEV.Enabled=%v MEV.RelaysComplete=%v, want both false without relays", ec.MEV.Enabled, ec.MEV.RelaysComplete)
+		}
+	})
+
+	t.Run("every relay answered", func(t *testing.T) {
+		relay := newFakeRelay(t, withFloor(nil, epoch), spec.SLOTS_PER_EPOCH)
+		ec := build(t, []string{relay.server.URL})
+		if !ec.MEV.RelaysComplete {
+			t.Error("RelaysComplete=false although the only relay answered with a trace for the epoch")
+		}
+	})
+
+	t.Run("one relay failing", func(t *testing.T) {
+		healthy := newFakeRelay(t, withFloor(nil, epoch), spec.SLOTS_PER_EPOCH)
+		broken := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusBadGateway)
+		}))
+		t.Cleanup(broken.Close)
+		ec := build(t, []string{healthy.server.URL, broken.URL})
+		if ec.MEV.RelaysComplete {
+			t.Error("RelaysComplete=true although one relay never answered; a missing bid must not be read as vanilla")
+		}
+	})
+}
+
+// fixturePubkeys returns the validator pubkeys captured in the scenario's
+// validators fixture, so tests stay valid across fixture refreshes.
+func fixturePubkeys(t *testing.T, scenario string) []string {
+	t.Helper()
+	var resp struct {
+		Data []struct {
+			Validator struct {
+				Pubkey string `json:"pubkey"`
+			} `json:"validator"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(loadBeaconFixture(t, scenario, "validators_indices_0_1_2.json"), &resp); err != nil {
+		t.Fatalf("decode validators fixture: %v", err)
+	}
+	var keys []string
+	for _, v := range resp.Data {
+		keys = append(keys, v.Validator.Pubkey)
+	}
+	if len(keys) == 0 {
+		t.Fatal("validators fixture is empty — refresh fixtures")
+	}
+	return keys
+}

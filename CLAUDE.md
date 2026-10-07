@@ -55,21 +55,21 @@ internal/
     monitoring.go                            -- Orchestrator loop + SubscribeToEpochs (wrapped in subscribeWithRetry) + LoadKeys/LoadMEVRelays
     supervisor.go                            -- ctx-aware restart loop (`Supervise`; backs off using `ExptBackoff` from `mev.go`); wraps the orchestrator pair from cli/root.go so an unexpected goroutine exit no longer zombifies the process
     supervisor_test.go                       -- Supervise lifecycle tests (ctx cancellation, restart-on-unexpected-return, backoff draining)
-    epoch_context.go                         -- Per-epoch state fetch: EpochContext + BuildEpochContext + ResolveValidatorKeys + ListProposerDuties / ListEpochBlocks + SlotsWithBlocks
+    epoch_context.go                         -- Per-epoch state fetch: EpochContext + MEVContext + BuildEpochContext + ResolveValidatorKeys + ListProposerDuties / ListEpochBlocks + SlotsWithBlocks
     attestations.go                          -- Attestation-issue detection: processAttestations + BuildCommitteeLookup + PruneSeenAttestations + FinalizeMissedAttestations + CommitteeInfo
-    proposals.go                             -- Proposal-issue detection: isBlockEmpty + CheckProposal + FinalizeMissedProposals
+    proposals.go                             -- Proposal-issue detection: isBlockEmpty + CheckProposal (vanilla / relay-absent builder / missing-bid classification) + isClientDefaultExtraData + proposalEvidence + registrationNote + FinalizeMissedProposals
     metrics.go                               -- MonitorMetrics struct + NewMonitorMetrics(reg) factory; all Prometheus metrics
     reporting.go                             -- Slack webhook + log reporting (Report/Info helpers)
-    mev.go                                   -- MEV relay bid trace fetching (concurrent, paginated)
+    mev.go                                   -- MEV relay Data API: bid trace fetching (concurrent, paginated) + confirmRelayAbsent / confirmRelayAbsentProposals (per-slot re-check) + LookupRegistration / lookupRelayAbsentRegistrations (validator_registration, every relay, lazy)
     cache.go                                 -- Disk-backed JSON cache for validator index lookups
     set.go                                   -- Generic Set[E comparable] collection
     profiling.go                             -- Measure() timing utility
     utilities.go                             -- Must() panic-on-error helper
-    epoch_context_integration_test.go        -- Real-BeaconChain-against-fixtureServer tests for BuildEpochContext / ResolveValidatorKeys / ListProposerDuties / ListEpochBlocks (incl. retry/cancel)
-    mev_integration_test.go                  -- ListBestBids against fakeRelay backed by captured Flashbots fixture + synthetic edge-case handlers
+    epoch_context_integration_test.go        -- Real-BeaconChain-against-fixtureServer tests for BuildEpochContext (incl. MEVContext.RelaysComplete with fake relays) / ResolveValidatorKeys / ListProposerDuties / ListEpochBlocks (incl. retry/cancel)
+    mev_integration_test.go                  -- ListBestBids + confirmRelayAbsent / confirmRelayAbsentProposals (late traces served only by ?slot=N) + LookupRegistration / lookupRelayAbsentRegistrations against fakeRelay (bid traces, per-slot traces and validator_registration from the captured Flashbots fixtures; registrationBody rewrites recipient/timestamp) + synthetic edge-case handlers (502, 429)
     monitoring_integration_test.go           -- Orchestrator lifecycle + SubscribeToEpochs end-to-end through SSE-fixture replay
     monitoring_helpers_test.go               -- sendEpoch / LoadKeys / LoadMEVRelays / ResumeEpoch / runSSESubscription tests (no beacon I/O to fixture)
-    proposals_integration_test.go            -- CheckProposal / isBlockEmpty / FinalizeMissedProposals on captured block + in-Go mutations for empty/MEV/vanilla
+    proposals_integration_test.go            -- CheckProposal / isBlockEmpty / FinalizeMissedProposals on captured block + in-Go mutations for empty / MEV / vanilla / relay-absent builder / registration outcomes; captureSlack + relayAbsentCase helpers; isClientDefaultExtraData table
     attestations_integration_test.go         -- BuildCommitteeLookup + processAttestations against captured fixtures (wire-format integration)
     attestations_classification_test.go      -- Synthetic classification edge cases (cross-epoch dedup, AggregationBits offset drift) — see header comment for why these stay synthetic
     cache_integration_test.go                -- Disk-backed cache round-trip / merge / atomic write tests (uses t.TempDir)
@@ -84,10 +84,14 @@ internal/
     test_helpers_test.go                     -- Shared helpers (counterValue, gaugeValue, histogramSampleCount, buildSingleValidatorAttestation)
     testdata_test.go                         -- Cross-package os.ReadFile loaders + fixtureServer helper + embed.FS for testdata/mev
     testdata/
-      meta.json                              -- captured MEV cursor slot + relays captured (no endpoint info)
-      mev/                                   -- captured MEV relay bid-trace JSON (refreshed via `make refresh-scenario SCENARIO=mev`)
+      meta.json                              -- captured MEV cursor slot + relays captured + registration_pubkey (no endpoint info)
+      mev/                                   -- captured MEV relay bid-trace JSON + <relay>_registration.json (refreshed via `make refresh-scenario SCENARIO=mev`)
 test-env/
   docker-compose.yml -- Full local stack: eth2-monitor + Prometheus + Grafana
+  env.example        -- BEACON_CHAIN_API / BEACONCHAIN_API_KEY template; copy to .env (gitignored) for e2e tests and fixturegen
+  mev-relays.json    -- Hoodi relay list consumed by the compose stack (`.example` is the template)
+  validators.txt     -- Tracked pubkeys, one per line (`.example` is the template)
+  prometheus/        -- Scrape config (+ untracked alerts.yml)
   grafana/           -- Pre-provisioned dashboards and datasources
 Dockerfile           -- Multi-stage: golang:alpine builder -> alpine runtime, non-root user; builds ./cmd/eth2-monitor
 Makefile             -- Targets: `build` (default), `lint`, `test` (= `go test -cover ./...`), `test-e2e` (build tag `e2e` against ./internal/beaconchain/... + ./internal/monitoring/...), `refresh-fixtures` (loop every scenario), `refresh-scenario SCENARIO=<name>` (single scenario); output: bin/eth2-monitor with git version ldflags
@@ -135,12 +139,25 @@ cd test-env && docker compose up --build
 
 ```bash
 # Re-run a single past epoch with full per-slot detail (epochs must be processed
-# in order; see "Attestation dedup requires consecutive epoch processing" below)
-bin/eth2-monitor monitor --replay-epoch 12345 --print-successful -l trace \
+# in order; see "Attestation dedup requires consecutive epoch processing" below).
+# Replay mode does not exit: Supervise restarts the pair after the last epoch,
+# so wrap in `timeout` or Ctrl-C once the reports you need have appeared.
+timeout 600 bin/eth2-monitor monitor --replay-epoch 12345 --print-successful -l trace \
   --beacon-chain-api http://localhost:3500 -k 0xPUBKEY...
 
 # Resume from a specific epoch (e.g. after a long downtime)
 bin/eth2-monitor monitor --since-epoch 12000 ...
+
+# Verify MEV classification on a known slot: pick a tracked proposal, ask each relay
+# `/relay/v1/data/bidtraces/proposer_payload_delivered?slot=N` who delivered it, then replay
+# its epoch. Full list -> optimal-MEV line (with --print-successful); a list excluding
+# EVERY delivering relay -> "relay-absent builder block" report; a known vanilla slot
+# -> vanilla report with registered_fee_recipient. Replay mode loops, so use timeout.
+# Proof the per-slot re-check ran: a `ConfirmRelayAbsent(epoch=…) took` debug line
+# (microseconds = no relay-absent candidate; seconds = relays were asked) and, when
+# the epoch sweep had missed a delivery, `relay delivery found by per-slot confirmation`.
+timeout 600 bin/eth2-monitor monitor --replay-epoch $((N/32)) --mev-relays relays.json \
+  --beacon-chain-api $BEACON_CHAIN_API -k 0xPUBKEY...
 ```
 
 ## CLI Flags
@@ -168,6 +185,12 @@ bin/eth2-monitor monitor --since-epoch 12000 ...
 6. `GET /eth/v1/beacon/states/{state}/finality_checkpoints` -- Justified epoch seed
 7. `GET /eth/v1/events?topics=head` -- SSE head events for epoch detection
 
+MEV relay Data API (only with `--mev-relays`; `internal/monitoring/mev.go`):
+
+1. `GET {relay}/relay/v1/data/bidtraces/proposer_payload_delivered?cursor={slot}&limit=32` -- paged per epoch from every relay; an empty page is an error (relay counted as failed)
+2. `GET {relay}/relay/v1/data/bidtraces/proposer_payload_delivered?slot={slot}` -- per-slot confirmation on every relay for each relay-absent tracked proposal, before any vanilla / drift verdict (`confirmRelayAbsentProposals`); a trace found here is inserted into `BestBids`
+3. `GET {relay}/relay/v1/data/validator_registration?pubkey=0x…` -- asked of every relay, lazily, only for vanilla candidates (relay-absent, client-default extra_data); any 2xx = registered (all distinct fee recipients kept, newest by timestamp named), every relay 400/404 = not registered, anything else (429, 5xx, transport) = unknown
+
 ## Prometheus Metrics (namespace: ETH2)
 
 | Metric | Type | Description |
@@ -180,8 +203,9 @@ bin/eth2-monitor monitor --since-epoch 12000 ...
 | `ETH2_totalDelayedAttestationsOverTolerance` | CounterVec | Attestations whose shifted inclusion distance exceeds 2 (i.e. spec-distance > 3, included at attestedSlot+4 or later after missed-slot adjustment). Labels: `validator_index`, `pubkey`. |
 | `ETH2_canonicalAttestationDistances` | Histogram | Inclusion distance distribution after missed-slot adjustment. Distance is shifted: 0 = optimal (included at attestedSlot+1); Attestant's spec-distance = this + 1. Linear buckets 1..32 (so distance 0 lands in the ≤1 bucket). |
 | `ETH2_totalProposedEmptyBlocks` | Counter | Blocks with no execution-layer payload of value to the proposer (no EL transactions, no blobs, no post-Pectra exec requests) |
-| `ETH2_totalVanillaBlocks` | Counter | Blocks not matching MEV relay bids (hash mismatch case) |
-| `ETH2_totalMissingBidTraces` | Counter | Proposed blocks where no tracked MEV relay returned any bid trace (distinct from the hash-mismatch case in `totalVanillaBlocks`) |
+| `ETH2_totalVanillaBlocks` | Counter | Tracked proposals built locally: no relay delivered a payload and extra_data is an EL client default or empty (decided on-chain, so a failed relay cannot hide it), or a relay-delivered hash differs from the chain. Reported to Slack with graffiti / extra_data / fee recipient / relay registration state. |
+| `ETH2_totalRelayAbsentBuilderBlocks` | Counter | Tracked proposals no configured relay delivered but whose extra_data carries a builder tag, with every relay answering: relay missing from `--mev-relays` or a direct builder deal. Reported to Slack. |
+| `ETH2_totalMissingBidTraces` | Counter | Builder-tagged tracked proposals with no bid trace while the relay sweep was incomplete (a relay failed or returned nothing for the epoch); unclassifiable, log only. Alert on it increasing. |
 | `ETH2_lastMissedProposalSlot` | Gauge | Last missed proposal slot |
 | `ETH2_lastMissedProposalValidatorIndex` | Gauge | Last missed proposal validator |
 | `ETH2_lastProposedEmptyBlockSlot` | Gauge | Last empty block slot |
@@ -217,7 +241,7 @@ Wire-format fixtures live under `internal/beaconchain/testdata/beacon/<chain>/` 
 | `empty_block` | first head whose block has no EL transactions / blobs / Pectra exec requests. Captured opportunistically — Hoodi often goes 10+ min with every block carrying EL value, so the bundle may be absent on a fresh clone; `scenario_empty_block_test.go` `t.Skip`s when `EmptyBlockSlot==0`. | `TotalProposedEmptyBlocks` + `LastProposedEmptyBlockSlot` |
 | `delayed_attestation` | first head whose block carries an attestation with raw distance > 3 | `TotalDelayedOverTolerance` + `RawAttestationDistances` (>3 bucket) |
 | `cross_epoch_attestation` | first head whose block carries an attestation from a strictly earlier epoch; bundle also includes `block_prev.json` for the prev-epoch canonical block | `CrossEpochAttestations` |
-| `mev` | one page of `proposer_payload_delivered` from each public mainnet relay (Flashbots, ultrasound) | MEV side; written under `internal/monitoring/testdata/mev/` |
+| `mev` | one page of `proposer_payload_delivered` from each public mainnet relay (Flashbots, ultrasound) plus `<relay>_registration.json`, the `validator_registration` of the page's first proposer (`registration_pubkey` in `testdata/meta.json`) | MEV side; written under `internal/monitoring/testdata/mev/` |
 
 Captures are produced by `tools/fixturegen/main.go --scenario=<name> [--chain=<name>]`. Capture flow (for beacon scenarios) **subscribes to `/eth/v1/events?topics=head`** on the configured `BEACON_CHAIN_API` endpoint and tails new head events. Each new block is fetched + recorded as `block_<slot>.json` in the scenario directory; the scenario predicate runs on each block until it matches, at which point the matched block is also mirrored as `block_canonical.json` and the per-epoch context (finality, validators, duties, committees) is captured. **Every block fetched during the wait stays on disk**, so each scenario subdirectory ends up with a dense set of real beacon JSON. Each scenario directory carries its own `meta.json` recording the chain + anchor slot/epoch + `captured_slots[]` (and scenario-specific extras: `missed_slot`, `empty_block_slot`, `max_distance`, `prev_epoch`/`prev_canonical_slot`).
 
@@ -232,7 +256,7 @@ go run ./tools/fixturegen --scenario=empty_block --timeout=30m   # override the 
 
 Loading helpers (`defaultChain = "hoodi"` in `internal/beaconchain/testdata_test.go`; `defaultBeaconChain = "hoodi"` in `internal/monitoring/testdata_test.go` — both promoted to parameters when a second chain is added):
 - `internal/beaconchain/testdata_test.go` provides `loadMeta(t, scenario)`, `loadFixture(t, scenario, name)` (embed.FS, `all:testdata/beacon` so `_shared/` is included), `loadSharedFixture(t, name)`, and `fixtureServer(t, scenario, routes)` (auto-registers `_shared/` startup probes + caller routes; routes can be a static fixture or a custom `Handler` for flaky/cancel/error injection).
-- `internal/monitoring/testdata_test.go` provides `loadBeaconMeta(t, scenario)`, `loadBeaconFixture(t, scenario, name)`, `loadSharedBeaconFixture(t, name)`, and `loadMEVFixture(t, name)` via cross-package `os.ReadFile("../beaconchain/testdata/beacon/<chain>/<scenario>/...")`.
+- `internal/monitoring/testdata_test.go` provides `loadBeaconMeta(t, scenario)`, `loadBeaconFixture(t, scenario, name)`, `loadSharedBeaconFixture(t, name)`, and `loadMEVFixture(t, relay)` (appends `_bidtraces.json`; the registration fixture is read by `loadMEVRegistration(t, relay)` in `mev_integration_test.go`) via cross-package `os.ReadFile("../beaconchain/testdata/beacon/<chain>/<scenario>/...")`.
 - `internal/monitoring/scenario_helpers_test.go` provides `newScenarioRig(t, scenario)` which wires up `fixtureServer` + isolated `RequestMetrics` + `MonitorMetrics` + a real `BeaconChain`, ready for scenario tests to call.
 
 Tests anchor assertions to scenario `meta.json` (`HasMissed`, `CanonicalSlot`, `EmptyBlockSlot`, `MaxDistance`, etc.) rather than hard-coded slot numbers so they stay green across refresh runs. The `_shared` scenario has no `meta.json` — its files are chain-invariant.
@@ -269,13 +293,17 @@ Most monitoring/beaconchain tests are now fixture-backed integration tests (see 
 - **Scenario captures depend on live testnet behaviour** -- `tools/fixturegen --scenario=<name>` tails `/eth/v1/events?topics=head` and waits up to 10 min (`--timeout` overrides) for a matching head event. `empty_block` may not find a match during high-traffic windows (Hoodi staging routinely runs 10 min with every block carrying EL value); the operator gets an actionable timeout error and the corresponding scenario test cleanly `Skip`s when the fixture is missing. Re-run during quieter periods or extend with `--timeout=30m`.
 - **Capture against a non-Hoodi chain must set `--chain=<name>`** -- the default is `hoodi`, which writes into `testdata/beacon/hoodi/<scenario>/`. Capturing against a different chain WITHOUT overriding `--chain` collides into Hoodi's fixture set. The Make wrapper threads `CHAIN=<name>` through (`make refresh-fixtures CHAIN=sepolia`).
 - **fixturegen first-fetch 404s are normal** -- head announcements occasionally outpace block availability on the beacon's read side; fixturegen retries once after 500ms and logs `WARN first fetch slot=N failed: status 404`. Both the retry success and the warn line are expected.
+- **`--mev-relays` must mirror the validators' mev-boost relay list, duplicates included** -- keep the README example lists and `test-env/mev-relays.json` identical to the relays mev-boost is configured with and re-sync them when that changes. A payload delivered by an unlisted relay is reported as `totalRelayAbsentBuilderBlocks` ("relay missing from --mev-relays"), not vanilla. Relays can expose several hostnames under one key (Titan regional/global, ultrasound filtered/unfiltered) that report **different** delivered sets (slot 14652767 appeared only on global Titan and unfiltered ultrasound), so never dedupe by pubkey.
+- **Vanilla is decided by extra_data, list drift by `RelaysComplete`** -- `CheckProposal` (table in its doc comment) calls a no-trace proposal vanilla when `isClientDefaultExtraData` holds, regardless of relay health; a builder tag means a builder made it: `totalRelayAbsentBuilderBlocks` when every relay answered, `totalMissingBidTraces` (log only) when one failed. A relay returning zero traces for an epoch counts as failed (`requestRelayEpochBidTraces` errors on an empty page, retrying until the 4 s timeout), so dead relays (eden and securerpc data APIs returned nothing in Oct 2026) make every epoch incomplete; prune them. The registration note in the vanilla report comes from `MEVContext.Registrations`, filled by `lookupRelayAbsentRegistrations` for vanilla candidates only; a missing entry reads as `RegistrationUnknown`. Tests pass `MEVContext{}` when MEV is off.
+- **Relay data APIs lag and page; relay-absent verdicts are re-checked per slot** -- a delivered payload shows up on `proposer_payload_delivered` 3.6-10.3 s after slot start (measured Oct 2026, ultrasound slowest) while the monitor queries epoch E ~13-16 s after E's last slot started, and the cursor-paged sweep steps by 32 slots so a relay with >32 rows in an epoch can leave a gap. `confirmRelayAbsentProposals` therefore re-asks every relay `?slot=N` for each relay-absent tracked proposal and feeds any hit into `BestBids`. Observed false-positive bound for the on-chain vanilla test: 0 of 2352 relay-delivered mainnet blocks passed `isClientDefaultExtraData` (80 epochs, Oct 2026).
+- **`--replay-epoch` and `--since-epoch` loop under `Supervise`** -- the epoch producer returns after the requested epochs, `Supervise` treats that as an unexpected exit and restarts the pair with backoff (1 s base, max exponent 6), re-processing the same epochs and double-counting cumulative counters. Bound the run with `timeout` or a signal. Replaying month-old epochs against an archive beacon node usually trips the 1-minute client timeout on the first attempt (attester duties ~1 min, committees longer); `Supervise` logs `monitor goroutines exited unexpectedly; restarting` and the warmed second attempt finishes in ~25 s. One restart per cold epoch is expected, not a bug.
 
 ## Architecture
 
 The monitor runs under a `monitoring.Supervise(ctx, runOnce, backoff)` restart loop (`internal/cli/root.go:137`). `Supervise` re-runs `runOnce` whenever it returns while ctx is still live, sleeping the next value from an `ExptBackoff` between attempts; only ctx cancellation breaks the loop. This was added to fix the "stale `/metrics` + no new epochs" zombie state where an unexpected inner goroutine return cascaded through the shared ctx and left the process serving stale metrics with no epoch progress (see `internal/monitoring/supervisor.go` header).
 
 Inside one `runOnce` iteration, two goroutines communicate via an epoch channel:
-1. **SubscribeToEpochs** -- Listens to beacon head SSE events, detects epoch boundaries, sends epoch numbers. The SSE call itself is wrapped by `subscribeWithRetry` (`internal/monitoring/monitoring.go:180`) with its own `ExptBackoff`, so a single dropped connection retries in place rather than propagating out to `Supervise`.
-2. **MonitorAttestationsAndProposals** -- Slim orchestrator. Per epoch: `PruneSeenAttestations` → `BuildEpochContext` (single call that fetches validator keys, attester/proposer duties, committee lengths, blocks, and MEV bids) → seed `unfulfilledAttesterDuties` for current epoch → `processAttestations` → `FinalizeMissedAttestations` (E-1 cutoff) → walk blocks calling `CheckProposal` per slot → `FinalizeMissedProposals` → `SaveCache`. Each per-concern delegate owns one issue class (attestation vs proposal vs lifecycle) so tests can drive them in isolation.
+1. **SubscribeToEpochs** -- Listens to beacon head SSE events, detects epoch boundaries, sends epoch numbers. The SSE call itself is wrapped by `subscribeWithRetry` (`internal/monitoring/monitoring.go`) with its own `ExptBackoff`, so a single dropped connection retries in place rather than propagating out to `Supervise`.
+2. **MonitorAttestationsAndProposals** -- Slim orchestrator. Per epoch: `PruneSeenAttestations` → `BuildEpochContext` (single call that fetches validator keys, attester/proposer duties, committee lengths, blocks, MEV bids, then re-confirms relay-absent proposals per slot and looks up relay registrations for vanilla candidates) → seed `unfulfilledAttesterDuties` for current epoch → `processAttestations` → `FinalizeMissedAttestations` (E-1 cutoff) → walk blocks calling `CheckProposal` per slot → `FinalizeMissedProposals` → `SaveCache`. Each per-concern delegate owns one issue class (attestation vs proposal vs lifecycle) so tests can drive them in isolation.
 
 Metrics are encapsulated in `MonitorMetrics` struct (`internal/monitoring/metrics.go`), created via `NewMonitorMetrics(reg)` which accepts a `prometheus.Registerer` — production uses `DefaultRegisterer`, tests use isolated registries.

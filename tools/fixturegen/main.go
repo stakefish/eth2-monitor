@@ -14,18 +14,18 @@
 //
 // One invocation captures one scenario, selected by `--scenario=<name>`:
 //
-//   _shared              - go-eth2-client startup probes + SSE excerpt
-//   happy_path           - first canonical head observed; full epoch context
-//   missed_proposal      - detected via slot gap in head stream; 404 envelope
-//                          captured for the missed slot
-//   empty_block          - first head whose block has no execution-payload
-//                          value (no EL txns, no blobs, no exec requests)
-//   delayed_attestation  - first head whose block carries an attestation
-//                          with raw distance > 3
-//   cross_epoch_attestation - first head whose block carries any
-//                          attestation from a strictly earlier epoch
-//   mev                  - one page of bid traces from each public mainnet
-//                          relay; written under internal/monitoring/testdata/mev/
+//	_shared              - go-eth2-client startup probes + SSE excerpt
+//	happy_path           - first canonical head observed; full epoch context
+//	missed_proposal      - detected via slot gap in head stream; 404 envelope
+//	                       captured for the missed slot
+//	empty_block          - first head whose block has no execution-payload
+//	                       value (no EL txns, no blobs, no exec requests)
+//	delayed_attestation  - first head whose block carries an attestation
+//	                       with raw distance > 3
+//	cross_epoch_attestation - first head whose block carries any
+//	                       attestation from a strictly earlier epoch
+//	mev                  - one page of bid traces from each public mainnet
+//	                       relay; written under internal/monitoring/testdata/mev/
 //
 // Run via `make refresh-fixtures` (loops over all scenarios) or
 // `make refresh-scenario SCENARIO=<name>` for a single scenario.
@@ -54,19 +54,19 @@ import (
 )
 
 const (
-	envKey            = "BEACON_CHAIN_API"
-	dotenvPath        = "test-env/.env"
-	requestTimeout    = 30 * time.Second
-	slotsPerEpoch     = 32
-	beaconRoot        = "internal/beaconchain/testdata/beacon"
-	defaultChain      = "hoodi"
-	mevOutDir         = "internal/monitoring/testdata/mev"
-	mevMetaPath       = "internal/monitoring/testdata/meta.json"
-	mevPageLimit      = 32      // matches what production code requests (SLOTS_PER_EPOCH)
-	maxFixtureBytes   = 1 << 20 // 1 MiB safety cap
-	generatorVersion  = "3"     // bumped: layout = scenario subdirs, capture flow = head-stream
-	sharedScenario    = "_shared"
-	mevScenario       = "mev"
+	envKey           = "BEACON_CHAIN_API"
+	dotenvPath       = "test-env/.env"
+	requestTimeout   = 30 * time.Second
+	slotsPerEpoch    = 32
+	beaconRoot       = "internal/beaconchain/testdata/beacon"
+	defaultChain     = "hoodi"
+	mevOutDir        = "internal/monitoring/testdata/mev"
+	mevMetaPath      = "internal/monitoring/testdata/meta.json"
+	mevPageLimit     = 32      // matches what production code requests (SLOTS_PER_EPOCH)
+	maxFixtureBytes  = 1 << 20 // 1 MiB safety cap
+	generatorVersion = "3"     // bumped: layout = scenario subdirs, capture flow = head-stream
+	sharedScenario   = "_shared"
+	mevScenario      = "mev"
 
 	// defaultScenarioTimeout bounds the total wall time a head-stream
 	// scenario will wait for a matching head. Heads arrive every ~12s;
@@ -115,10 +115,13 @@ type meta struct {
 }
 
 type mevMeta struct {
-	RelaysCaptured []string  `json:"relays_captured"`
-	CursorSlot     uint64    `json:"cursor_slot"`
-	PageLimit      uint64    `json:"page_limit"`
-	CapturedAt     time.Time `json:"captured_at"`
+	RelaysCaptured []string `json:"relays_captured"`
+	CursorSlot     uint64   `json:"cursor_slot"`
+	PageLimit      uint64   `json:"page_limit"`
+	// RegistrationPubkey is the proposer of the first captured trace,
+	// whose validator_registration was captured as <relay>_registration.json.
+	RegistrationPubkey string    `json:"registration_pubkey,omitempty"`
+	CapturedAt         time.Time `json:"captured_at"`
 }
 
 // scenarioPredicate is called for each new head event's block. Returns
@@ -729,6 +732,7 @@ func captureMEVRelays(ctx context.Context) error {
 	}
 	captured := make([]string, 0, len(mevRelays))
 	var firstSlot uint64
+	var registrationPubkey string
 	for _, r := range mevRelays {
 		body, code, err := mevRelayPage(ctx, r.url, 0, mevPageLimit)
 		if err != nil {
@@ -758,15 +762,36 @@ func captureMEVRelays(ctx context.Context) error {
 				firstSlot = s
 			}
 		}
+		// Capture the registration of the page's first proposer so the
+		// registration-lookup tests run against a real wire response for
+		// a pubkey that also appears in the bid-trace fixture.
+		pk, ok := firstBidTraceProposer(body)
+		if !ok {
+			continue
+		}
+		regBody, regCode, err := mevRelayRegistration(ctx, r.url, pk)
+		if err != nil || regCode != 200 || len(regBody) > maxFixtureBytes {
+			fmt.Printf("fixturegen: WARN MEV relay %s registration capture failed (status %d, err %v); skipping\n", r.name, regCode, err)
+			continue
+		}
+		regDst := filepath.Join(mevOutDir, r.name+"_registration.json")
+		if err := os.WriteFile(regDst, regBody, 0o644); err != nil {
+			return fmt.Errorf("write %s: %w", regDst, err)
+		}
+		fmt.Printf("fixturegen: wrote %s (%d bytes, status %d)\n", regDst, len(regBody), regCode)
+		if registrationPubkey == "" {
+			registrationPubkey = pk
+		}
 	}
 	if len(captured) == 0 {
 		return fmt.Errorf("no MEV relays captured (all failed)")
 	}
 	mm := mevMeta{
-		RelaysCaptured: captured,
-		CursorSlot:     firstSlot,
-		PageLimit:      mevPageLimit,
-		CapturedAt:     time.Now().UTC(),
+		RelaysCaptured:     captured,
+		CursorSlot:         firstSlot,
+		PageLimit:          mevPageLimit,
+		RegistrationPubkey: registrationPubkey,
+		CapturedAt:         time.Now().UTC(),
 	}
 	b, err := json.MarshalIndent(mm, "", "  ")
 	if err != nil {
@@ -780,9 +805,30 @@ func captureMEVRelays(ctx context.Context) error {
 }
 
 func mevRelayPage(ctx context.Context, baseurl string, cursor, limit uint64) ([]byte, int, error) {
+	return mevRelayGet(ctx, fmt.Sprintf("%s/relay/v1/data/bidtraces/proposer_payload_delivered?cursor=%d&limit=%d", baseurl, cursor, limit))
+}
+
+// mevRelayRegistration fetches the relay's validator_registration record
+// for pubkey (raw body + status; 400 means the relay has none).
+func mevRelayRegistration(ctx context.Context, baseurl, pubkey string) ([]byte, int, error) {
+	return mevRelayGet(ctx, fmt.Sprintf("%s/relay/v1/data/validator_registration?pubkey=%s", baseurl, pubkey))
+}
+
+// firstBidTraceProposer returns the proposer_pubkey of the first (most
+// recent) trace in a proposer_payload_delivered page.
+func firstBidTraceProposer(body []byte) (string, bool) {
+	var traces []struct {
+		ProposerPubkey string `json:"proposer_pubkey"`
+	}
+	if err := json.Unmarshal(body, &traces); err != nil || len(traces) == 0 || traces[0].ProposerPubkey == "" {
+		return "", false
+	}
+	return traces[0].ProposerPubkey, true
+}
+
+func mevRelayGet(ctx context.Context, url string) ([]byte, int, error) {
 	subCtx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
-	url := fmt.Sprintf("%s/relay/v1/data/bidtraces/proposer_payload_delivered?cursor=%d&limit=%d", baseurl, cursor, limit)
 	req, err := http.NewRequestWithContext(subCtx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, 0, err

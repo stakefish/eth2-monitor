@@ -14,8 +14,13 @@ package monitoring
 
 import (
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/stakefish/eth2-monitor/internal/opts"
 
 	"github.com/attestantio/go-eth2-client/spec/deneb"
 	"github.com/attestantio/go-eth2-client/spec/electra"
@@ -127,26 +132,29 @@ func TestIsBlockEmpty_NilExecutionPayload(t *testing.T) {
 // so each subtest only spells out what it changes. epoch / validator /
 // pubkeys are stable; what varies is the block, bid map, and mevEnabled.
 type proposalCase struct {
-	block        *electra.SignedBeaconBlock
-	slot         phase0.Slot
-	expectedIdx  phase0.ValidatorIndex
-	bestBids     map[phase0.Slot]BidTrace
-	mevEnabled   bool
+	block          *electra.SignedBeaconBlock
+	slot           phase0.Slot
+	expectedIdx    phase0.ValidatorIndex
+	bestBids       map[phase0.Slot]BidTrace
+	mevEnabled     bool
+	relaysComplete bool // every configured relay answered with traces for the epoch
+	registrations  map[phase0.ValidatorIndex]Registration
 }
 
 func runCheckProposal(t *testing.T, c proposalCase) (returned bool, m *MonitorMetrics) {
 	t.Helper()
 	m = NewMonitorMetrics(prometheus.NewRegistry())
 	pubkeys := map[phase0.ValidatorIndex]string{c.expectedIdx: "abcdef"}
-	returned = CheckProposal(c.block, c.slot, c.expectedIdx, c.bestBids, c.mevEnabled, pubkeys, phase0.Epoch(uint64(c.slot)/32), m)
+	mev := MEVContext{Enabled: c.mevEnabled, RelaysComplete: c.relaysComplete, BestBids: c.bestBids, Registrations: c.registrations}
+	returned = CheckProposal(c.block, c.slot, c.expectedIdx, mev, pubkeys, phase0.Epoch(uint64(c.slot)/32), m)
 	return returned, m
 }
 
 func TestCheckProposal_CanonicalNonEmpty(t *testing.T) {
 	block := loadCapturedBlock(t)
 	c := proposalCase{
-		block: block,
-		slot:  block.Message.Slot,
+		block:       block,
+		slot:        block.Message.Slot,
 		expectedIdx: block.Message.ProposerIndex,
 	}
 	ok, m := runCheckProposal(t, c)
@@ -174,18 +182,257 @@ func TestCheckProposal_EmptyBlockFromFixture(t *testing.T) {
 	counterIs(t, m.TotalProposedEmptyBlocks, 1, "TotalProposedEmptyBlocks")
 }
 
-func TestCheckProposal_MEVMissingBidTrace(t *testing.T) {
+// TestCheckProposal_NoTraceRelaysIncompleteIsMissingBid — a
+// builder-tagged block with no trace while at least one relay failed
+// (or returned nothing for the epoch) cannot be classified: the failed
+// relay most likely delivered it. Stays in TotalMissingBidTraces, no
+// vanilla or builder-block report.
+func TestCheckProposal_NoTraceRelaysIncompleteIsMissingBid(t *testing.T) {
+	posted := captureSlack(t)
 	block := loadCapturedBlock(t)
+	block.Message.Body.ExecutionPayload.ExtraData = []byte("Titan (titanbuilder.xyz)")
 	c := proposalCase{
-		block:       block,
-		slot:        block.Message.Slot,
-		expectedIdx: block.Message.ProposerIndex,
-		bestBids:    map[phase0.Slot]BidTrace{}, // no relay returned a trace
-		mevEnabled:  true,
+		block:          block,
+		slot:           block.Message.Slot,
+		expectedIdx:    block.Message.ProposerIndex,
+		bestBids:       map[phase0.Slot]BidTrace{}, // no relay returned a trace
+		mevEnabled:     true,
+		relaysComplete: false,
 	}
 	_, m := runCheckProposal(t, c)
 	counterIs(t, m.TotalMissingBidTraces, 1, "TotalMissingBidTraces")
-	counterIs(t, m.TotalVanillaBlocks, 0, "TotalVanillaBlocks (must NOT count missing-bid as vanilla)")
+	counterIs(t, m.TotalVanillaBlocks, 0, "TotalVanillaBlocks (must NOT count an unclassifiable slot as vanilla)")
+	counterIs(t, m.TotalRelayAbsentBuilderBlocks, 0, "TotalRelayAbsentBuilderBlocks (relay failure is not list drift)")
+	if len(*posted) != 0 {
+		t.Errorf("unclassifiable slot must not reach Slack, got %v", *posted)
+	}
+}
+
+// TestCheckProposal_NoTraceRelaysIncomplete_ClientDefaultIsVanilla — a
+// slow or failing relay must not hide a real vanilla block: with
+// client-default extra_data the on-chain evidence decides, and the report
+// notes the incomplete sweep.
+func TestCheckProposal_NoTraceRelaysIncomplete_ClientDefaultIsVanilla(t *testing.T) {
+	posted := captureSlack(t)
+	block := loadCapturedBlock(t) // erigon extra_data
+	c := relayAbsentCase(block, nil)
+	c.relaysComplete = false
+	_, m := runCheckProposal(t, c)
+	counterIs(t, m.TotalVanillaBlocks, 1, "TotalVanillaBlocks")
+	counterIs(t, m.TotalMissingBidTraces, 0, "TotalMissingBidTraces")
+	if len(*posted) != 1 || !strings.Contains(strings.ToLower((*posted)[0]), "sweep incomplete") {
+		t.Errorf("want one vanilla report noting the incomplete relay sweep, got %v", *posted)
+	}
+}
+
+// TestCheckProposal_NoTraceRelaysCompleteIsVanilla — every relay
+// answered with traces for the epoch and none delivered a payload for
+// our slot: that is a locally built (vanilla) block. Verified on
+// mainnet slots 15174684 / 15177504 (no relay trace, EL-client
+// extra_data, proposer's own fee recipient).
+func TestCheckProposal_NoTraceRelaysCompleteIsVanilla(t *testing.T) {
+	block := loadCapturedBlock(t)
+	c := proposalCase{
+		block:          block,
+		slot:           block.Message.Slot,
+		expectedIdx:    block.Message.ProposerIndex,
+		bestBids:       map[phase0.Slot]BidTrace{},
+		mevEnabled:     true,
+		relaysComplete: true,
+	}
+	_, m := runCheckProposal(t, c)
+	counterIs(t, m.TotalVanillaBlocks, 1, "TotalVanillaBlocks")
+	counterIs(t, m.TotalMissingBidTraces, 0, "TotalMissingBidTraces (relays were healthy; this is not a relay gap)")
+	if got := gaugeValue(t, m.LastVanillaBlockSlot); got != float64(block.Message.Slot) {
+		t.Errorf("LastVanillaBlockSlot = %v, want %v", got, block.Message.Slot)
+	}
+	if got := gaugeValue(t, m.LastVanillaBlockValidator); got != float64(block.Message.ProposerIndex) {
+		t.Errorf("LastVanillaBlockValidator = %v, want %v", got, block.Message.ProposerIndex)
+	}
+}
+
+// TestCheckProposal_VanillaReportCarriesEvidence — the Slack message
+// for a vanilla block must carry the on-chain evidence a human uses to
+// confirm the classification and, for SSV clusters, to identify the
+// leader operator: graffiti, execution extra_data and fee recipient.
+// Expected values come from the captured hoodi fixture block.
+// captureSlack points opts.SlackURL at a fake webhook for the duration
+// of the test and returns the posted bodies (appended as they arrive).
+func captureSlack(t *testing.T) *[]string {
+	t.Helper()
+	posted := &[]string{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		*posted = append(*posted, string(b))
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+	prev := opts.SlackURL
+	t.Cleanup(func() { opts.SlackURL = prev })
+	opts.SlackURL = srv.URL
+	return posted
+}
+
+// relayAbsentCase is the shared shape of the cross-check tests: MEV on,
+// every relay answered, no bid for the slot.
+func relayAbsentCase(block *electra.SignedBeaconBlock, regs map[phase0.ValidatorIndex]Registration) proposalCase {
+	return proposalCase{
+		block:          block,
+		slot:           block.Message.Slot,
+		expectedIdx:    block.Message.ProposerIndex,
+		bestBids:       map[phase0.Slot]BidTrace{},
+		mevEnabled:     true,
+		relaysComplete: true,
+		registrations:  regs,
+	}
+}
+
+// TestCheckProposal_RelayAbsent_RegisteredMatching_IsVanilla — the fixture
+// block is a real locally built hoodi block (erigon extra_data, proposer's
+// own fee recipient). With a registration equal to the block's fee
+// recipient it is a confirmed vanilla block.
+func TestCheckProposal_RelayAbsent_RegisteredMatching_IsVanilla(t *testing.T) {
+	block := loadCapturedBlock(t)
+	regs := map[phase0.ValidatorIndex]Registration{block.Message.ProposerIndex: {
+		Status: RegistrationRegistered, FeeRecipient: block.Message.Body.ExecutionPayload.FeeRecipient.String(),
+	}}
+	_, m := runCheckProposal(t, relayAbsentCase(block, regs))
+	counterIs(t, m.TotalVanillaBlocks, 1, "TotalVanillaBlocks")
+	counterIs(t, m.TotalRelayAbsentBuilderBlocks, 0, "TotalRelayAbsentBuilderBlocks")
+	counterIs(t, m.TotalMissingBidTraces, 0, "TotalMissingBidTraces")
+}
+
+// TestCheckProposal_RelayAbsent_BuilderTagged_IsNotVanilla — a builder tag
+// in extra_data means a builder made the block even though no configured
+// relay delivered it (relay missing from --mev-relays or a direct deal).
+func TestCheckProposal_RelayAbsent_BuilderTagged_IsNotVanilla(t *testing.T) {
+	posted := captureSlack(t)
+	block := loadCapturedBlock(t)
+	block.Message.Body.ExecutionPayload.ExtraData = []byte("Titan (titanbuilder.xyz)")
+	regs := map[phase0.ValidatorIndex]Registration{block.Message.ProposerIndex: {
+		Status: RegistrationRegistered, FeeRecipient: block.Message.Body.ExecutionPayload.FeeRecipient.String(),
+	}}
+	_, m := runCheckProposal(t, relayAbsentCase(block, regs))
+	counterIs(t, m.TotalRelayAbsentBuilderBlocks, 1, "TotalRelayAbsentBuilderBlocks")
+	counterIs(t, m.TotalVanillaBlocks, 0, "TotalVanillaBlocks (builder-tagged block must NOT count as vanilla)")
+	counterIs(t, m.TotalMissingBidTraces, 0, "TotalMissingBidTraces")
+	if len(*posted) != 1 || !strings.Contains(strings.ToLower((*posted)[0]), "titan (titanbuilder.xyz)") || !strings.Contains(strings.ToLower((*posted)[0]), "mev-relays") {
+		t.Errorf("want one Slack report naming the builder tag and the relay list, got %v", *posted)
+	}
+}
+
+// TestCheckProposal_RelayAbsent_NotRegistered_ReportsIt — vanilla, and the
+// report must say the validator is not registered with any relay.
+func TestCheckProposal_RelayAbsent_NotRegistered_ReportsIt(t *testing.T) {
+	posted := captureSlack(t)
+	block := loadCapturedBlock(t)
+	regs := map[phase0.ValidatorIndex]Registration{block.Message.ProposerIndex: {Status: RegistrationNotFound}}
+	_, m := runCheckProposal(t, relayAbsentCase(block, regs))
+	counterIs(t, m.TotalVanillaBlocks, 1, "TotalVanillaBlocks")
+	if len(*posted) != 1 || !strings.Contains(strings.ToLower((*posted)[0]), "not registered") {
+		t.Errorf("want one Slack report mentioning 'not registered', got %v", *posted)
+	}
+}
+
+// TestCheckProposal_RelayAbsent_FeeRecipientMismatch_ReportsIt — vanilla,
+// and the report must flag that the local EL paid a different address
+// than the one registered with the relays.
+func TestCheckProposal_RelayAbsent_FeeRecipientMismatch_ReportsIt(t *testing.T) {
+	posted := captureSlack(t)
+	block := loadCapturedBlock(t)
+	regs := map[phase0.ValidatorIndex]Registration{block.Message.ProposerIndex: {
+		Status: RegistrationRegistered, FeeRecipient: "0x" + strings.Repeat("11", 20),
+	}}
+	_, m := runCheckProposal(t, relayAbsentCase(block, regs))
+	counterIs(t, m.TotalVanillaBlocks, 1, "TotalVanillaBlocks")
+	if len(*posted) != 1 || !strings.Contains(strings.ToLower((*posted)[0]), "differs") || !strings.Contains(strings.ToLower((*posted)[0]), "0x"+strings.Repeat("11", 20)) {
+		t.Errorf("want one Slack report saying the fee recipient differs from the registered one, got %v", *posted)
+	}
+}
+
+// TestCheckProposal_RelayAbsent_AnyRegisteredRecipientMatches — relays can
+// hold different registrations for one key (one of them stale); the
+// block matching ANY of them is a correctly configured local build, so
+// the report must not claim the fee recipient differs.
+func TestCheckProposal_RelayAbsent_AnyRegisteredRecipientMatches(t *testing.T) {
+	posted := captureSlack(t)
+	block := loadCapturedBlock(t)
+	blockFee := block.Message.Body.ExecutionPayload.FeeRecipient.String()
+	regs := map[phase0.ValidatorIndex]Registration{block.Message.ProposerIndex: {
+		Status:        RegistrationRegistered,
+		FeeRecipient:  "0x" + strings.Repeat("11", 20), // newest registration, stale elsewhere
+		FeeRecipients: []string{"0x" + strings.Repeat("11", 20), blockFee},
+	}}
+	_, m := runCheckProposal(t, relayAbsentCase(block, regs))
+	counterIs(t, m.TotalVanillaBlocks, 1, "TotalVanillaBlocks")
+	if len(*posted) != 1 || strings.Contains(strings.ToLower((*posted)[0]), "differs") {
+		t.Errorf("block fee recipient matches one registration; report must not say 'differs': %v", *posted)
+	}
+}
+
+// TestCheckProposal_RelayAbsent_RegistrationUnknown_IsVanilla — a failed
+// lookup (or no lookup at all) must not block the vanilla report.
+func TestCheckProposal_RelayAbsent_RegistrationUnknown_IsVanilla(t *testing.T) {
+	block := loadCapturedBlock(t)
+	regs := map[phase0.ValidatorIndex]Registration{block.Message.ProposerIndex: {Status: RegistrationUnknown}}
+	_, m := runCheckProposal(t, relayAbsentCase(block, regs))
+	counterIs(t, m.TotalVanillaBlocks, 1, "TotalVanillaBlocks")
+	counterIs(t, m.TotalRelayAbsentBuilderBlocks, 0, "TotalRelayAbsentBuilderBlocks")
+}
+
+// TestIsClientDefaultExtraData pins the split observed on 636 mainnet
+// blocks (Oct 2026): relay-delivered blocks always carried a builder tag,
+// locally built ones an EL client tag or nothing.
+func TestIsClientDefaultExtraData(t *testing.T) {
+	gethRLP := []byte{0xd8, 0x83, 0x01, 0x0f, 0x0a, 0x84, 'g', 'e', 't', 'h', 0x88, 'g', 'o', '1', '.', '2', '6', '.', '4', 0x85, 'l', 'i', 'n', 'u', 'x'}
+	for _, tc := range []struct {
+		in   []byte
+		want bool
+	}{
+		{nil, true},
+		{[]byte("Nethermind v1.39.3"), true},
+		{[]byte("besu 26.8.1"), true},
+		{[]byte("reth/v2.4.1/linux"), true},
+		{[]byte("erigon-3.5.2-8a829d21"), true},
+		{gethRLP, true},
+		{[]byte("Titan (titanbuilder.xyz)"), false},
+		{[]byte("BuilderNet"), false},
+		{[]byte("✨ Quasar (quasar.win) ✨"), false},
+		{[]byte("beaverbuild.org"), false},
+	} {
+		if got := isClientDefaultExtraData(tc.in); got != tc.want {
+			t.Errorf("isClientDefaultExtraData(%q) = %v, want %v", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestCheckProposal_VanillaReportCarriesEvidence(t *testing.T) {
+	posted := captureSlack(t)
+
+	block := loadCapturedBlock(t)
+	c := proposalCase{
+		block:          block,
+		slot:           block.Message.Slot,
+		expectedIdx:    block.Message.ProposerIndex,
+		bestBids:       map[phase0.Slot]BidTrace{},
+		mevEnabled:     true,
+		relaysComplete: true,
+	}
+	runCheckProposal(t, c)
+
+	if len(*posted) != 1 {
+		t.Fatalf("expected exactly one Slack report for a vanilla block, got %d: %v", len(*posted), *posted)
+	}
+	for _, want := range []string{
+		"vanilla",
+		"Erigon-Nimbus-C9",          // graffiti of the fixture block
+		"erigon-3.5.0-dev-24537869", // execution payload extra_data
+		"0x71b981b8aeade9af6363ab9a2b8dc9b70bf3c8c6", // execution payload fee_recipient
+	} {
+		if !strings.Contains(strings.ToLower((*posted)[0]), strings.ToLower(want)) {
+			t.Errorf("Slack report lacks %q: %s", want, (*posted)[0])
+		}
+	}
 }
 
 func TestCheckProposal_MEVHashMismatchVanilla(t *testing.T) {

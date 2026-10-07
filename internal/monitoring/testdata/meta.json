@@ -2,7 +2,8 @@
   "relays_captured": [
     "flashbots"
   ],
-  "cursor_slot": 14318494,
+  "cursor_slot": 15376784,
   "page_limit": 32,
-  "captured_at": "2026-05-13T04:20:04.941863Z"
+  "registration_pubkey": "0xa5e38e3017929759a562e95b711b2fedf196c61f930aaba1580c777b7d9fe6854368988cf72a4fa84d75ba6dad51e256",
+  "captured_at": "2026-10-07T04:07:09.538538Z"
 }
