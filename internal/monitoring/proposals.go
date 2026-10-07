@@ -89,9 +89,10 @@ func isBlockEmpty(body *electra.BeaconBlockBody) bool {
 //   - MEV enabled + no bid trace + builder tag + !RelaysComplete:
 //     TotalMissingBidTraces++ (log only). Most likely the failed relay
 //     delivered it; the slot cannot be classified.
-//   - MEV enabled + hash mismatch:    TotalVanillaBlocks++,
-//     LastVanillaBlock* gauges, Slack Report (a relay says it delivered
-//     a payload but the chain carries a different one)
+//   - MEV enabled + hash mismatch:    TotalVanillaBlocks++ and
+//     TotalRelayHashMismatches++, LastVanillaBlock* gauges, Slack Report
+//     (a relay says it delivered a payload but the chain carries a
+//     different one)
 //
 // The MEV outcomes are decided by classifyProposal; this function only
 // records metrics and reports.
@@ -159,6 +160,7 @@ func CheckProposal(
 			}
 		case verdictHashMismatch:
 			m.vanillaBlock(slot, expectedValidator)
+			m.TotalRelayHashMismatches.Inc()
 			Report("⚠️ 🧱 %s proposed a vanilla block at %s: chain block %s differs from relay-delivered %s. %s",
 				who, where, payload.BlockHash.String(), trace.BlockHash, evidence)
 		case verdictVanilla:

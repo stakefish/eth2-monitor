@@ -205,6 +205,7 @@ MEV relay Data API (only with `--mev-relays`; `internal/monitoring/mev.go`):
 | `ETH2_totalProposedEmptyBlocks` | Counter | Blocks with no execution-layer payload of value to the proposer (no EL transactions, no blobs, no post-Pectra exec requests) |
 | `ETH2_totalVanillaBlocks` | Counter | Tracked proposals built locally: no relay delivered a payload and extra_data is an EL client default or empty (decided on-chain, so a failed relay cannot hide it), or a relay-delivered hash differs from the chain. Reported to Slack with graffiti / extra_data / fee recipient / relay registration state. |
 | `ETH2_totalRelayAbsentBuilderBlocks` | Counter | Tracked proposals no configured relay delivered but whose extra_data carries a builder tag, with every relay answering: relay missing from `--mev-relays` or a direct builder deal. Reported to Slack. |
+| `ETH2_totalRelayHashMismatches` | Counter | Tracked proposals where a relay-delivered payload hash differs from the chain block (also counted in `totalVanillaBlocks`; this isolates the sub-case). Reported to Slack. |
 | `ETH2_totalMissingBidTraces` | Counter | Builder-tagged tracked proposals with no bid trace while the relay sweep was incomplete (a relay failed or returned nothing for the epoch); unclassifiable, log only. Alert on it increasing. |
 | `ETH2_lastMissedProposalSlot` | Gauge | Last missed proposal slot |
 | `ETH2_lastMissedProposalValidatorIndex` | Gauge | Last missed proposal validator |

@@ -25,6 +25,7 @@ type MonitorMetrics struct {
 	TotalVanillaBlocks            prometheus.Counter
 	TotalMissingBidTraces         prometheus.Counter
 	TotalRelayAbsentBuilderBlocks prometheus.Counter
+	TotalRelayHashMismatches      prometheus.Counter
 	LastProposedEmptyBlockSlot    prometheus.Gauge
 	LastMissedProposalSlot        prometheus.Gauge
 	LastMissedProposalValidator   prometheus.Gauge
@@ -165,6 +166,11 @@ func NewMonitorMetrics(reg prometheus.Registerer) *MonitorMetrics {
 			Name:      "totalRelayAbsentBuilderBlocks",
 			Help:      "Tracked proposals no configured relay delivered but whose execution extra_data carries a builder tag: a relay missing from --mev-relays or a direct builder deal, not a vanilla block",
 		}),
+		TotalRelayHashMismatches: prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: "ETH2",
+			Name:      "totalRelayHashMismatches",
+			Help:      "Tracked proposals where a relay says it delivered a payload but the chain carries a different block hash; also counted in totalVanillaBlocks, this counter isolates the sub-case",
+		}),
 		LastVanillaBlockSlot: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: "ETH2",
 			Name:      "lastVanillaBlockSlot",
@@ -267,6 +273,7 @@ func NewMonitorMetrics(reg prometheus.Registerer) *MonitorMetrics {
 		m.TotalVanillaBlocks,
 		m.TotalMissingBidTraces,
 		m.TotalRelayAbsentBuilderBlocks,
+		m.TotalRelayHashMismatches,
 		m.LastVanillaBlockSlot,
 		m.LastVanillaBlockValidator,
 		m.TotalCanonicalAttestations,

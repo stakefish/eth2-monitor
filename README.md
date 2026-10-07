@@ -106,7 +106,8 @@ delivered the payload that ended up on chain:
   answered, `totalRelayAbsentBuilderBlocks` is incremented and a Slack report says the relay is missing from the list
   (or the proposer dealt with the builder directly). If a relay failed, the failed relay most likely delivered it; only
   `totalMissingBidTraces` is incremented.
-* a relay delivered a payload whose hash differs from the chain: reported as vanilla.
+* a relay delivered a payload whose hash differs from the chain: reported as vanilla and also counted in
+  `totalRelayHashMismatches`, so the two vanilla sub-cases can be told apart on a dashboard.
 
 Before either relay-absent verdict the monitor re-asks every relay for that exact slot
 (`proposer_payload_delivered?slot=N`): relay data APIs expose a delivery only 4-10 seconds after slot start and

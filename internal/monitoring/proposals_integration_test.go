@@ -298,6 +298,7 @@ func TestCheckProposal_RelayAbsent_RegisteredMatching_IsVanilla(t *testing.T) {
 	}}
 	_, m := runCheckProposal(t, relayAbsentCase(block, regs))
 	counterIs(t, m.TotalVanillaBlocks, 1, "TotalVanillaBlocks")
+	counterIs(t, m.TotalRelayHashMismatches, 0, "TotalRelayHashMismatches (relay-absent vanilla is not a hash mismatch)")
 	counterIs(t, m.TotalRelayAbsentBuilderBlocks, 0, "TotalRelayAbsentBuilderBlocks")
 	counterIs(t, m.TotalMissingBidTraces, 0, "TotalMissingBidTraces")
 }
@@ -482,6 +483,7 @@ func TestCheckProposal_MEVHashMismatchVanilla(t *testing.T) {
 	}
 	_, m := runCheckProposal(t, c)
 	counterIs(t, m.TotalVanillaBlocks, 1, "TotalVanillaBlocks")
+	counterIs(t, m.TotalRelayHashMismatches, 1, "TotalRelayHashMismatches (the sub-case must be countable on its own)")
 	counterIs(t, m.TotalMissingBidTraces, 0, "TotalMissingBidTraces")
 }
 
