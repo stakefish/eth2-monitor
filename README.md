@@ -67,6 +67,12 @@ Here's a more involved example invocation:
 ./bin/eth2-monitor monitor --beacon-chain-api <BEACON_NODE_IP_ADDRESS>:<BEACON_API_PORT> --print-successful --log-level trace <VALIDATOR_PUBLIC_KEYS_FILE_PATH>
 ```
 
+Several beacon nodes can be given, comma-separated or by repeating the flag. They are tried in order, and the monitor fails over when the current one errors or stalls:
+
+```shell
+./bin/eth2-monitor monitor --beacon-chain-api node-a:5052,node-b:5052 <VALIDATOR_PUBLIC_KEYS_FILE_PATH>
+```
+
 Don't hesitate to run commands with `--help` to learn more about CLI. 😉
 
 ### Monitor attestations and proposals ###

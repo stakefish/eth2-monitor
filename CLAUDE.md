@@ -8,7 +8,7 @@ Ethereum 2.0 validator performance monitor built by stakefish. Tracks attestatio
 
 - **Language:** Go 1.25 (go.mod: 1.25.10; `.tool-versions`: 1.25.10; CI: `'1.25'` in `golangci-lint.yml`, `1.25.x` in `main.yml`)
 - **CLI Framework:** Cobra (`github.com/spf13/cobra`)
-- **Beacon Chain Client:** `github.com/attestantio/go-eth2-client` v0.28.1 — redirected via `replace` directive in `go.mod` to `github.com/stakefish/go-eth2-client@feat/erigon-caplin-support` (commit `781f0c7f`) for native Caplin JSON tolerance. Imports stay as `github.com/attestantio/go-eth2-client/...`; the fork keeps the upstream module path. Revert by dropping the replace directive when upstream absorbs the fix.
+- **Beacon Chain Client:** `github.com/attestantio/go-eth2-client` v0.30.1 — redirected via `replace` directive in `go.mod` to `github.com/stakefish/go-eth2-client@feat/caplin-support-0.30.1` (v0.30.1 + the Caplin JSON-tolerance patch + `multi` failing over on per-request timeouts). Imports stay as `github.com/attestantio/go-eth2-client/...`; the fork keeps the upstream module path. `beaconchain.New` wraps one instrumented `http` client per endpoint in a `multi` client, so requests fail over between endpoints and the head event stream follows the primary. Drop the replace directive once upstream absorbs both patches.
 - **Logging:** zerolog (`github.com/rs/zerolog`)
 - **Metrics:** Prometheus (`github.com/prometheus/client_golang`)
 - **Error Wrapping:** `github.com/pkg/errors`
@@ -29,7 +29,7 @@ internal/
   opts/
     opts.go              -- Global CLI flag variables (package-level vars)
   beaconchain/
-    service.go                          -- BeaconChain wrapper around go-eth2-client (HTTP); builds the metrics-instrumented http.Client via newInstrumentedHTTPClient
+    service.go                          -- BeaconChain wrapper: one metrics-instrumented go-eth2-client http client per endpoint (newInstrumentedHTTPClient), wrapped in a multi client for failover; delayed start so New succeeds before the network path to the node is up
     metrics.go                          -- Beacon API request CounterVec/HistogramVec instrumentation; defines instrumentingTransport
     caplin_parse_test.go                -- json.Unmarshal block_canonical.json into electra.SignedBeaconBlock (regression guard that the forked go-eth2-client still tolerates Caplin's bare-number JSON natively)
     service_fixture_test.go             -- Offline GetBlock canonical+missed via fixtureServer (no live endpoint)
@@ -146,7 +146,7 @@ bin/eth2-monitor monitor --since-epoch 12000 ...
 ## CLI Flags
 
 **Global:**
-- `--beacon-chain-api` (default: `localhost:3500`) -- Beacon Chain REST API
+- `--beacon-chain-api` (default: `localhost:3500`) -- Beacon Chain REST API; repeat the flag or comma-separate to add failover endpoints, tried in order (`multi` deactivates an endpoint that errors or stalls past 60 s and moves to the next; per-endpoint state is exported as `consensusclient_multi_connection_state`)
 - `--metrics-port` (default: `1337`) -- Prometheus metrics port
 - `--log-level` / `-l` (default: `info`)
 - `--slack-url` / `--slack-username` -- Slack webhook notifications
@@ -257,7 +257,7 @@ Most monitoring/beaconchain tests are now fixture-backed integration tests (see 
 
 - **GetBlock fails on pre-Fusaka slots** -- returns error `"unsupported block version"` for any slot before the Fulu fork
 - **Validator cache has a 30-minute TTL** -- `internal/monitoring/cache.go` persists the `Validators` map plus `LastEpoch` to disk JSON (`$TMPDIR/stakefish-eth2-monitor-cache.json`). `CachedIndex.At` is consulted by `ResolveValidatorKeys` to refresh entries older than 30 minutes; `VALIDATOR_INDEX_INVALID` sentinel entries are also TTL-bounded so a newly-active validator becomes visible within the window. On restart `LastEpoch` gates skip-ahead so cumulative counters don't double-count re-processed epochs. Writes use atomic tmpfile + fsync + rename + dir-fsync for crash durability. Delete the file to force a clean run.
-- **Caplin returns 404 on slot-ID state queries for missed slots** -- `/eth/v1/beacon/states/{slot}/validators` 404s with `block not found N` when slot N was missed; Caplin resolves a slot state_id by walking to the block AT that slot. `GetValidatorIndexes` walks forward through the epoch's slots (validator set is stable within an epoch) until one resolves, capping at the epoch's last slot. The e2e test (`get_validator_indexes_roundtrip`) and the fixture-backed regression test (`TestGetValidatorIndexes_ProbeForwardOnMissedFirstSlot`) both lock this in. Found via staging crash 2026-05-13: epoch 94898's first slot (3036736) was missed and the monitor panicked at `Must(BuildEpochContext)` before the fix.
+- **Caplin returns 404 on slot-ID state queries for missed slots** -- `/eth/v1/beacon/states/{slot}/validators` 404s with `block not found N` when slot N was missed; Caplin resolves a slot state_id by walking to the block AT that slot. `GetValidatorIndexes` walks forward through the epoch's slots (validator set is stable within an epoch) until one resolves, capping at the epoch's last slot. The e2e test (`get_validator_indexes_roundtrip`) and the fixture-backed regression test (`TestGetValidatorIndexes_ProbeForwardOnMissedFirstSlot`) both lock this in. Before the fix the monitor panicked at `Must(BuildEpochContext)` on every epoch whose first slot was missed.
 - **Slashed validators silently excluded from monitoring** -- `GetValidatorIndexes` filters via `IsAttesting()`, which is false for `active_slashed` *and* for any post-exit state. Once a key is slashed it never reappears in duties or reports (slashed and exited are both filtered) -- surprising during incident response when "where is validator X?" has no log line.
 - **Attestation dedup requires consecutive epoch processing** -- `processAttestations` keys `seenAttestations` on `(validator, slot)` and the cross-epoch lookahead window assumes E and E+1 are processed in order. Skipping an epoch (SSE jump, replay-epoch gap) produces false missed-attestation reports.
 - **`vendor/` is not in git** -- `.gitignore` has `/vendor/` and the directory is genuinely untracked (`git ls-files vendor/` is empty). After a fresh clone vendor/ is absent; `go build` falls back to the module cache. Run `go mod vendor` only if you want a vendored local build. Older docs/comments that imply vendor/ is checked in are stale.

@@ -516,7 +516,7 @@ func TestMonitorCorrectnessAgainstBeaconchaInE2E(t *testing.T) {
 
 	reg := prometheus.NewRegistry()
 	metrics := NewMonitorMetrics(reg)
-	bc, err := beaconchain.New(ctx, beaconURL, e2eMonHTTPTimeout, metrics.BeaconRequestMetrics())
+	bc, err := beaconchain.New(ctx, []string{beaconURL}, e2eMonHTTPTimeout, metrics.BeaconRequestMetrics())
 	if err != nil {
 		t.Fatalf("beaconchain.New(host=%s): %v", hostOnly(beaconURL), err)
 	}

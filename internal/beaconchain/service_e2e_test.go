@@ -86,7 +86,7 @@ func TestBeaconChain_E2E(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), e2eTestTimeout)
 	defer cancel()
 
-	bc, err := New(ctx, endpoint, e2eReqTimeout, nil)
+	bc, err := New(ctx, []string{endpoint}, e2eReqTimeout, nil)
 	if err != nil {
 		t.Fatalf("New(host=%s): %v", host, err)
 	}

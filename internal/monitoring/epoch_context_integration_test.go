@@ -49,7 +49,7 @@ func newBeaconChainAgainst(t *testing.T, baseURL string) *beaconchain.BeaconChai
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	t.Cleanup(cancel)
-	bc, err := beaconchain.New(ctx, baseURL, 10*time.Second, nil)
+	bc, err := beaconchain.New(ctx, []string{baseURL}, 10*time.Second, nil)
 	if err != nil {
 		t.Fatalf("BeaconChain.New(%s): %v", baseURL, err)
 	}

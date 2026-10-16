@@ -136,7 +136,7 @@ func TestRequestMetricsAgainstLiveBeacon(t *testing.T) {
 	defer cancel()
 
 	metrics := liveRequestMetrics(t)
-	bc, err := New(ctx, endpoint, e2eReqTimeout, metrics)
+	bc, err := New(ctx, []string{endpoint}, e2eReqTimeout, metrics)
 	if err != nil {
 		t.Fatalf("New(host=%s): %v", host, err)
 	}

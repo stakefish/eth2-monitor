@@ -105,7 +105,7 @@ func newScenarioRig(t *testing.T, scenario string) *scenarioRig {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	t.Cleanup(cancel)
-	bc, err := beaconchain.New(ctx, server.URL, 10*time.Second, metrics.BeaconRequestMetrics())
+	bc, err := beaconchain.New(ctx, []string{server.URL}, 10*time.Second, metrics.BeaconRequestMetrics())
 	if err != nil {
 		t.Fatalf("BeaconChain.New(%s): %v", server.URL, err)
 	}
