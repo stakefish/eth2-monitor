@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"iter"
 	"maps"
 	"os"
@@ -80,8 +81,9 @@ func RunMonitorPair(ctx context.Context, beacon *beaconchain.BeaconChain, plainP
 //     unblocks on any exit (normal return OR Must(err) panic).
 //   - Each channel send goes through sendEpoch, which selects on ctx.Done
 //     so the producer can't hang on an unread channel during shutdown.
-//   - context.Canceled / DeadlineExceeded from the initial Finality()
-//     bootstrap are detected via errors.Is and returned cleanly.
+//   - Any error from the initial Finality() bootstrap (ctx cancel, or no
+//     endpoint reachable yet) returns cleanly; the supervisor restarts the
+//     pair with backoff.
 //   - The SSE path is wrapped in subscribeWithRetry: an unexpected
 //     return from runSSESubscription (e.g. transport blip, server-side
 //     close that surfaces through go-eth2-client) increments the
@@ -112,7 +114,14 @@ func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg 
 		log.Info().Err(err).Msg("SubscribeToEpochs stopping during Finality bootstrap (ctx cancel)")
 		return
 	}
-	Must(err)
+	if err != nil {
+		// No endpoint could answer yet (process started before its network
+		// path was up, every beacon node unreachable). Returning closes
+		// epochsChan, the orchestrator exits, and the supervisor retries
+		// with backoff instead of crash-looping the container.
+		log.Error().Err(err).Msg("Finality bootstrap failed; supervisor will retry")
+		return
+	}
 	// Defensive: even with err == nil, a misbehaving client could return
 	// resp == nil or resp.Data == nil. Crashing here on startup loses the
 	// chance to log a clear cause; treat as a fatal misconfiguration and
@@ -140,7 +149,41 @@ func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg 
 		return
 	}
 
-	eventsHandlerFunc := func(event *v1.Event) {
+	eventsHandlerFunc := newHeadEventHandler(ctx, epochsChan, &lastEpoch)
+
+	eventsProvider, ok := beacon.Service().(eth2client.EventsProvider)
+	if !ok {
+		panic("beacon.Service() does not satisfy eth2client.EventsProvider; library breaking change")
+	}
+	if err := subscribeWithRetry(ctx, eventsProvider, eventsHandlerFunc, m, ExptBackoff(sseRetryBackoffBase, sseRetryBackoffMaxExponent)); err != nil {
+		Must(err)
+	}
+	log.Info().Err(ctx.Err()).Msg("SubscribeToEpochs stopping on ctx cancel")
+}
+
+// newHeadEventHandler builds the head-event callback SubscribeToEpochs
+// registers with go-eth2-client. On every head it emits each ended epoch
+// in [*lastEpoch, thisEpoch) on epochsChan and advances *lastEpoch.
+// lastEpoch is only touched from the library's single SSE goroutine.
+func newHeadEventHandler(ctx context.Context, epochsChan chan<- phase0.Epoch, lastEpoch *phase0.Epoch) func(*v1.Event) {
+	return func(event *v1.Event) {
+		// SubscribeToEpochs closes epochsChan when it returns, but the
+		// library's SSE goroutine can still deliver an in-flight event
+		// after that, and the send would panic ("send on closed channel").
+		// Once ctx is done nothing reads epochs any more, so
+		// drop the event; the recover covers the window between the ctx
+		// check and the send.
+		if ctx.Err() != nil {
+			return
+		}
+		defer func() {
+			if r := recover(); r != nil {
+				if fmt.Sprint(r) != "send on closed channel" {
+					panic(r)
+				}
+				log.Warn().Msg("head event arrived after the epoch channel closed; dropped")
+			}
+		}()
 		// go-eth2-client shouldn't call us with a nil event, but a future
 		// transport change could; cheap to guard against.
 		if event == nil {
@@ -157,30 +200,21 @@ func SubscribeToEpochs(ctx context.Context, beacon *beaconchain.BeaconChain, wg 
 		}
 		log.Trace().Uint64("slot", uint64(headEvent.Slot)).Str("block", headEvent.Block.String()).Msg("new head")
 		thisEpoch := spec.EpochFromSlot(headEvent.Slot)
-		if thisEpoch > lastEpoch {
+		if thisEpoch > *lastEpoch {
 			log.Trace().Uint64("epoch", uint64(thisEpoch)).Uint64("slot", uint64(headEvent.Slot)).Msg("new epoch")
 			// Emit every ended epoch in [lastEpoch, thisEpoch). Skipping
 			// any of them silently breaks attestation tracking: an
 			// attestation for the last slot of epoch N can only be
 			// included in blocks of epoch N+1, so failing to process
 			// N+1 causes false "did not attest" reports.
-			for e := lastEpoch; e < thisEpoch; e++ {
+			for e := *lastEpoch; e < thisEpoch; e++ {
 				if !sendEpoch(ctx, epochsChan, e) {
 					return
 				}
 			}
-			lastEpoch = thisEpoch
+			*lastEpoch = thisEpoch
 		}
 	}
-
-	eventsProvider, ok := beacon.Service().(eth2client.EventsProvider)
-	if !ok {
-		panic("beacon.Service() does not satisfy eth2client.EventsProvider; library breaking change")
-	}
-	if err := subscribeWithRetry(ctx, eventsProvider, eventsHandlerFunc, m, ExptBackoff(sseRetryBackoffBase, sseRetryBackoffMaxExponent)); err != nil {
-		Must(err)
-	}
-	log.Info().Err(ctx.Err()).Msg("SubscribeToEpochs stopping on ctx cancel")
 }
 
 // subscribeWithRetry wraps runSSESubscription in a ctx-bounded retry

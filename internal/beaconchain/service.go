@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
-	"github.com/stakefish/eth2-monitor/internal/spec"
 	"fmt"
+	"github.com/stakefish/eth2-monitor/internal/spec"
 	"net"
 	"net/http"
 	"strings"
@@ -15,6 +15,7 @@ import (
 	"github.com/attestantio/go-eth2-client/api"
 	apiv1 "github.com/attestantio/go-eth2-client/api/v1"
 	eth2http "github.com/attestantio/go-eth2-client/http"
+	"github.com/attestantio/go-eth2-client/multi"
 	"github.com/attestantio/go-eth2-client/spec/electra"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 )
@@ -43,23 +44,58 @@ type BeaconChain struct {
 	timeout time.Duration
 }
 
-func New(ctx context.Context, address string, timeout time.Duration, m *RequestMetrics) (*BeaconChain, error) {
-	service, err := eth2http.New(ctx,
-		eth2http.WithAddress(address),
-		eth2http.WithTimeout(time.Minute),
-		eth2http.WithHTTPClient(newInstrumentedHTTPClient(time.Minute, m)),
-	)
+// prometheusPresenter makes go-eth2-client's multi client register its
+// per-endpoint gauges (consensusclient_multi_connection_state,
+// consensusclient_multi_connections) on the default Prometheus registry,
+// the one /metrics serves. That is how operators see which endpoint is
+// currently primary.
+type prometheusPresenter struct{}
 
+func (prometheusPresenter) Presenter() string { return "prometheus" }
+
+// New builds a BeaconChain over one or more beacon API endpoints, tried
+// in order. A request that errors or stalls past timeout on the current
+// endpoint is retried on the next one, and the head event stream follows
+// whichever endpoint is primary. Endpoints that are unreachable when New
+// runs are retried in the background rather than failing New, so the
+// process starts cleanly even if the network path is not up yet.
+func New(ctx context.Context, addresses []string, timeout time.Duration, m *RequestMetrics) (*BeaconChain, error) {
+	if len(addresses) == 0 {
+		return nil, errors.New("no beacon chain API address configured")
+	}
+
+	clients := make([]eth2client.Service, 0, len(addresses))
+	for i, address := range addresses {
+		client, err := eth2http.New(ctx,
+			eth2http.WithAddress(address),
+			eth2http.WithTimeout(timeout),
+			eth2http.WithHTTPClient(newInstrumentedHTTPClient(timeout, m)),
+			eth2http.WithAllowDelayedStart(true),
+		)
+		if err != nil {
+			// Index, not address: the address may carry a credential path.
+			return nil, fmt.Errorf("beacon chain API endpoint #%d: %w", i+1, err)
+		}
+		clients = append(clients, client)
+	}
+
+	params := []multi.Parameter{
+		multi.WithName("eth2-monitor"),
+		multi.WithClients(clients),
+		multi.WithAllowDelayedStart(true),
+	}
+	if m != nil {
+		params = append(params, multi.WithMonitor(prometheusPresenter{}))
+	}
+	service, err := multi.New(ctx, params...)
 	if err != nil {
 		return nil, err
 	}
 
-	result := &BeaconChain{
+	return &BeaconChain{
 		service: service,
 		timeout: timeout,
-	}
-
-	return result, nil
+	}, nil
 }
 
 func (beacon *BeaconChain) Service() eth2client.Service {
@@ -229,4 +265,3 @@ func (beacon *BeaconChain) GetCommitteeLengths(ctx context.Context, epoch phase0
 	}
 	return result, nil
 }
-

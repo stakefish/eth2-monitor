@@ -44,7 +44,7 @@ func TestGetBlock_FixtureCanonicalAndMissed(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	bc, err := New(ctx, server.URL, 10*time.Second, nil)
+	bc, err := New(ctx, []string{server.URL}, 10*time.Second, nil)
 	if err != nil {
 		t.Fatalf("New(fixtureServer): %v", err)
 	}
@@ -85,7 +85,7 @@ func TestGetBlock_FixtureCanonicalAndMissed(t *testing.T) {
 // returns 404 ("block not found N") when slot N is missed. Production
 // must walk forward through the epoch's slots until a canonical slot
 // resolves; otherwise the orchestrator panics at each epoch whose first
-// slot was missed (see staging incident 2026-05-13). The validator set
+// slot was missed. The validator set
 // is stable within an epoch, so any canonical slot answers the same
 // question.
 func TestGetValidatorIndexes_ProbeForwardOnMissedFirstSlot(t *testing.T) {
@@ -142,7 +142,7 @@ func TestGetValidatorIndexes_ProbeForwardOnMissedFirstSlot(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	bc, err := New(ctx, server.URL, 10*time.Second, nil)
+	bc, err := New(ctx, []string{server.URL}, 10*time.Second, nil)
 	if err != nil {
 		t.Fatalf("New(fixtureServer): %v", err)
 	}
