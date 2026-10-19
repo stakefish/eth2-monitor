@@ -473,9 +473,7 @@ func TestSubscribeWithRetry_RetriesOnTransientErrorAndIncrementsCounter(t *testi
 		time.Sleep(2 * time.Millisecond)
 	}
 	if got := atomic.LoadInt32(&attempts); got < 2 {
-		cancel()
-		<-done
-		t.Fatalf("subscribeWithRetry did not retry; Events called %d times, want >= 2", got)
+		t.Errorf("subscribeWithRetry did not retry; Events called %d times, want >= 2", got)
 	}
 
 	cancel()
