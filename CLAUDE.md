@@ -6,9 +6,9 @@ Ethereum 2.0 validator performance monitor built by stakefish. Tracks attestatio
 
 ## Tech Stack
 
-- **Language:** Go 1.25 (go.mod: 1.25.10; `.tool-versions`: 1.25.10; CI: `'1.25'` in `golangci-lint.yml`, `1.25.x` in `main.yml`)
+- **Language:** Go 1.26 (go.mod: 1.26.9; `.tool-versions`: 1.26.9; CI: `'1.26.9'` in `golangci-lint.yml`, `1.26.x` in `main.yml`)
 - **CLI Framework:** Cobra (`github.com/spf13/cobra`)
-- **Beacon Chain Client:** `github.com/attestantio/go-eth2-client` v0.28.1 — redirected via `replace` directive in `go.mod` to `github.com/stakefish/go-eth2-client@feat/erigon-caplin-support` (commit `781f0c7f`) for native Caplin JSON tolerance. Imports stay as `github.com/attestantio/go-eth2-client/...`; the fork keeps the upstream module path. Revert by dropping the replace directive when upstream absorbs the fix.
+- **Beacon Chain Client:** `github.com/attestantio/go-eth2-client` v0.30.1 (upstream). The earlier `replace` to the stakefish fork for native Caplin JSON tolerance is gone since upstream absorbed the fix; `internal/beaconchain/caplin_parse_test.go` guards it.
 - **Logging:** zerolog (`github.com/rs/zerolog`)
 - **Metrics:** Prometheus (`github.com/prometheus/client_golang`)
 - **Error Wrapping:** `github.com/pkg/errors`
@@ -31,7 +31,7 @@ internal/
   beaconchain/
     service.go                          -- BeaconChain wrapper around go-eth2-client (HTTP); builds the metrics-instrumented http.Client via newInstrumentedHTTPClient
     metrics.go                          -- Beacon API request CounterVec/HistogramVec instrumentation; defines instrumentingTransport
-    caplin_parse_test.go                -- json.Unmarshal block_canonical.json into electra.SignedBeaconBlock (regression guard that the forked go-eth2-client still tolerates Caplin's bare-number JSON natively)
+    caplin_parse_test.go                -- json.Unmarshal block_canonical.json into electra.SignedBeaconBlock (regression guard that go-eth2-client tolerates Caplin's bare-number JSON natively)
     service_fixture_test.go             -- Offline GetBlock canonical+missed via fixtureServer (no live endpoint)
     metrics_e2e_test.go                 -- Live-fire metric-detection coverage for the 7 monitor endpoints (build tag: `e2e`)
     service_e2e_test.go                 -- Live-fire tests covering each BeaconChain wrapper method (GetValidatorIndexes, GetBlock, GetProposerDuties, GetAttesterDuties, GetCommitteeLengths) against the staging endpoint (build tag: `e2e`)
@@ -97,7 +97,7 @@ Dockerfile           -- Multi-stage: golang:alpine builder -> alpine runtime, no
 Makefile             -- Targets: `build` (default), `lint`, `test` (= `go test -cover ./...`), `test-e2e` (build tag `e2e` against ./internal/beaconchain/... + ./internal/monitoring/...), `refresh-fixtures` (loop every scenario), `refresh-scenario SCENARIO=<name>` (single scenario); output: bin/eth2-monitor with git version ldflags
 tools/
   fixturegen/        -- `go run ./tools/fixturegen --scenario=<name> [--chain=<name>]` captures one scenario at a time. Subscribes to /eth/v1/events?topics=head on $BEACON_CHAIN_API and tails new heads waiting for one whose block matches the scenario predicate (empty / delayed att / cross-epoch att / slot gap); EVERY block fetched during the wait is recorded as block_<slot>.json so each scenario directory ends up densely populated with real beacon JSON, not just one anchor block. Output path: internal/beaconchain/testdata/beacon/<chain>/<scenario>/ (default chain: hoodi). See top-of-file doc comment for the scenario list. MEV relay capture (`--scenario=mev`: bid-trace page + validator_registration per relay, meta.json) lives in `mev.go`; everything else in `main.go`.
-.tool-versions       -- Go version pinning (golang 1.25.10)
+.tool-versions       -- Go version pinning (golang 1.26.9)
 .github/workflows/   -- GitHub Actions CI: `main.yml` (test + multi-arch build + Docker publish on tag), `golangci-lint.yml` (lint + coverage on PR)
 .gitlab-ci.yml       -- Legacy GitLab CI config
 ```
@@ -272,7 +272,7 @@ Most monitoring/beaconchain tests are now fixture-backed integration tests (see 
 
 ## CI
 
-- **Linting:** golangci-lint `v2.12.2` (pinned in `golangci-lint.yml:27`) via `golangci/golangci-lint-action@v8`, runs on PRs
+- **Linting:** golangci-lint `v2.15.0` (pinned in `golangci-lint.yml:27`) via `golangci/golangci-lint-action@v8`, runs on PRs
 - **Coverage:** `coverage` job in `golangci-lint.yml` runs `go test -cover ./...` on PRs; per-package coverage prints to the job log (no artifact, no third-party service). The `e2e`-tagged tests are excluded — they need a beacon endpoint that CI doesn't have.
 - **Tests:** `test` job in `main.yml` runs `go test ./...`; `build` depends on it so a failing test blocks the release
 - **Build:** Multi-arch (amd64 + arm64; linux/darwin/freebsd/windows) via `main.yml`, runs on push/PR
@@ -285,7 +285,7 @@ Most monitoring/beaconchain tests are now fixture-backed integration tests (see 
 - **Caplin returns 404 on slot-ID state queries for missed slots** -- `/eth/v1/beacon/states/{slot}/validators` 404s with `block not found N` when slot N was missed; Caplin resolves a slot state_id by walking to the block AT that slot. `GetValidatorIndexes` walks forward through the epoch's slots (validator set is stable within an epoch) until one resolves, capping at the epoch's last slot. The e2e test (`get_validator_indexes_roundtrip`) and the fixture-backed regression test (`TestGetValidatorIndexes_ProbeForwardOnMissedFirstSlot`) both lock this in. Found via staging crash 2026-05-13: epoch 94898's first slot (3036736) was missed and the monitor panicked at `Must(BuildEpochContext)` before the fix.
 - **Slashed validators silently excluded from monitoring** -- `GetValidatorIndexes` filters via `IsAttesting()`, which is false for `active_slashed` *and* for any post-exit state. Once a key is slashed it never reappears in duties or reports (slashed and exited are both filtered) -- surprising during incident response when "where is validator X?" has no log line.
 - **Attestation dedup requires consecutive epoch processing** -- `processAttestations` keys `seenAttestations` on `(validator, slot)` and the cross-epoch lookahead window assumes E and E+1 are processed in order. Skipping an epoch (SSE jump, replay-epoch gap) produces false missed-attestation reports.
-- **`vendor/` is not in git** -- `.gitignore` has `/vendor/` and the directory is genuinely untracked (`git ls-files vendor/` is empty). After a fresh clone vendor/ is absent; `go build` falls back to the module cache. Run `go mod vendor` only if you want a vendored local build. Older docs/comments that imply vendor/ is checked in are stale.
+- **`vendor/` is not in git** -- `.gitignore` has `/vendor/` and the directory is genuinely untracked (`git ls-files vendor/` is empty). After a fresh clone vendor/ is absent; `go build` falls back to the module cache. Run `go mod vendor` only if you want a vendored local build. Older docs/comments that imply vendor/ is checked in are stale. Since go-eth2-client v0.30 a vendored build fails to link: `go mod vendor` drops `pk910/hashtree-bindings`' prebuilt `lib/<os_arch>/libhashtree.a`, so delete `vendor/` or build with `-mod=mod` (CI and the Dockerfile use the module cache and are unaffected).
 - **Attestation tracking is memory-sensitive** -- was reworked 3 times to fix OOM (PR #20); be careful adding per-validator state
 - **Prometheus counter names must be unique** -- duplicate registration panics at startup (happened with `total_canonical_attestations_counter` in PR #26)
 - **CounterVec children must be pre-warmed** -- `prometheus.CounterVec` emits NO time series for label-value combos that have never been touched by `WithLabelValues(...)`. With the per-validator labels (`validator_index`, `pubkey`), a healthy cluster with zero missed attestations would scrape with `ETH2_totalMissedAttestations` completely absent, and Grafana renders "No data" for `sum(rate(...))` instead of `0`. `(*MonitorMetrics).PrewarmValidators` is called per epoch (`internal/monitoring/monitoring.go` right after `BuildEpochContext`) to poke `WithLabelValues` on every per-validator counter for every tracked validator, materialising zero-valued children for the scrape. When adding a new per-validator counter, extend `PrewarmValidators` in `internal/monitoring/metrics.go` so the zero-data invariant holds. (The 2 distance histograms intentionally stay label-free — at 10k validators the per-validator histogram cardinality (~680k series) dwarfed the operational value, so they were dropped back to scalar `prometheus.Histogram` which always emit zero-bucketed series on register.)
