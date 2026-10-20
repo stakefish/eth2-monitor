@@ -626,7 +626,7 @@ func TestMonitorCorrectnessAgainstBeaconchaInE2E(t *testing.T) {
 		if !ok {
 			continue
 		}
-		if CheckProposal(block, slot, expected, ecE.BestBids, ecE.MEVEnabled, ecE.ValidatorPubkeyFromIndex, targetEpoch, metrics) {
+		if CheckProposal(block, slot, expected, ecE.MEV, ecE.ValidatorPubkeyFromIndex, targetEpoch, metrics) {
 			delete(ecE.ProposerDuties, slot)
 		}
 	}

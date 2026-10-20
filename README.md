@@ -86,21 +86,57 @@ You can forward notification to Slack using `--slack-url`.
 ### Monitor Vanila Blocks ###
 
 Optionally, if passed the `eth2-monitor monitor --mev-relays <FILE_PATH>.json [...]` option, eth2-monitor will
-inquire given MEV relays after every epoch and if there were any proposals in that epoch, compare proposed
-blocks against what MEV relays produced.  If it determines there was a missed opportunity in block rewards,
-the `totalVanillaBlocks` Prometheus counter will be incremeneted and a log message produced.
+inquire given MEV relays after every epoch and, for every tracked proposal in that epoch, check whether a relay
+delivered the payload that ended up on chain:
 
-Format of the JSON file is as follows:
+* no relay delivered a payload for the slot and the execution `extra_data` is an EL client default (geth, Nethermind,
+  besu, reth, erigon, nimbus, ethrex) or empty: the block was built locally (**vanilla**). `totalVanillaBlocks` is
+  incremented, the `lastVanillaBlock*` gauges are set, and a Slack report is sent carrying the block's graffiti,
+  `extra_data` and fee recipient, plus the fee recipient the validator registered with the relays
+  (`/relay/v1/data/validator_registration`, looked up only for these blocks). The report flags two misconfigurations:
+  a validator that is not registered with any configured relay (mev-boost registration broken) and a block fee
+  recipient that differs from the registered one (local EL fee recipient wrong). For SSV validators the graffiti names
+  the leader operator's node. A vanilla block is reported even when a relay failed that epoch; the report then says
+  the sweep was incomplete.
+  Client-default `extra_data` is a strong but not absolute signal: relayscan.io shows roughly 0.01 % of
+  relay-delivered blocks (4 of ~46 000 in the week to 2026-10-07, all zero-profit self-submissions) with empty or
+  stock-client `extra_data`. Those are classified by the relay trace, so one can only reach this report if its relay
+  is missing from the list or its data API failed for that slot.
+* no relay delivered a payload but `extra_data` carries a builder tag: a builder made the block. If every relay
+  answered, `totalRelayAbsentBuilderBlocks` is incremented and a Slack report says the relay is missing from the list
+  (or the proposer dealt with the builder directly). If a relay failed, the failed relay most likely delivered it; only
+  `totalMissingBidTraces` is incremented.
+* a relay delivered a payload whose hash differs from the chain: reported as vanilla and also counted in
+  `totalRelayHashMismatches`, so the two vanilla sub-cases can be told apart on a dashboard.
+
+Before either relay-absent verdict the monitor re-asks every relay for that exact slot
+(`proposer_payload_delivered?slot=N`): relay data APIs expose a delivery only 4-10 seconds after slot start and
+the epoch sweep runs seconds after the epoch ends, so a trace found on the second look routes the block through
+the normal hash comparison instead. Registrations are read from every relay; a block paying any recipient a relay
+holds for the key counts as correctly configured, and "not registered" requires every relay to answer 400/404.
+
+Relay absence alone is only an upper bound for local building (a 2025 study found most never-relayed proposers had
+dealt with builders once payment and fee-recipient evidence was added), which is why the `extra_data` and
+registration cross-checks decide. Alert on `increase(ETH2_totalMissingBidTraces[1h]) > 0` to know when a relay
+outage left slots unclassified.
+
+**The relay list should contain every relay your validators' mev-boost is configured with.** A block delivered by a
+relay that is not in the file is reported as a relay-absent builder block rather than vanilla. Copy the list from the
+mev-boost configuration.
+
+Format of the JSON file is as follows (public mainnet relays; verify each public key against the relay's homepage and
+keep the list identical to the relays your validators' mev-boost is configured with, including any duplicate hostnames
+per relay key):
 ```json
 [
-    "https://0x8b5d2e73e2a3a55c6c87b8b6eb92e0149a125c852751db1422fa951e42a09b82c142c3ea98d0d9930b056a3bc9896b8f@bloxroute.max-profit.blxrbdn.com",
-    "https://0x98650451ba02064f7b000f5768cf0cf4d4e492317d82871bdc87ef841a0743f69f0f1eea11168503240ac35d101c9135@mainnet-relay.securerpc.com",
-    "https://0xa1559ace749633b997cb3fdacffb890aeebdb0f5a3b6aaa7eeeaf1a38af0a8fe88b9e4b1f61f236d2e64d95733327a62@relay.ultrasound.money",
-    "https://0xa15b52576bcbf1072f4a011c0f99f9fb6c66f3e1ff321f11f461d15e31b1cb359caa092c71bbded0bae5b5ea401aab7e@aestus.live",
-    "https://0xa7ab7a996c8584251c8f925da3170bdfd6ebc75d50f5ddc4050a6fdc77f2a3b5fce2cc750d0865e05d7228af97d69561@agnostic-relay.net",
+    "https://0x8c4ed5e24fe5c6ae21018437bde147693f68cda427cd1122cf20819c30eda7ed74f72dece09bb313f2a1855595ab677d@regional.titanrelay.xyz",
     "https://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@boost-relay.flashbots.net",
-    "https://0xb0b07cd0abef743db4260b0ed50619cf6ad4d82064cb4fbec9d3ec530f7c5e6793d9f286c4e082c0244ffb9f2658fe88@bloxroute.regulated.blxrbdn.com",
-    "https://0xb3ee7afcf27f1f1259ac1787876318c6584ee353097a50ed84f51a1f21a323b3736f271a895c7ce918c038e4265918be@relay.edennetwork.io"
+    "https://0xa1559ace749633b997cb3fdacffb890aeebdb0f5a3b6aaa7eeeaf1a38af0a8fe88b9e4b1f61f236d2e64d95733327a62@relay-filtered.ultrasound.money",
+    "https://0xa7ab7a996c8584251c8f925da3170bdfd6ebc75d50f5ddc4050a6fdc77f2a3b5fce2cc750d0865e05d7228af97d69561@agnostic-relay.net",
+    "https://0xa15b52576bcbf1072f4a011c0f99f9fb6c66f3e1ff321f11f461d15e31b1cb359caa092c71bbded0bae5b5ea401aab7e@aestus.live",
+    "https://0x8c4ed5e24fe5c6ae21018437bde147693f68cda427cd1122cf20819c30eda7ed74f72dece09bb313f2a1855595ab677d@global.titanrelay.xyz",
+    "https://0xa1559ace749633b997cb3fdacffb890aeebdb0f5a3b6aaa7eeeaf1a38af0a8fe88b9e4b1f61f236d2e64d95733327a62@relay.ultrasound.money",
+    "https://0xb0b07cd0abef743db4260b0ed50619cf6ad4d82064cb4fbec9d3ec530f7c5e6793d9f286c4e082c0244ffb9f2658fe88@bloxroute.regulated.blxrbdn.com"
 ]
 ```
 

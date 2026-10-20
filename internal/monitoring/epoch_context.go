@@ -42,8 +42,33 @@ type EpochContext struct {
 	CommitteeLookup          map[phase0.Slot]map[phase0.CommitteeIndex]*CommitteeInfo
 	ProposerDuties           map[phase0.Slot]phase0.ValidatorIndex
 	Blocks                   map[phase0.Slot]*electra.SignedBeaconBlock
-	BestBids                 map[phase0.Slot]BidTrace
-	MEVEnabled               bool
+	MEV                      MEVContext
+}
+
+// MEVContext is the per-epoch relay state CheckProposal classifies
+// proposals against. Zero value = MEV monitoring disabled.
+type MEVContext struct {
+	Enabled bool
+	// RelaysComplete is true when every configured relay answered with
+	// traces for the epoch, i.e. the absence of a bid for a tracked slot
+	// means no relay delivered a payload rather than a relay-side gap.
+	RelaysComplete bool
+	// BestBids holds, per tracked duty slot, the highest-value delivered
+	// trace across relays.
+	BestBids map[phase0.Slot]BidTrace
+	// Registrations holds the relay-side mev-boost registration of each
+	// validator whose proposal is a vanilla candidate (looked up lazily by
+	// resolveRelayAbsent). A missing entry reads as RegistrationUnknown.
+	Registrations map[phase0.ValidatorIndex]Registration
+}
+
+// trace returns the best relay-delivered trace for slot, nil when no
+// configured relay reported one.
+func (c MEVContext) trace(slot phase0.Slot) *BidTrace {
+	if t, ok := c.BestBids[slot]; ok {
+		return &t
+	}
+	return nil
 }
 
 // BuildEpochContext fetches all per-epoch state in the same order as the
@@ -149,14 +174,18 @@ func BuildEpochContext(
 
 	mevEnabled := len(mevRelays) > 0
 	var bestBids map[phase0.Slot]BidTrace
+	relaysComplete := false
 	if mevEnabled {
 		Measure(func() {
 			var err error
 			bestBids, err = ListBestBids(ctx, 4*time.Second, mevRelays, epoch, validatorPubkeyFromIndex, proposerDuties)
 			if err != nil {
-				// Soft error: partial results in bestBids are still usable.
+				// Soft error: partial results in bestBids are still usable,
+				// but a missing bid can no longer be read as "no relay
+				// delivered a payload" (see MEVContext.RelaysComplete).
 				log.Error().Stack().Err(err).Msg("failed to fetch MEV bid traces")
 			}
+			relaysComplete = err == nil
 		}, "ListBestBids(epoch=%v)", epoch)
 		log.Debug().Uint64("epoch", uint64(epoch)).Int("count", len(bestBids)).Msg("MEV bid traces fetched")
 	}
@@ -172,6 +201,19 @@ func BuildEpochContext(
 		return nil, errors.Wrap(blocksErr, "ListEpochBlocks")
 	}
 
+	// Settle the relay-absent tracked proposals: re-ask every relay per
+	// slot (data APIs expose a payload 4-10 s after slot start and the
+	// cursor-paged sweep can skip a row), then fetch the mev-boost
+	// registration for the ones still classified vanilla. Runs even when
+	// the sweep was incomplete, because those candidates are still reported.
+	var registrations map[phase0.ValidatorIndex]Registration
+	if mevEnabled {
+		relayClient := relayClient{relays: mevRelays, timeout: 4 * time.Second}
+		Measure(func() {
+			registrations = relayClient.resolveRelayAbsent(ctx, proposerDuties, blocks, bestBids, validatorPubkeyFromIndex, relaysComplete)
+		}, "ResolveRelayAbsent(epoch=%v)", epoch)
+	}
+
 	return &EpochContext{
 		Epoch:                    epoch,
 		ValidatorPubkeyFromIndex: validatorPubkeyFromIndex,
@@ -179,8 +221,12 @@ func BuildEpochContext(
 		CommitteeLookup:          committeeLookup,
 		ProposerDuties:           proposerDuties,
 		Blocks:                   blocks,
-		BestBids:                 bestBids,
-		MEVEnabled:               mevEnabled,
+		MEV: MEVContext{
+			Enabled:        mevEnabled,
+			RelaysComplete: relaysComplete,
+			BestBids:       bestBids,
+			Registrations:  registrations,
+		},
 	}, nil
 }
 

@@ -24,6 +24,8 @@ type MonitorMetrics struct {
 	TotalProposedEmptyBlocks      prometheus.Counter
 	TotalVanillaBlocks            prometheus.Counter
 	TotalMissingBidTraces         prometheus.Counter
+	TotalRelayAbsentBuilderBlocks prometheus.Counter
+	TotalRelayHashMismatches      prometheus.Counter
 	LastProposedEmptyBlockSlot    prometheus.Gauge
 	LastMissedProposalSlot        prometheus.Gauge
 	LastMissedProposalValidator   prometheus.Gauge
@@ -78,6 +80,13 @@ func (m *MonitorMetrics) BeaconRequestMetrics() *beaconchain.RequestMetrics {
 // that newly enter the tracked set (cache TTL expiry, key rotation) get
 // pre-warmed too. Future contributors adding new per-validator metrics
 // should extend this list to keep the dashboard zero-data invariant.
+// vanillaBlock records a tracked proposal that was built locally.
+func (m *MonitorMetrics) vanillaBlock(slot phase0.Slot, validator phase0.ValidatorIndex) {
+	m.TotalVanillaBlocks.Inc()
+	m.LastVanillaBlockSlot.Set(float64(slot))
+	m.LastVanillaBlockValidator.Set(float64(validator))
+}
+
 func (m *MonitorMetrics) PrewarmValidators(pubkeysByIndex map[phase0.ValidatorIndex]string) {
 	for idx := range pubkeysByIndex {
 		idxLbl, pkLbl := validatorLabels(idx, pubkeysByIndex)
@@ -145,12 +154,22 @@ func NewMonitorMetrics(reg prometheus.Registerer) *MonitorMetrics {
 		TotalVanillaBlocks: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "ETH2",
 			Name:      "totalVanillaBlocks",
-			Help:      "Proposed blocks whose execution_block_hash did not match any tracked MEV relay bid (hash-mismatch case only; see totalMissingBidTraces for the no-bid case)",
+			Help:      "Tracked proposals built locally: every configured relay answered for the epoch, none delivered a payload for the slot and extra_data carries no builder tag; or a relay-delivered block hash differs from the chain (see totalMissingBidTraces and totalRelayAbsentBuilderBlocks for the other outcomes)",
 		}),
 		TotalMissingBidTraces: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "ETH2",
 			Name:      "totalMissingBidTraces",
-			Help:      "Proposed blocks for which no MEV bid trace was found across configured relays — could be a truly vanilla block (validator built locally) or a relay-side failure",
+			Help:      "Tracked proposals with no MEV bid trace while the relay sweep was incomplete (a relay failed or returned nothing for the epoch); cannot be classified as vanilla or MEV",
+		}),
+		TotalRelayAbsentBuilderBlocks: prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: "ETH2",
+			Name:      "totalRelayAbsentBuilderBlocks",
+			Help:      "Tracked proposals no configured relay delivered but whose execution extra_data carries a builder tag: a relay missing from --mev-relays or a direct builder deal, not a vanilla block",
+		}),
+		TotalRelayHashMismatches: prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: "ETH2",
+			Name:      "totalRelayHashMismatches",
+			Help:      "Tracked proposals where a relay says it delivered a payload but the chain carries a different block hash; also counted in totalVanillaBlocks, this counter isolates the sub-case",
 		}),
 		LastVanillaBlockSlot: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: "ETH2",
@@ -253,6 +272,8 @@ func NewMonitorMetrics(reg prometheus.Registerer) *MonitorMetrics {
 		m.TotalProposedEmptyBlocks,
 		m.TotalVanillaBlocks,
 		m.TotalMissingBidTraces,
+		m.TotalRelayAbsentBuilderBlocks,
+		m.TotalRelayHashMismatches,
 		m.LastVanillaBlockSlot,
 		m.LastVanillaBlockValidator,
 		m.TotalCanonicalAttestations,

@@ -30,6 +30,7 @@ import (
 
 	"github.com/stakefish/eth2-monitor/internal/spec"
 
+	"github.com/attestantio/go-eth2-client/spec/electra"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 )
 
@@ -59,12 +60,49 @@ type fakeRelay struct {
 	traces   []BidTrace // sorted ascending by Slot; handler returns matching descending slice
 	pageSize uint64
 	calls    int32
+	// registrations maps a lower-cased 0x pubkey to the JSON body served
+	// by /relay/v1/data/validator_registration; unknown pubkeys get the
+	// relay-spec HTTP 400 "no registration found". regCalls counts
+	// registration requests so tests can assert the lookup is lazy.
+	registrations map[string][]byte
+	regCalls      int32
+	// lateTraces are served only by the per-slot query (?slot=N), never by
+	// the cursor-paged epoch sweep: they model a delivery the relay wrote
+	// to its data API after the sweep ran (measured lag: 4-10 s after
+	// slot start). slotCalls counts per-slot queries.
+	lateTraces []BidTrace
+	slotCalls  int32
 }
 
 func newFakeRelay(t *testing.T, traces []BidTrace, pageSize uint64) *fakeRelay {
 	t.Helper()
 	r := &fakeRelay{traces: traces, pageSize: pageSize}
 	r.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.URL.Path == "/relay/v1/data/validator_registration" {
+			atomic.AddInt32(&r.regCalls, 1)
+			body, ok := r.registrations[strings.ToLower(req.URL.Query().Get("pubkey"))]
+			if !ok {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"code":400,"message":"no registration found"}`))
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(body)
+			return
+		}
+		if q := req.URL.Query().Get("slot"); q != "" {
+			atomic.AddInt32(&r.slotCalls, 1)
+			slot, _ := strconv.ParseUint(q, 10, 64)
+			out := []BidTrace{}
+			for _, tr := range append(append([]BidTrace{}, r.traces...), r.lateTraces...) {
+				if tr.Slot == slot {
+					out = append(out, tr)
+				}
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(out)
+			return
+		}
 		atomic.AddInt32(&r.calls, 1)
 		cursor, _ := strconv.ParseUint(req.URL.Query().Get("cursor"), 10, 64)
 		var out []BidTrace
@@ -342,5 +380,266 @@ func TestRequestBidTracesPage_CtxCancelReturnsPromptly(t *testing.T) {
 	}
 	if elapsed > 2*time.Second {
 		t.Errorf("ctx-cancel took %v; expected near 50ms — request must observe ctx, not just client.Timeout", elapsed)
+	}
+}
+
+// loadMEVRegistration parses the captured validator_registration fixture
+// (written by fixturegen next to the bid-trace page, for the proposer of
+// that page's first trace). Returns the raw body plus the decoded pubkey
+// and fee recipient so tests can key the fake relay and assert on the
+// real wire values.
+func loadMEVRegistration(t *testing.T, relay string) (body []byte, pubkey, feeRecipient string) {
+	t.Helper()
+	var err error
+	if body, err = monitoringFixtures.ReadFile("testdata/mev/" + relay + "_registration.json"); err != nil {
+		t.Fatalf("read MEV registration fixture %s: %v (run `make refresh-scenario SCENARIO=mev`)", relay, err)
+	}
+	var reg struct {
+		Message struct {
+			FeeRecipient string `json:"fee_recipient"`
+			Pubkey       string `json:"pubkey"`
+		} `json:"message"`
+	}
+	if err := json.Unmarshal(body, &reg); err != nil {
+		t.Fatalf("decode %s_registration.json: %v", relay, err)
+	}
+	if reg.Message.Pubkey == "" || reg.Message.FeeRecipient == "" {
+		t.Fatalf("%s_registration.json lacks pubkey/fee_recipient — refresh fixtures", relay)
+	}
+	return body, reg.Message.Pubkey, reg.Message.FeeRecipient
+}
+
+// TestLookupRegistration_RegisteredFromFixture — the headline wire-format
+// test: the captured flashbots registration served by a fake relay must
+// resolve to Registered with the fixture's fee recipient.
+func TestLookupRegistration_RegisteredFromFixture(t *testing.T) {
+	body, pubkey, feeRecipient := loadMEVRegistration(t, "flashbots")
+	relay := newFakeRelay(t, nil, spec.SLOTS_PER_EPOCH)
+	relay.registrations = map[string][]byte{strings.ToLower(pubkey): body}
+
+	got := (relayClient{relays: []string{relay.server.URL}, timeout: 5 * time.Second}).LookupRegistration(context.Background(), pubkey)
+	if got.Status != RegistrationRegistered {
+		t.Fatalf("status = %v, want Registered", got.Status)
+	}
+	if !strings.EqualFold(got.newest(), feeRecipient) {
+		t.Errorf("fee recipient = %s, want %s (fixture)", got.newest(), feeRecipient)
+	}
+}
+
+// TestLookupRegistration_NotFoundWhenEveryRelay400s — a validator no
+// configured relay knows (mev-boost never registered it) is NotFound,
+// which CheckProposal reports as a broken registration path.
+func TestLookupRegistration_NotFoundWhenEveryRelay400s(t *testing.T) {
+	r1 := newFakeRelay(t, nil, spec.SLOTS_PER_EPOCH)
+	r2 := newFakeRelay(t, nil, spec.SLOTS_PER_EPOCH)
+	got := (relayClient{relays: []string{r1.server.URL, r2.server.URL}, timeout: 5 * time.Second}).LookupRegistration(context.Background(), "0x"+strings.Repeat("ab", 48))
+	if got.Status != RegistrationNotFound {
+		t.Errorf("status = %v, want NotFound when every relay answers 400", got.Status)
+	}
+}
+
+// TestLookupRegistration_UnknownOnRelayError — a transport/5xx failure
+// with no successful relay must NOT be read as "not registered".
+func TestLookupRegistration_UnknownOnRelayError(t *testing.T) {
+	broken := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	t.Cleanup(broken.Close)
+	notFound := newFakeRelay(t, nil, spec.SLOTS_PER_EPOCH)
+	got := (relayClient{relays: []string{notFound.server.URL, broken.URL}, timeout: 2 * time.Second}).LookupRegistration(context.Background(), "0x"+strings.Repeat("ab", 48))
+	if got.Status != RegistrationUnknown {
+		t.Errorf("status = %v, want Unknown when a relay errored and none succeeded", got.Status)
+	}
+}
+
+// registrationBody rewrites the captured registration's fee recipient and
+// timestamp so tests can model relays holding different registrations
+// for the same key (mev-boost registers with each relay separately, and
+// a relay can hold a stale one).
+func registrationBody(t *testing.T, feeRecipient string, timestamp uint64) (body []byte, pubkey string) {
+	t.Helper()
+	raw, pubkey, _ := loadMEVRegistration(t, "flashbots")
+	var reg map[string]any
+	if err := json.Unmarshal(raw, &reg); err != nil {
+		t.Fatalf("decode registration fixture: %v", err)
+	}
+	msg := reg["message"].(map[string]any)
+	msg["fee_recipient"] = feeRecipient
+	msg["timestamp"] = strconv.FormatUint(timestamp, 10)
+	body, err := json.Marshal(reg)
+	if err != nil {
+		t.Fatalf("encode registration: %v", err)
+	}
+	return body, pubkey
+}
+
+// TestLookupRegistration_QueriesEveryRelay — every relay is asked (a
+// 400 from the first must not stop the sweep); all distinct registered
+// fee recipients are kept and the newest registration names FeeRecipient.
+func TestLookupRegistration_QueriesEveryRelay(t *testing.T) {
+	oldBody, pubkey := registrationBody(t, "0x"+strings.Repeat("aa", 20), 100)
+	newBody, _ := registrationBody(t, "0x"+strings.Repeat("bb", 20), 200)
+	without := newFakeRelay(t, nil, spec.SLOTS_PER_EPOCH)
+	old := newFakeRelay(t, nil, spec.SLOTS_PER_EPOCH)
+	old.registrations = map[string][]byte{strings.ToLower(pubkey): oldBody}
+	newer := newFakeRelay(t, nil, spec.SLOTS_PER_EPOCH)
+	newer.registrations = map[string][]byte{strings.ToLower(pubkey): newBody}
+
+	got := (relayClient{relays: []string{without.server.URL, old.server.URL, newer.server.URL}, timeout: 5 * time.Second}).LookupRegistration(context.Background(), pubkey)
+	if got.Status != RegistrationRegistered {
+		t.Fatalf("status = %v, want Registered", got.Status)
+	}
+	if !strings.EqualFold(got.newest(), "0x"+strings.Repeat("bb", 20)) {
+		t.Errorf("FeeRecipient = %s, want the newest registration's (bb…)", got.newest())
+	}
+	if len(got.FeeRecipients) != 2 {
+		t.Errorf("FeeRecipients = %v, want both distinct registered recipients", got.FeeRecipients)
+	}
+	for _, r := range []*fakeRelay{without, old, newer} {
+		if n := atomic.LoadInt32(&r.regCalls); n != 1 {
+			t.Errorf("relay registration calls = %d, want 1 (every relay queried once)", n)
+		}
+	}
+}
+
+// TestLookupRegistration_RateLimitIsUnknown — a 429 (or any 4xx other
+// than 400/404) is not "no registration"; claiming the validator is
+// unregistered on a rate limit would be a false alert.
+func TestLookupRegistration_RateLimitIsUnknown(t *testing.T) {
+	limited := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	t.Cleanup(limited.Close)
+	got := (relayClient{relays: []string{limited.URL, limited.URL}, timeout: 2 * time.Second}).LookupRegistration(context.Background(), "0x"+strings.Repeat("ab", 48))
+	if got.Status != RegistrationUnknown {
+		t.Errorf("status = %v, want Unknown on 429 from every relay", got.Status)
+	}
+}
+
+// TestConfirmRelayAbsent_FindsLateTrace — a delivery missing from the
+// epoch sweep (late data-API write or pagination gap) is found by the
+// per-slot query, with the trace's block hash intact for the hash compare.
+func TestConfirmRelayAbsent_FindsLateTrace(t *testing.T) {
+	traces := loadMEVTraces(t, "flashbots")
+	if len(traces) == 0 {
+		t.Skip("captured MEV fixture is empty")
+	}
+	pick := traces[0]
+	relay := newFakeRelay(t, nil, spec.SLOTS_PER_EPOCH) // epoch sweep sees nothing
+	relay.lateTraces = []BidTrace{pick}
+
+	trace, found := (relayClient{relays: []string{relay.server.URL}, timeout: 5 * time.Second}).confirmRelayAbsent(context.Background(), phase0.Slot(pick.Slot), strings.TrimPrefix(pick.ProposerPubkey, "0x"))
+	if !found {
+		t.Fatal("late trace not found by the per-slot confirmation")
+	}
+	if trace.BlockHash != pick.BlockHash {
+		t.Errorf("block hash = %s, want %s", trace.BlockHash, pick.BlockHash)
+	}
+	if n := atomic.LoadInt32(&relay.slotCalls); n != 1 {
+		t.Errorf("per-slot calls = %d, want 1", n)
+	}
+}
+
+// TestConfirmRelayAbsent_IgnoresOtherProposer — a trace for the slot by a
+// different proposer (equivocation or relay noise) must not count.
+func TestConfirmRelayAbsent_IgnoresOtherProposer(t *testing.T) {
+	traces := loadMEVTraces(t, "flashbots")
+	if len(traces) == 0 {
+		t.Skip("captured MEV fixture is empty")
+	}
+	pick := traces[0]
+	relay := newFakeRelay(t, nil, spec.SLOTS_PER_EPOCH)
+	relay.lateTraces = []BidTrace{pick}
+
+	if _, found := (relayClient{relays: []string{relay.server.URL}, timeout: 5 * time.Second}).confirmRelayAbsent(context.Background(), phase0.Slot(pick.Slot), strings.Repeat("ab", 48)); found {
+		t.Error("trace by another proposer was accepted as ours")
+	}
+	none := newFakeRelay(t, nil, spec.SLOTS_PER_EPOCH)
+	if _, found := (relayClient{relays: []string{none.server.URL}, timeout: 5 * time.Second}).confirmRelayAbsent(context.Background(), phase0.Slot(pick.Slot), strings.TrimPrefix(pick.ProposerPubkey, "0x")); found {
+		t.Error("confirmation found a trace on a relay that delivered nothing")
+	}
+}
+
+// TestResolveRelayAbsent_FillsLateBids — the per-epoch pass asks the
+// relays only for relay-absent tracked proposals and inserts a late trace
+// into bestBids so CheckProposal takes the hash-compare path.
+func TestResolveRelayAbsent_FillsLateBids(t *testing.T) {
+	traces := loadMEVTraces(t, "flashbots")
+	if len(traces) == 0 {
+		t.Skip("captured MEV fixture is empty")
+	}
+	late := loadCapturedBlock(t) // tracked, no bid in the sweep, delivered late
+	idxLate := late.Message.ProposerIndex
+	bid := loadCapturedBlock(t) // tracked, bid already known -> no query
+	idxBid := idxLate + 1
+	bid.Message.ProposerIndex = idxBid
+	slotLate, slotBid := phase0.Slot(200), phase0.Slot(201)
+	pubkeyLate := strings.Repeat("aa", 48)
+	lateTrace := traces[0]
+	lateTrace.Slot = uint64(slotLate)
+	lateTrace.ProposerPubkey = "0x" + pubkeyLate
+	lateTrace.BlockHash = late.Message.Body.ExecutionPayload.BlockHash.String()
+	relay := newFakeRelay(t, nil, spec.SLOTS_PER_EPOCH)
+	relay.lateTraces = []BidTrace{lateTrace}
+
+	duties := map[phase0.Slot]phase0.ValidatorIndex{slotLate: idxLate, slotBid: idxBid}
+	blocks := map[phase0.Slot]*electra.SignedBeaconBlock{slotLate: late, slotBid: bid}
+	bids := map[phase0.Slot]BidTrace{slotBid: {Slot: uint64(slotBid), BlockHash: "0xknown"}}
+	pubkeys := map[phase0.ValidatorIndex]string{idxLate: pubkeyLate, idxBid: strings.Repeat("bb", 48)}
+
+	(relayClient{relays: []string{relay.server.URL}, timeout: 5 * time.Second}).resolveRelayAbsent(context.Background(), duties, blocks, bids, pubkeys, true)
+	got, ok := bids[slotLate]
+	if !ok || got.BlockHash != lateTrace.BlockHash {
+		t.Fatalf("bestBids[%d] = %+v, want the late trace inserted", slotLate, got)
+	}
+	if n := atomic.LoadInt32(&relay.slotCalls); n != 1 {
+		t.Errorf("per-slot calls = %d, want 1 (only the relay-absent proposal is confirmed)", n)
+	}
+}
+
+// TestResolveRelayAbsent_LooksUpOnlyVanillaCandidates — registrations are
+// fetched only for tracked duty slots whose block exists, was proposed by
+// the expected validator, has no bid after the per-slot re-check, and
+// carries a client-default extra_data.
+func TestResolveRelayAbsent_LooksUpOnlyVanillaCandidates(t *testing.T) {
+	body, pubkey, feeRecipient := loadMEVRegistration(t, "flashbots")
+	relay := newFakeRelay(t, nil, spec.SLOTS_PER_EPOCH)
+	relay.registrations = map[string][]byte{strings.ToLower(pubkey): body}
+
+	absent := loadCapturedBlock(t) // tracked, no bid -> lookup
+	idxAbsent := absent.Message.ProposerIndex
+	bid := loadCapturedBlock(t) // tracked, has bid -> no lookup
+	idxBid := idxAbsent + 1
+	bid.Message.ProposerIndex = idxBid
+	const idxNoBlock = phase0.ValidatorIndex(999999)  // duty without a block -> no lookup
+	const idxMismatch = phase0.ValidatorIndex(999998) // block proposed by someone else -> no lookup
+	mismatch := loadCapturedBlock(t)
+	builder := loadCapturedBlock(t) // tracked, no bid, but builder-tagged -> never vanilla -> no lookup
+	idxBuilder := idxAbsent + 2
+	builder.Message.ProposerIndex = idxBuilder
+	builder.Message.Body.ExecutionPayload.ExtraData = []byte("BuilderNet")
+
+	slotAbsent, slotBid, slotNoBlock, slotMismatch, slotBuilder := phase0.Slot(100), phase0.Slot(101), phase0.Slot(102), phase0.Slot(103), phase0.Slot(104)
+	duties := map[phase0.Slot]phase0.ValidatorIndex{slotAbsent: idxAbsent, slotBid: idxBid, slotNoBlock: idxNoBlock, slotMismatch: idxMismatch, slotBuilder: idxBuilder}
+	blocks := map[phase0.Slot]*electra.SignedBeaconBlock{slotAbsent: absent, slotBid: bid, slotMismatch: mismatch, slotBuilder: builder}
+	bids := map[phase0.Slot]BidTrace{slotBid: {Slot: uint64(slotBid), BlockHash: "0xdeadbeef"}}
+	pubkeys := map[phase0.ValidatorIndex]string{
+		idxAbsent:   strings.ToLower(strings.TrimPrefix(pubkey, "0x")),
+		idxBid:      strings.Repeat("bb", 48),
+		idxNoBlock:  strings.Repeat("cc", 48),
+		idxMismatch: strings.Repeat("dd", 48),
+		idxBuilder:  strings.Repeat("ee", 48),
+	}
+
+	got := (relayClient{relays: []string{relay.server.URL}, timeout: 5 * time.Second}).resolveRelayAbsent(context.Background(), duties, blocks, bids, pubkeys, true)
+	if len(got) != 1 {
+		t.Fatalf("registrations = %v, want exactly one entry (the relay-absent proposer)", got)
+	}
+	reg, ok := got[idxAbsent]
+	if !ok || reg.Status != RegistrationRegistered || !strings.EqualFold(reg.newest(), feeRecipient) {
+		t.Errorf("registration for relay-absent proposer = %+v, want Registered with %s", reg, feeRecipient)
+	}
+	if n := atomic.LoadInt32(&relay.regCalls); n != 1 {
+		t.Errorf("relay registration calls = %d, want 1 (lazy: only relay-absent tracked proposals)", n)
 	}
 }

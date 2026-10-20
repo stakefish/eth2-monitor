@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
-	"github.com/stakefish/eth2-monitor/internal/spec"
 	"fmt"
+	"github.com/stakefish/eth2-monitor/internal/spec"
 	"net"
 	"net/http"
 	"strings"
@@ -24,7 +24,6 @@ func newInstrumentedHTTPClient(timeout time.Duration, m *RequestMetrics) *http.C
 		DialContext: (&net.Dialer{
 			Timeout:   timeout,
 			KeepAlive: 30 * time.Second,
-			DualStack: true,
 		}).DialContext,
 		MaxIdleConns:        64,
 		MaxConnsPerHost:     64,
@@ -229,4 +228,3 @@ func (beacon *BeaconChain) GetCommitteeLengths(ctx context.Context, epoch phase0
 	}
 	return result, nil
 }
-

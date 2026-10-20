@@ -52,7 +52,7 @@ func TestScenarioHappyPath(t *testing.T) {
 	// TotalCanonicalProposals when the proposer matches the expected
 	// duty for the slot.
 	pubkeys := map[phase0.ValidatorIndex]string{block.Message.ProposerIndex: "tracked"}
-	ok := CheckProposal(block, block.Message.Slot, block.Message.ProposerIndex, nil, false, pubkeys, phase0.Epoch(rig.meta.TestEpoch), rig.metrics)
+	ok := CheckProposal(block, block.Message.Slot, block.Message.ProposerIndex, MEVContext{}, pubkeys, phase0.Epoch(rig.meta.TestEpoch), rig.metrics)
 	if !ok {
 		t.Fatal("CheckProposal returned false for canonical happy-path block")
 	}

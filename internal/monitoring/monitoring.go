@@ -538,7 +538,7 @@ func MonitorAttestationsAndProposals(ctx context.Context, cancel context.CancelF
 			if !ok {
 				continue
 			}
-			if CheckProposal(block, slot, expected, ec.BestBids, ec.MEVEnabled, ec.ValidatorPubkeyFromIndex, epoch, m) {
+			if CheckProposal(block, slot, expected, ec.MEV, ec.ValidatorPubkeyFromIndex, epoch, m) {
 				delete(ec.ProposerDuties, slot)
 			}
 			// On proposer-index mismatch CheckProposal returns false; we
