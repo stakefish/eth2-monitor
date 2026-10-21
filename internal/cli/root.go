@@ -134,7 +134,7 @@ var (
 			runOnce := func(runCtx context.Context) error {
 				return monitoring.RunMonitorPair(runCtx, beacon, plainPubkeys, mevRelays, metrics)
 			}
-			err = monitoring.Supervise(rootCtx, runOnce, monitoring.ExptBackoff(supervisorBackoffBase, supervisorBackoffMaxExponent))
+			err = runMonitorUntilShutdown(rootCtx, runOnce)
 			if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 				log.Error().Err(err).Msg("supervisor exited with error")
 			}
@@ -143,6 +143,18 @@ var (
 
 	version = ""
 )
+
+// runMonitorUntilShutdown preserves replay results on /metrics until shutdown.
+// Interrupted replays and live monitoring still use the supervisor's retry policy.
+func runMonitorUntilShutdown(ctx context.Context, run func(context.Context) error) error {
+	err := monitoring.Supervise(ctx, run, monitoring.ExptBackoff(supervisorBackoffBase, supervisorBackoffMaxExponent))
+	if errors.Is(err, monitoring.ErrReplayComplete) {
+		log.Info().Msg("epoch replay complete; serving metrics until shutdown")
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	return err
+}
 
 // GetVersion returns the semver string of the version
 func GetVersion() string {

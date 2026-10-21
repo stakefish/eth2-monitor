@@ -174,3 +174,22 @@ func TestSupervise_PassesCtxToRun(t *testing.T) {
 		t.Fatalf("runCtx should be cancelled, got %v", err)
 	}
 }
+
+func TestSupervise_StopsOnReplayCompletion(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	runs := 0
+	err := Supervise(ctx, func(context.Context) error {
+		runs++
+		if runs > 1 {
+			cancel()
+		}
+		return ErrReplayComplete
+	}, zeroBackoff())
+	if !errors.Is(err, ErrReplayComplete) {
+		t.Fatalf("result = %v, want replay completion", err)
+	}
+	if runs != 1 {
+		t.Fatalf("run called %d times, want once", runs)
+	}
+}

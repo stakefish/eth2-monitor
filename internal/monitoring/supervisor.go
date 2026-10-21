@@ -2,19 +2,25 @@ package monitoring
 
 import (
 	"context"
+	"errors"
 	"iter"
 	"time"
 
 	"github.com/rs/zerolog/log"
 )
 
-// Supervise drives `run` in a loop until ctx is cancelled. Between
-// iterations it sleeps using the next value drawn from backoff.
+// ErrReplayComplete signals that every explicitly requested epoch was processed.
+// It stops supervision without treating finite replay completion as a failure.
+var ErrReplayComplete = errors.New("epoch replay complete")
+
+// Supervise drives `run` until ctx is cancelled or run returns ErrReplayComplete.
+// Between iterations it sleeps using the next value drawn from backoff.
 //
 // Contract:
 //   - run must honour ctx; when run returns, Supervise checks ctx.Err()
 //     to decide whether the return signalled real shutdown (ctx done)
 //     or an unexpected inner exit (ctx still alive → restart).
+//   - ErrReplayComplete stops retries after a finite replay drains normally.
 //   - Sleeping between restarts is ctx-aware: a parent cancel during
 //     backoff returns promptly rather than waiting out the full delay.
 //
@@ -47,6 +53,9 @@ func Supervise(ctx context.Context, run func(context.Context) error, backoff ite
 
 		if err := ctx.Err(); err != nil {
 			return err
+		}
+		if errors.Is(runErr, ErrReplayComplete) {
+			return runErr
 		}
 
 		attempt++
